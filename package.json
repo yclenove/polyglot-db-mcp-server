@@ -10,6 +10,8 @@
   "files": [
     "dist",
     "README.md",
+    "README_en.md",
+    "CHANGELOG.md",
     "AGENTS.md",
     "LICENSE",
     "MIGRATION.md"
