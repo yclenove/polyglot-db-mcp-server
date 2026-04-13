@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output（CI 与本地 npm run build 生成）
+dist/
+
+# 环境变量与密钥
+.env
+.env.*
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
