@@ -4,7 +4,7 @@
 **版本**: 1.0
 **日期**: 2026-07-09
 **状态**: 当前有效
-**适用范围**: v1.7.x / v1.8.x -> v2.0.0
+**适用范围**: v1.7.x / v1.8.x -> v2.0.x
 **关联文档**: `docs/ADR-002-oauth-rbac.md`, `docs/PRD-v2.0.0.md`, `docs/CONFIG.md`, `docs/ERRORS.md`
 
 ---
@@ -107,6 +107,7 @@ DB_RBAC_DEFAULT_EFFECT=deny
 
 - `agent:report` 可执行 read/diagnose。
 - `agent:report` 不可执行 write/admin/export。
+- `maskingMode` 会在 SQL/Mongo read rows 返回前逐请求生效，且不能弱化全局脱敏配置。
 - 拒绝事件进入 audit。
 
 ### 3.4 Phase D：替换 API key
@@ -245,5 +246,5 @@ v2.0.0 已补齐：
 后续项：
 
 1. 增加更多生产 policy 模板：readonly、Redis operator、admin 分离文件。
-2. 将 `maskingMode` condition 接入逐请求脱敏执行上下文。
+2. `maskingMode` condition 已在 v2.0.1 接入逐请求脱敏执行上下文。
 3. 增加审计持久化 sink，与 v2.2 可观测治理合流。

@@ -224,6 +224,23 @@ describe('MongoDB Tools', () => {
     assert.equal(data.rows.length, 1);
   });
 
+  test('mongo_find applies request policy maskingMode to result rows', async () => {
+    const { runWithRequestPolicy } = await import('../../dist/auth/request-policy.js');
+    mockDriver.find = async () => [{ email: 'mongo@example.com', name: 'Alice' }];
+
+    const tool = server.tools.get('mongo_find');
+    const result = await runWithRequestPolicy({ maskingMode: 'strict-v2' }, () =>
+      tool.handler({
+        collection: 'users',
+        filter_json: '{}',
+      }),
+    );
+
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.rows[0].email, 'm***@example.com');
+    assert.equal(data.rows[0].name, 'Alice');
+  });
+
   test('mongo_find with default filter', async () => {
     const tool = server.tools.get('mongo_find');
     const result = await tool.handler({

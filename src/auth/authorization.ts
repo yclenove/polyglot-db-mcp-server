@@ -10,6 +10,7 @@ import { auditLog } from '../core/audit.js';
 import { createErrorPayload } from '../core/error-codes.js';
 import { getToolActionInfo } from '../core/tool-action-map.js';
 import { authContextFromInfo, localStdioAuthInfo } from './auth-context.js';
+import { runWithRequestPolicy } from './request-policy.js';
 import {
   authorizeWithPolicy,
   loadRbacPolicyFile,
@@ -201,7 +202,9 @@ export function installAuthorization(server: McpServer, authorization: Authoriza
       const extra = hasArgs ? maybeExtra : (argsOrExtra as Extra | undefined);
       const decision = authorization.authorize(name, input, extra);
       if (!decision.allowed) return denialResult(decision, decision.action);
-      return hasArgs ? rawCallback(argsOrExtra, maybeExtra) : rawCallback(argsOrExtra as Extra);
+      return runWithRequestPolicy(decision.conditions, () =>
+        hasArgs ? rawCallback(argsOrExtra, maybeExtra) : rawCallback(argsOrExtra as Extra),
+      );
     };
     return registerTool(name, config, wrapped);
   }) as McpServer['registerTool'];

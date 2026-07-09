@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { ConnectionRegistry } from '../core/registry.js';
 import { createErrorPayload, type ErrorCode } from '../core/error-codes.js';
 import type { MongoTransaction, MongoTransactionOperation } from '../core/types.js';
+import { maskResultRows } from './result-masking.js';
 
 const activeMongoTransactions = new Map<
   string,
@@ -557,7 +558,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           };
         }
         const lim = limit ?? 50;
-        const rows = await d.find(collection, filter, { limit: lim, skip });
+        const rows = maskResultRows(await d.find(collection, filter, { limit: lim, skip }));
         return {
           content: [{ type: 'text', text: JSON.stringify({ connection_id: id, rows }) }],
         };
@@ -592,7 +593,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           const injection = detectNoSqlInjection(stage);
           if (injection) throw new Error(injection);
         }
-        const rows = await d.aggregate(collection, pipeline);
+        const rows = maskResultRows(await d.aggregate(collection, pipeline));
         return {
           content: [{ type: 'text', text: JSON.stringify({ connection_id: id, rows }) }],
         };

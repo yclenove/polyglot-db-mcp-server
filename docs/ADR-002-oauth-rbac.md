@@ -293,4 +293,4 @@ withAuthorization(toolName, input, context, async () => {
 
 v2.0.0 已以 **Bearer Token + RBAC + Policy Conditions + Audit Decision** 作为企业安全基线。API key 保留为开发/迁移能力，但不作为企业生产推荐权限模型。所有授权能力建立在现有工具安全边界之上，而不是替代它们。
 
-实施备注：`maskingMode` condition 已完成 schema 验证，但逐请求强制脱敏需要从全局状态迁移到请求上下文，避免并发串扰，作为 v2.0.x 后续项处理。
+实施备注：v2.0.1 已将 `maskingMode` condition 接入请求上下文脱敏执行，避免通过全局状态切换造成并发串扰。表、collection、key prefix 级完整 ABAC 仍作为 v2.x 后续策略引擎扩展。

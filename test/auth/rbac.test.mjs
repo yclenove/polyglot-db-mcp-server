@@ -9,7 +9,7 @@ function samplePolicy() {
         {
           resources: ['connection:pg', 'tool:auth_whoami'],
           actions: ['read', 'diagnose'],
-          conditions: { maxRows: 500, transport: ['http'] },
+          conditions: { maxRows: 500, transport: ['http'], maskingMode: 'strict-v2' },
         },
       ],
       writer: [{ resources: ['connection:pg'], actions: ['read', 'write'] }],
@@ -37,6 +37,7 @@ describe('RBAC policy authorization', () => {
     assert.equal(decision.allowed, true);
     assert.equal(decision.matchedRole, 'readonly_analyst');
     assert.equal(decision.policyVersion, 'test-policy');
+    assert.equal(decision.conditions.maskingMode, 'strict-v2');
   });
 
   test('denies write for readonly role', async () => {

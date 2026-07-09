@@ -44,7 +44,7 @@ v2.0.0 的目标是建立企业安全基线，让项目从“可部署 HTTP MCP 
 
 ### 3.1 实施结论
 
-v2.0.0 已完成 HTTP Bearer Token、RBAC policy、统一授权 wrapper、授权审计、认证诊断工具和迁移文档。Policy conditions 已覆盖 `maxRows`、`transport`、`timeWindow` 的运行时限制，并验证 `maskingMode` 配置合法性；`maskingMode` 的逐请求强制执行需要避免全局脱敏配置并发串扰，已接受为 v2.0.x 后续项。
+v2.0.0 已完成 HTTP Bearer Token、RBAC policy、统一授权 wrapper、授权审计、认证诊断工具和迁移文档。Policy conditions 已覆盖 `maxRows`、`transport`、`timeWindow` 的运行时限制，并验证 `maskingMode` 配置合法性；v2.0.1 已通过请求上下文补齐 `maskingMode` 的逐请求强制执行，避免全局脱敏配置并发串扰。
 
 ---
 

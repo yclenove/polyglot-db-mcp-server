@@ -4,6 +4,16 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.1] - 2026-07-10
+
+### 修复
+- **RBAC policy 脱敏条件执行**：`conditions.maskingMode` 现在会在每次授权通过后的工具调用上下文中生效，SQL/Mongo 只读结果会按策略要求执行更严格脱敏。
+
+### 安全
+- 请求级脱敏通过 `AsyncLocalStorage` 传递 policy 条件，不修改全局脱敏配置，避免并发请求之间串扰。
+- policy `maskingMode` 只能提升脱敏强度，不能弱化 `DB_MASKING_MODE` 已配置的全局脱敏要求。
+- SQL 查询缓存仍保存未脱敏结果，读取缓存时按当前请求策略重新脱敏，避免不同 subject/role 共享已脱敏变体。
+
 ## [2.0.0] - 2026-07-10
 
 ### 新增

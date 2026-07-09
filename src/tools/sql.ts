@@ -15,6 +15,7 @@ import {
   listTablesSql,
 } from '../core/sql-helpers.js';
 import { createErrorPayload, type ErrorCode } from '../core/error-codes.js';
+import { withMaskedDataRows } from './result-masking.js';
 
 type SqlResultRow = Record<string, unknown>;
 
@@ -98,7 +99,14 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const ck = makeCacheKey(id, sql, params ?? []);
         const cached = !page && !limit ? queryCache.get(ck) : undefined;
         if (cached !== undefined) {
-          return { content: [{ type: 'text', text: JSON.stringify(cached) }] };
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(withMaskedDataRows(cached as { data?: unknown[] })),
+              },
+            ],
+          };
         }
 
         // 分页逻辑：自动追加 LIMIT/OFFSET
@@ -184,7 +192,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         }
 
         return {
-          content: [{ type: 'text', text: JSON.stringify(result) }],
+          content: [{ type: 'text', text: JSON.stringify(withMaskedDataRows(result)) }],
         };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);

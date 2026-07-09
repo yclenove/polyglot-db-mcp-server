@@ -208,6 +208,22 @@ $env:DB_HTTP_API_KEY="<change-me>"
 node dist/index.js
 ```
 
+RBAC policy 的 `conditions.maskingMode` 可按请求强制更严格的脱敏：
+
+```json
+{
+  "resources": ["connection:pg"],
+  "actions": ["read"],
+  "conditions": { "maxRows": 500, "maskingMode": "strict-v2" }
+}
+```
+
+说明：
+
+- `maskingMode` 只影响当前授权通过的工具调用，不修改全局 `DB_MASKING_MODE`。
+- 当 policy mode 比全局 mode 更严格时才会提升有效脱敏强度；policy 不能关闭或弱化全局脱敏。
+- v2.0.1 已对 `sql_query`、`mongo_find`、`mongo_aggregate` 的 read rows 返回路径执行请求级 policy 脱敏。
+
 HTTP endpoint：
 
 | Method | Path | 说明 |

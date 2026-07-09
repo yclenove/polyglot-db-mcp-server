@@ -70,7 +70,7 @@
 
 | 风险 | 等级 | 处理 |
 |------|------|------|
-| `maskingMode` condition 未逐请求强制执行 | P1 | v2.0.x 改造脱敏为请求上下文后接入 |
+| `maskingMode` condition 未逐请求强制执行 | P1 | 已由 v2.0.1 通过请求上下文脱敏配置修复 |
 | 审计持久化 sink 未纳入 v2.0 | P1 | v2.2 可观测治理阶段实现 |
 | Windows 本地全仓 format 受 CRLF 影响 | P2 | CI Ubuntu/LF 运行全仓检查；本地已对变更 TS 文件通过 Prettier |
 
@@ -78,6 +78,6 @@
 
 ## 六、CI 观察
 
-- GitHub Actions 最新 `main` run #10（提交 `5653e61`）为成功。
+- GitHub Actions 最新 `main` run #12（提交 `6c7e2af`）为成功。
 - 历史失败集中在旧 run #3/#4，不代表当前 `main`。
-- v2.0.0 分支推送后需等待新的 `codex/v2.0-enterprise-security` CI run 通过，再快进合入 `main`。
+- v2.0.0 分支 run #11 和 main run #12 均已通过。

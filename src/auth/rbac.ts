@@ -49,6 +49,7 @@ export interface AuthorizationDecision {
   matchedRole?: string;
   matchedResource?: string;
   policyVersion?: string;
+  conditions?: PolicyConditions;
 }
 
 function asObject(value: unknown, label: string): Record<string, unknown> {
@@ -290,6 +291,7 @@ export function authorizeWithPolicy(
           matchedRole: role,
           matchedResource,
           policyVersion: policy.version,
+          conditions: rule.conditions,
         };
       }
       return {
@@ -299,6 +301,7 @@ export function authorizeWithPolicy(
         matchedRole: role,
         matchedResource,
         policyVersion: policy.version,
+        conditions: rule.conditions,
       };
     }
   }

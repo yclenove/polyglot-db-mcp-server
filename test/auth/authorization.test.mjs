@@ -26,6 +26,15 @@ function extra(subject) {
   };
 }
 
+class MockMcpServer {
+  constructor() {
+    this.tools = new Map();
+  }
+  registerTool(name, config, handler) {
+    this.tools.set(name, { config, handler });
+  }
+}
+
 describe('authorization runtime audit', () => {
   test('records allow and deny decisions without token leakage', async () => {
     const { createAuthorizationRuntime } = await import('../../dist/auth/authorization.js');
@@ -61,5 +70,34 @@ describe('authorization runtime audit', () => {
       ['allow', 'deny'],
     );
     assert.equal(JSON.stringify(logs).includes('super-secret-token'), false);
+  });
+
+  test('exposes matched policy conditions during tool execution', async () => {
+    const { installAuthorization } = await import('../../dist/auth/authorization.js');
+    const { getRequestPolicyConditions } = await import('../../dist/auth/request-policy.js');
+    const server = new MockMcpServer();
+
+    installAuthorization(server, {
+      authorize() {
+        return {
+          allowed: true,
+          reason: 'matched policy rule',
+          roles: ['readonly_analyst'],
+          action: 'read',
+          subject: 'agent:report',
+          transport: 'http',
+          conditions: { maskingMode: 'strict-v2' },
+        };
+      },
+    });
+
+    server.registerTool('probe', {}, async () => ({
+      content: [{ type: 'text', text: JSON.stringify(getRequestPolicyConditions()) }],
+    }));
+
+    const result = await server.tools.get('probe').handler({}, extra('agent:report'));
+    const conditions = JSON.parse(result.content[0].text);
+    assert.equal(conditions.maskingMode, 'strict-v2');
+    assert.equal(getRequestPolicyConditions(), undefined);
   });
 });

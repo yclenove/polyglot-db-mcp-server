@@ -43,7 +43,7 @@ v2.0.0 建立远程 HTTP MCP 部署的企业安全基线：
 
 | 风险 | 接受理由 | 后续 |
 |------|----------|------|
-| `maskingMode` condition 仅校验合法性，未逐请求强制执行 | 当前脱敏配置是模块级全局状态，直接在授权 wrapper 中 set/reset 会引入并发串扰 | v2.0.x 改造为请求上下文脱敏配置后接入 |
+| `maskingMode` condition 仅校验合法性，未逐请求强制执行 | 当前脱敏配置是模块级全局状态，直接在授权 wrapper 中 set/reset 会引入并发串扰 | 已由 v2.0.1 通过请求上下文脱敏配置修复 |
 | 审计仍以内存 buffer 为主 | v2.0 聚焦认证授权基线，持久化 sink 需要单独运维设计 | v2.2 可观测治理阶段实现 |
 | RBAC resource 初版以 tool/connection 为主 | 表、collection、key prefix 细粒度策略需要更完整的资源提取模型 | v2.x 策略引擎扩展 |
 | API key fallback 仍保留 | 方便 v1.8 HTTP 用户迁移和本地开发 | 文档标注不适合企业生产 |

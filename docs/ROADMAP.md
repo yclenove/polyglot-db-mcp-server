@@ -4,9 +4,9 @@
 **版本**: 1.0
 **日期**: 2026-07-09
 **规划周期**: 2026 Q3 ~ 2027 Q2
-**当前基线**: v2.0.0
+**当前基线**: v2.0.1
 **状态**: 当前有效
-**当前详细迭代**: `docs/ITER-v1.7.1-迭代计划.md`、`docs/ITER-v1.7.2-迭代计划.md`、`docs/ITER-v1.7.3-迭代计划.md`、`docs/ITER-v1.8.0-迭代计划.md`、`docs/ITER-v1.9.0-迭代计划.md`、`docs/ITER-v2.0.0-迭代计划.md`
+**当前详细迭代**: `docs/ITER-v1.7.1-迭代计划.md`、`docs/ITER-v1.7.2-迭代计划.md`、`docs/ITER-v1.7.3-迭代计划.md`、`docs/ITER-v1.8.0-迭代计划.md`、`docs/ITER-v1.9.0-迭代计划.md`、`docs/ITER-v2.0.0-迭代计划.md`、`docs/ITER-v2.0.1-迭代计划.md`
 **文档索引**: `docs/INDEX.md`
 
 ---
@@ -35,7 +35,7 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 - SQL 查询在 MCP 层保留只读保护，驱动层也有 readonly 约束。
 - 已具备注入检测、数据脱敏、审计日志、查询缓存、查询回放、查询建议等安全与体验功能。
 - 已支持 SQL `schema_diff`、MongoDB 事务工具和 Redis pipeline 安全批处理。
-- 已支持 HTTP Bearer Token、RBAC policy、统一授权 wrapper、授权审计和 auth 诊断工具。
+- 已支持 HTTP Bearer Token、RBAC policy、统一授权 wrapper、授权审计、auth 诊断工具和请求级 policy 脱敏。
 - 已有较完整的单元测试和工具层测试，当前 `npm run build`、`npm test` 可通过。
 - 已有中文文档、API 文档、质量报告、市场分析和多轮迭代文档。
 
@@ -48,7 +48,7 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 | 方言一致性 | MSSQL EXPLAIN 语法仍可能不符合驱动批处理行为 | 部分工具可用性不稳定 |
 | 安全规范 | cacheKey 序列化边界、分页数字拼接、正则 ReDoS 防护仍需收敛 | 边界安全风险 |
 | 发布体系 | 版本、文档、质量门禁、发布说明尚未形成自动化流水线 | 发布效率与一致性 |
-| 企业安全 | 当前已有 HTTP API key，但缺少 OAuth/RBAC/租户隔离 | 企业集成能力不足 |
+| 企业安全 | Bearer/RBAC 基线已完成，但完整多租户隔离、审计持久化和细粒度资源策略仍待扩展 | 企业治理深度不足 |
 | 高级数据库 | v1.9.0 已完成 P0 工作流，Redis Stream、Mongo explain、迁移草案仍待后续 | 工作流深度仍需扩展 |
 
 ---
@@ -89,6 +89,7 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 | `docs/QUALITY-v1.8.0-质量报告.md` | v1.8.0 完成审计 | v1.8.0 | 已填写真实命令、HTTP smoke 和质量结果 |
 | `docs/QUALITY-v1.9.0-质量报告.md` | v1.9.0 完成审计 | v1.9.0 | 已填写真实命令、高级工作流和安全边界结果 |
 | `docs/QUALITY-v2.0.0-质量报告.md` | v2.0.0 完成审计 | v2.0.0 | 已填写真实命令、Bearer/RBAC 和安全边界结果 |
+| `docs/QUALITY-v2.0.1-质量报告.md` | v2.0.1 完成审计 | v2.0.1 | policy masking 请求级执行和 CI gate 结果 |
 | `docs/PRD-v1.7.0.md` | 后续 HTTP、OAuth、RBAC、Mongo 事务、Redis Pipeline、DuckDB | v1.8 ~ v2.1 | ROADMAP Phase 1 ~ 4 |
 | `docs/MARKET-市场分析.md` | DBHub/FreePeak 等竞品压力，引擎覆盖和企业能力 | v1.8 ~ v2.2 | 传输、企业安全、可观测 |
 | AGENTS.md | `sql_query` 必须保持 MCP 层只读保护，测试先 build 后 test | 所有版本 | 质量门禁和发布 checklist |
@@ -227,8 +228,8 @@ v1.9.0 已完成 P0 范围：SQL `schema_diff`、MongoDB 多文档事务生命�
 **前置 ADR**: `docs/ADR-002-oauth-rbac.md`
 **前置 PRD**: `docs/PRD-v2.0.0.md`
 **迁移指南**: `docs/MIGRATION-v2.0.0.md`
-**实施计划**: `docs/ITER-v2.0.0-迭代计划.md`
-**状态**: 已完成 P0/P1 企业安全基线；审计持久化和完整多租户隔离进入 v2.x 后续。
+**实施计划**: `docs/ITER-v2.0.0-迭代计划.md`、`docs/ITER-v2.0.1-迭代计划.md`
+**状态**: 已完成 P0/P1 企业安全基线和 v2.0.1 请求级 policy 脱敏收口；审计持久化、policy 模板和完整多租户隔离进入 v2.x 后续。
 
 ### 8.1 核心能力
 
@@ -359,7 +360,7 @@ v1.9.0 已完成 P0 范围：SQL `schema_diff`、MongoDB 多文档事务生命�
 
 ## 十五、近期建议执行顺序
 
-1. v2.0.x：补充 policy 模板、`maskingMode` 逐请求强制执行和审计持久化设计。
+1. v2.0.x：补充 policy 模板、审计持久化设计和细粒度资源策略说明。
 2. v2.1.0：评审 DuckDB、本地文件数据源和导出边界。
 3. v2.2.0：推进 OTel/Prometheus 和策略治理。
 4. v3.0.0：在权限、审计、策略稳定后进入插件化生态。
@@ -422,7 +423,7 @@ v1.9.0 已完成 P0 范围：SQL `schema_diff`、MongoDB 多文档事务生命�
 
 建议下一步进入 **v2.0.x 安全收口与 v2.1.0 分析生态评审**：
 
-1. v2.0.x 补齐更完整的 RBAC policy 示例和 `maskingMode` 执行上下文。
+1. v2.0.x 补齐更完整的 RBAC policy 示例、审计持久化设计和细粒度资源策略说明。
 2. v2.1.0 开发前评审 DuckDB、本地文件数据源和导出边界。
 3. v3.0.0 开发前复核 `docs/ADR-003-plugin-architecture.md`，确认插件安全边界。
 4. 提交规划包前按 `docs/PLANNING_AUDIT.md` 运行引用和格式审计。

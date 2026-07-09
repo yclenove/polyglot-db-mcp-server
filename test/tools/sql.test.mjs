@@ -146,6 +146,26 @@ describe('SQL Tools', () => {
     assert.ok(Array.isArray(data.data));
   });
 
+  test('sql_query applies request policy maskingMode to result rows', async () => {
+    const { runWithRequestPolicy } = await import('../../dist/auth/request-policy.js');
+    mockDriver.execute = async () => ({
+      success: true,
+      data: [{ email: 'analyst@example.com', name: 'Alice' }],
+    });
+
+    const tool = server.tools.get('sql_query');
+    const result = await runWithRequestPolicy({ maskingMode: 'strict-v2' }, () =>
+      tool.handler({
+        sql: 'SELECT email, name FROM users',
+        params: [],
+      }),
+    );
+
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.data[0].email, 'a***@example.com');
+    assert.equal(data.data[0].name, 'Alice');
+  });
+
   test('sql_query rejects write query', async () => {
     const tool = server.tools.get('sql_query');
     const result = await tool.handler({
