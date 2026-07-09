@@ -8,6 +8,7 @@ import { createPostgresDriver } from './drivers/sql/postgres-driver.js';
 import { createMssqlDriver } from './drivers/sql/mssql-driver.js';
 import { createOracleDriver } from './drivers/sql/oracle-driver.js';
 import { createSqliteDriver } from './drivers/sql/sqlite-driver.js';
+import { createDuckDbDriver } from './drivers/sql/duckdb-driver.js';
 import { createMongoDriver } from './drivers/mongo/mongo-driver.js';
 import { createRedisDriver } from './drivers/redis/redis-driver.js';
 
@@ -23,6 +24,8 @@ async function createHandle(spec: ConnectionSpec): Promise<RuntimeHandle> {
       return { id: spec.id, spec, kind: 'sql', driver: await createOracleDriver(spec) };
     case 'sqlite':
       return { id: spec.id, spec, kind: 'sql', driver: await createSqliteDriver(spec) };
+    case 'duckdb':
+      return { id: spec.id, spec, kind: 'sql', driver: await createDuckDbDriver(spec) };
     case 'mongodb':
       return { id: spec.id, spec, kind: 'mongo', driver: await createMongoDriver(spec) };
     case 'redis':

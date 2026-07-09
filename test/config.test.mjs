@@ -61,6 +61,16 @@ describe('parseConnectionSpecs', () => {
     assert.deepEqual(specs[0]?.allowlist, ['db1', 'db2']);
   });
 
+  test('parses DuckDB with readonly default and file allowlist', () => {
+    const json = JSON.stringify([
+      { id: 'duck', engine: 'duckdb', url: ':memory:', allowlist: ['./data'] },
+    ]);
+    const specs = parseConnectionSpecs(json);
+    assert.equal(specs[0]?.engine, 'duckdb');
+    assert.equal(specs[0]?.readonly, true);
+    assert.deepEqual(specs[0]?.allowlist, ['./data']);
+  });
+
   test('throws on empty string', () => {
     assert.throws(() => parseConnectionSpecs(''), /必须设置 DB_MCP_CONNECTIONS/);
   });

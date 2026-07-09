@@ -746,6 +746,9 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
           case 'sqlite':
             sql = `SELECT ${procedure}(${params?.map(() => '?').join(', ') || ''})`;
             break;
+          case 'duckdb':
+            sql = `SELECT ${procedure}(${params?.map(() => '?').join(', ') || ''})`;
+            break;
           default: {
             const e: never = driver.engine;
             throw new Error(`不支持的引擎: ${e}`);
@@ -805,6 +808,12 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         return { sql: `SELECT view_name AS name FROM user_views ORDER BY view_name` };
       case 'sqlite':
         return { sql: `SELECT name FROM sqlite_master WHERE type='view' ORDER BY name` };
+      case 'duckdb':
+        return {
+          sql: `SELECT table_name AS name
+                FROM information_schema.views
+                ORDER BY table_name`,
+        };
       default: {
         const e: never = engine;
         throw new Error(`不支持的 SQL 引擎: ${e}`);
@@ -850,6 +859,14 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
       case 'sqlite':
         return {
           sql: `PRAGMA table_info(\`${view.replace(/`/g, '')}\`)`,
+        };
+      case 'duckdb':
+        return {
+          sql: `SELECT column_name, data_type, is_nullable
+                FROM information_schema.columns
+                WHERE table_name = ?
+                ORDER BY ordinal_position`,
+          params: [view],
         };
       default: {
         const e: never = engine;
@@ -1082,6 +1099,10 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         return `CREATE ${uniqueStr} INDEX ${idxName} ON ${table} (${colStr})`;
       }
       case 'sqlite': {
+        const colStr = columns.join(', ');
+        return `CREATE ${uniqueStr} INDEX ${idxName} ON ${table} (${colStr})`;
+      }
+      case 'duckdb': {
         const colStr = columns.join(', ');
         return `CREATE ${uniqueStr} INDEX ${idxName} ON ${table} (${colStr})`;
       }

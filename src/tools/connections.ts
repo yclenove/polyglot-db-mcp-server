@@ -25,6 +25,7 @@ const VERSION_QUERIES: Record<SqlEngine, string> = {
   mssql: 'SELECT @@VERSION AS version',
   oracle: 'SELECT BANNER AS version FROM V$VERSION WHERE ROWNUM = 1',
   sqlite: 'SELECT sqlite_version() AS version',
+  duckdb: 'SELECT version() AS version',
 };
 
 /** 根据引擎获取服务器版本 */
@@ -57,15 +58,15 @@ async function getServerVersion(handle: RuntimeHandle): Promise<string | null> {
   return null;
 }
 
-function sqlitePathHint(spec: ConnectionSpec): string | null {
-  if (spec.engine !== 'sqlite') return null;
+function localSqlPathHint(spec: ConnectionSpec): string | null {
+  if (spec.engine !== 'sqlite' && spec.engine !== 'duckdb') return null;
   const raw = spec.url ?? spec.database ?? ':memory:';
   if (raw === ':memory:') {
-    return 'SQLite 当前使用 :memory: 内存数据库；进程结束后数据不会保留';
+    return `${spec.engine === 'sqlite' ? 'SQLite' : 'DuckDB'} 当前使用 :memory: 内存数据库；进程结束后数据不会保留`;
   }
   const withoutPrefix = raw.startsWith('file:') ? raw.slice(5).replace(/^\/\//, '') : raw;
   const resolved = resolve(process.cwd(), withoutPrefix);
-  return `SQLite 文件路径将按当前工作目录解析为 ${resolved}；如 ping 失败，请检查父目录权限`;
+  return `${spec.engine === 'sqlite' ? 'SQLite' : 'DuckDB'} 文件路径将按当前工作目录解析为 ${resolved}；如 ping 失败，请检查父目录权限`;
 }
 
 function classifyConnectionError(rawError?: string): ErrorCode {
@@ -113,8 +114,8 @@ function errorSpecificSuggestions(spec: ConnectionSpec, rawError?: string): stri
   ) {
     suggestions.push('检查 user/password/database；MongoDB 还需确认 authSource');
   }
-  if (spec.engine === 'sqlite') {
-    const hint = sqlitePathHint(spec);
+  if (spec.engine === 'sqlite' || spec.engine === 'duckdb') {
+    const hint = localSqlPathHint(spec);
     if (hint) suggestions.push(hint);
   }
 
@@ -134,7 +135,7 @@ function generateSuggestions(spec: ConnectionSpec, rawError?: string): string[] 
   }
 
   if (!spec.database) {
-    if (spec.engine !== 'redis' && spec.engine !== 'sqlite') {
+    if (spec.engine !== 'redis' && spec.engine !== 'sqlite' && spec.engine !== 'duckdb') {
       suggestions.push(`建议设置 database 字段以明确目标数据库`);
     }
   }
@@ -155,13 +156,17 @@ function generateSuggestions(spec: ConnectionSpec, rawError?: string): string[] 
     suggestions.push('建议设置 allowlist 字段限制可访问的集合');
   }
 
-  if (!spec.url && !spec.host) {
+  if (!spec.url && !spec.host && spec.engine !== 'sqlite' && spec.engine !== 'duckdb') {
     suggestions.push('连接缺少 url 和 host 配置，请检查连接配置是否完整');
   }
 
-  const sqliteHint = sqlitePathHint(spec);
-  if (sqliteHint) {
-    suggestions.push(sqliteHint);
+  const localPathHint = localSqlPathHint(spec);
+  if (localPathHint) {
+    suggestions.push(localPathHint);
+  }
+
+  if (spec.engine === 'duckdb' && !spec.allowlist?.length) {
+    suggestions.push('DuckDB 外部文件访问默认关闭；读取 CSV/Parquet/JSON 前请设置 allowlist');
   }
 
   suggestions.push(...errorSpecificSuggestions(spec, rawError));

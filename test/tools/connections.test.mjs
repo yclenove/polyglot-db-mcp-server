@@ -399,6 +399,33 @@ describe('Connection Tools', () => {
     assert.ok(data.connections[0].suggestions.some((s) => s.includes('SQLite 文件路径')));
   });
 
+  test('connection_diagnose includes DuckDB memory and allowlist hints', async () => {
+    const duckServer = new MockMcpServer();
+    const duckRegistry = new MockRegistry([
+      { id: 'duck', engine: 'duckdb', readonly: true, url: ':memory:' },
+    ], 'duck');
+    duckRegistry.handles.set('duck', {
+      id: 'duck',
+      spec: { id: 'duck', engine: 'duckdb', readonly: true, url: ':memory:' },
+      kind: 'sql',
+      driver: {
+        engine: 'duckdb',
+        ping: async () => ({ ok: true }),
+        execute: async () => ({ success: true, data: [{ version: 'v1.5.4' }] }),
+      },
+    });
+    registerConnectionTools(duckServer, duckRegistry);
+
+    const tool = duckServer.tools.get('connection_diagnose');
+    const result = await tool.handler({ connection_id: 'duck' });
+    const data = JSON.parse(result.content[0].text);
+    const suggestions = data.connections[0].suggestions;
+    assert.equal(data.connections[0].status, 'ok');
+    assert.ok(suggestions.some((s) => s.includes('DuckDB 当前使用 :memory:')));
+    assert.ok(suggestions.some((s) => s.includes('allowlist')));
+    assert.equal(suggestions.some((s) => s.includes('缺少 url 和 host')), false);
+  });
+
   test('connection_diagnose handles ping throwing exception', async () => {
     registry.handles.set('pg', {
       id: 'pg',

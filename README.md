@@ -2,7 +2,7 @@
 
 **[简体中文](./README.md) | [English](./README_en.md)**
 
-面向 **MySQL**、**PostgreSQL**、**Microsoft SQL Server**、**Oracle**、**MongoDB**、**Redis**、**SQLite** 的多引擎数据库 [Model Context Protocol](https://modelcontextprotocol.io/) 服务。所有连接在单一环境变量 **`DB_MCP_CONNECTIONS`**（JSON 数组）中声明，同一进程可在一次 MCP 会话中暴露多个后端。
+面向 **MySQL**、**PostgreSQL**、**Microsoft SQL Server**、**Oracle**、**MongoDB**、**Redis**、**SQLite**、**DuckDB** 的多引擎数据库 [Model Context Protocol](https://modelcontextprotocol.io/) 服务。所有连接在单一环境变量 **`DB_MCP_CONNECTIONS`**（JSON 数组）中声明，同一进程可在一次 MCP 会话中暴露多个后端。
 
 NPM 包名：**`@yclenove/polyglot-db-mcp-server`**；安装后 CLI：**`polyglot-db-mcp-server`**（旧名 `unified-db-mcp-server` 已弃用，请在 MCP 配置中更新 command）。
 
@@ -106,7 +106,7 @@ node scripts/http-smoke.mjs http://127.0.0.1:3000/mcp
 
 ## 多连接配置
 
-每项需要唯一 **`id`**、**`engine`**，以及 SQL 类引擎的 **`url`** 或基于 **`host`** 的字段；**Redis** 与 **MongoDB** 必须提供 **`url`**。
+每项需要唯一 **`id`**、**`engine`**。多数 SQL 类引擎使用 **`url`** 或基于 **`host`** 的字段；**DuckDB** 可使用 `url`/`database`，未提供时使用 `:memory:`；**Redis** 与 **MongoDB** 必须提供 **`url`**。
 
 ```json
 [
@@ -139,11 +139,18 @@ node scripts/http-smoke.mjs http://127.0.0.1:3000/mcp
     "database": "<mongo_database>",
     "allowlist": ["users", "orders"],
     "readonly": true
+  },
+  {
+    "id": "duck",
+    "engine": "duckdb",
+    "url": ":memory:",
+    "readonly": true,
+    "allowlist": ["./data"]
   }
 ]
 ```
 
-支持的 `engine`：`mysql`、`postgres`、`mssql`、`oracle`、`mongodb`、`redis`、`sqlite`。
+支持的 `engine`：`mysql`、`postgres`、`mssql`、`oracle`、`mongodb`、`redis`、`sqlite`、`duckdb`。
 
 **SQLite 配置示例**（文件数据库，无需额外服务）：
 
@@ -157,7 +164,21 @@ node scripts/http-smoke.mjs http://127.0.0.1:3000/mcp
 
 SQLite 支持 `file:` 前缀路径、相对路径、绝对路径和 `:memory:` 内存数据库。文件不存在时自动创建。
 
-可选字段：`readonly`、`allowlist`（Mongo 库名白名单）、Redis 的 `keyPrefix` 等。
+**DuckDB 配置示例**（本地只读分析，无需外部服务）：
+
+```json
+{
+  "id": "duck",
+  "engine": "duckdb",
+  "url": ":memory:",
+  "readonly": true,
+  "allowlist": ["./data"]
+}
+```
+
+DuckDB 连接默认只读；只有显式设置 `readonly:false` 才允许写入。读取 CSV/Parquet/JSON 等外部文件时，路径必须位于 `allowlist` 指定的文件或目录内，否则会被 DuckDB 拒绝。
+
+可选字段：`readonly`、`allowlist`（Mongo 集合白名单或 DuckDB 本地文件路径白名单）、Redis 的 `keyPrefix` 等。
 
 完整配置说明见 [docs/CONFIG.md](./docs/CONFIG.md)，安全模板见 [.env.example](./.env.example)。
 
@@ -189,7 +210,7 @@ docker compose up -d
 
 在任意工具上若**显式传入** `connection_id`，其值必须与配置中的 `id` 一致；**错误或未配置的 id 会报错，不会静默回退到默认连接**。省略或传空/空白则使用默认连接。
 
-**SQL**（MySQL / PostgreSQL / SQL Server / Oracle / SQLite）
+**SQL**（MySQL / PostgreSQL / SQL Server / Oracle / SQLite / DuckDB）
 
 - `sql_query` — 仅只读查询（执行前校验），支持分页（`page`、`page_size` 参数）
 - `sql_execute` — 可写 SQL（连接 `readonly=true` 时拒绝）

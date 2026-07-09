@@ -1,6 +1,6 @@
 export const CONNECTION_ID_REGEX = /^[A-Za-z0-9_]+$/;
 
-export type SqlEngine = 'mysql' | 'postgres' | 'mssql' | 'oracle' | 'sqlite';
+export type SqlEngine = 'mysql' | 'postgres' | 'mssql' | 'oracle' | 'sqlite' | 'duckdb';
 export type Engine = SqlEngine | 'mongodb' | 'redis';
 
 export interface ConnectionSpec {
@@ -248,6 +248,7 @@ export const SQL_ENGINES: ReadonlySet<Engine> = new Set([
   'mssql',
   'oracle',
   'sqlite',
+  'duckdb',
 ]);
 
 export function isSqlEngine(engine: Engine): engine is SqlEngine {

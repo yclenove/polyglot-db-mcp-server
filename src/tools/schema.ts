@@ -76,6 +76,26 @@ function getSchemaSql(engine: SqlEngine, database?: string): { sql: string; para
         WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%'
         ORDER BY m.name, p.cid`,
       };
+    case 'duckdb':
+      return {
+        sql: `SELECT
+          table_name,
+          column_name,
+          data_type,
+          is_nullable,
+          CASE WHEN constraint_type = 'PRIMARY KEY' THEN 'YES' ELSE 'NO' END AS column_key,
+          column_default
+        FROM information_schema.columns c
+        LEFT JOIN (
+          SELECT tc.table_name AS pk_table_name, ku.column_name AS pk_column_name, tc.constraint_type
+          FROM information_schema.table_constraints tc
+          JOIN information_schema.key_column_usage ku
+            ON tc.constraint_name = ku.constraint_name
+          WHERE tc.constraint_type = 'PRIMARY KEY'
+        ) pk ON c.table_name = pk.pk_table_name AND c.column_name = pk.pk_column_name
+        WHERE c.table_schema NOT IN ('information_schema', 'pg_catalog')
+        ORDER BY table_name, ordinal_position`,
+      };
     default: {
       const e: never = engine;
       throw new Error(`不支持的 SQL 引擎: ${e}`);

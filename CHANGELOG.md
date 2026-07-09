@@ -4,6 +4,21 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.1.0] - 2026-07-10
+
+### 新增
+- **DuckDB 引擎支持**：新增 `duckdb` SQL 类引擎，使用 `@duckdb/node-api`，支持 `:memory:` 和本地 DuckDB 数据库文件。
+- **本地分析文件 allowlist**：DuckDB 可读取 `allowlist` 指定文件或目录内的 CSV/Parquet/JSON 等外部数据源，默认禁止任意外部文件访问。
+- **DuckDB SQL 工具适配**：`sql_query`、`sql_execute`、`sql_list_tables`、`sql_describe_table`、`sql_explain`、`schema_export` 等 SQL 工具可识别 DuckDB 方言。
+
+### 变更
+- DuckDB 连接默认 `readonly:true`，只有显式配置 `readonly:false` 才允许写入。
+- CLI `init --interactive`、连接诊断、README、CONFIG 和 `.env.example` 增加 DuckDB 配置提示。
+
+### 安全
+- `sql_query` 继续在 MCP 工具层执行 `isReadOnlyQuery`，DuckDB driver 层也会再次执行 readonly 检查。
+- driver 初始化时先配置 DuckDB `allowed_directories`/`allowed_paths`，再关闭外部访问，确保越界文件读取由 DuckDB 原生权限检查拒绝。
+
 ## [2.0.1] - 2026-07-10
 
 ### 修复

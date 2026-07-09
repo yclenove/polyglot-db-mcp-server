@@ -2,7 +2,7 @@
 
 **[简体中文](./README.md) | English**
 
-A multi-engine database [Model Context Protocol](https://modelcontextprotocol.io/) server for **MySQL**, **PostgreSQL**, **Microsoft SQL Server**, **Oracle**, **MongoDB**, **Redis**, and **SQLite**. Connections are declared in a single environment variable **`DB_MCP_CONNECTIONS`** (a JSON array) so one process can expose multiple backends in one MCP session.
+A multi-engine database [Model Context Protocol](https://modelcontextprotocol.io/) server for **MySQL**, **PostgreSQL**, **Microsoft SQL Server**, **Oracle**, **MongoDB**, **Redis**, **SQLite**, and **DuckDB**. Connections are declared in a single environment variable **`DB_MCP_CONNECTIONS`** (a JSON array) so one process can expose multiple backends in one MCP session.
 
 NPM package: **`@yclenove/polyglot-db-mcp-server`**. CLI after install: **`polyglot-db-mcp-server`** (the old name `unified-db-mcp-server` is deprecated—update the `command` in your MCP config).
 
@@ -101,7 +101,7 @@ node scripts/http-smoke.mjs http://127.0.0.1:3000/mcp
 
 ## Multi-Connection Configuration
 
-Each entry needs a unique **`id`**, **`engine`**, and either **`url`** or (for SQL engines) **`host`**. **Redis** and **MongoDB** require **`url`**.
+Each entry needs a unique **`id`** and **`engine`**. Most SQL engines use either **`url`** or **`host`** fields; **DuckDB** can use `url`/`database` and falls back to `:memory:` when omitted. **Redis** and **MongoDB** require **`url`**.
 
 ```json
 [
@@ -134,13 +134,22 @@ Each entry needs a unique **`id`**, **`engine`**, and either **`url`** or (for S
     "database": "<mongo_database>",
     "allowlist": ["users", "orders"],
     "readonly": true
+  },
+  {
+    "id": "duck",
+    "engine": "duckdb",
+    "url": ":memory:",
+    "readonly": true,
+    "allowlist": ["./data"]
   }
 ]
 ```
 
-Engines: `mysql`, `postgres`, `mssql`, `oracle`, `mongodb`, `redis`, `sqlite`.
+Engines: `mysql`, `postgres`, `mssql`, `oracle`, `mongodb`, `redis`, `sqlite`, `duckdb`.
 
-Optional fields include `readonly`, MongoDB `allowlist`, and Redis `keyPrefix`.
+DuckDB defaults to read-only mode; set `readonly:false` only when writes are intentional. CSV/Parquet/JSON file reads must stay under `allowlist` files or directories, otherwise DuckDB rejects the access.
+
+Optional fields include `readonly`, MongoDB/DuckDB `allowlist`, and Redis `keyPrefix`.
 
 See [docs/CONFIG.md](./docs/CONFIG.md) and [.env.example](./.env.example) for the full configuration reference.
 
@@ -170,7 +179,7 @@ See `docker-compose.yml` for default users, passwords, and published ports. The 
 
 When you **explicitly** pass `connection_id` on any tool, it must match a configured `id`. Invalid ids are **rejected** and do **not** fall back to the default. Omit the parameter or pass empty/whitespace to use the default connection.
 
-**SQL** (MySQL / PostgreSQL / SQL Server / Oracle / SQLite)
+**SQL** (MySQL / PostgreSQL / SQL Server / Oracle / SQLite / DuckDB)
 
 - `sql_query` — read-only queries only (validated before execution)
 - `sql_execute` — write-capable SQL (blocked when connection is `readonly`)

@@ -7,6 +7,7 @@ const ENGINES = new Set<Engine>([
   'mssql',
   'oracle',
   'sqlite',
+  'duckdb',
   'mongodb',
   'redis',
 ]);
@@ -67,7 +68,7 @@ export function parseConnectionSpecs(raw?: string): ConnectionSpec[] {
     const user = o.user !== undefined ? String(o.user) : undefined;
     const password = o.password !== undefined ? String(o.password) : undefined;
     const database = o.database !== undefined ? String(o.database) : undefined;
-    const readonly = o.readonly === true;
+    const readonly = engine === 'duckdb' ? o.readonly !== false : o.readonly === true;
     const keyPrefix =
       typeof o.keyPrefix === 'string' && o.keyPrefix.length > 0 ? o.keyPrefix : undefined;
 
@@ -80,8 +81,8 @@ export function parseConnectionSpecs(raw?: string): ConnectionSpec[] {
       if (!url) {
         throw new Error(`连接「${id}」：${engine} 必须提供 url`);
       }
-    } else if (engine === 'sqlite') {
-      // SQLite 不需要 host，仅需 url 或 database，缺省为 :memory:
+    } else if (engine === 'sqlite' || engine === 'duckdb') {
+      // SQLite/DuckDB 不需要 host，仅需 url 或 database，缺省为 :memory:
     } else if (!url && !host) {
       throw new Error(`连接「${id}」：SQL 类引擎需提供 url 或 host`);
     }

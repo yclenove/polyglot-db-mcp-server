@@ -4,9 +4,9 @@
 **版本**: 1.0
 **日期**: 2026-07-09
 **规划周期**: 2026 Q3 ~ 2027 Q2
-**当前基线**: v2.0.1
+**当前基线**: v2.1.0
 **状态**: 当前有效
-**当前详细迭代**: `docs/ITER-v1.7.1-迭代计划.md`、`docs/ITER-v1.7.2-迭代计划.md`、`docs/ITER-v1.7.3-迭代计划.md`、`docs/ITER-v1.8.0-迭代计划.md`、`docs/ITER-v1.9.0-迭代计划.md`、`docs/ITER-v2.0.0-迭代计划.md`、`docs/ITER-v2.0.1-迭代计划.md`
+**当前详细迭代**: `docs/ITER-v1.7.1-迭代计划.md`、`docs/ITER-v1.7.2-迭代计划.md`、`docs/ITER-v1.7.3-迭代计划.md`、`docs/ITER-v1.8.0-迭代计划.md`、`docs/ITER-v1.9.0-迭代计划.md`、`docs/ITER-v2.0.0-迭代计划.md`、`docs/ITER-v2.0.1-迭代计划.md`、`docs/ITER-v2.1.0-迭代计划.md`
 **文档索引**: `docs/INDEX.md`
 
 ---
@@ -20,7 +20,7 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 | 支柱 | 目标 | 关键能力 |
 |------|------|----------|
 | 安全可信 | 默认安全，最小权限，敏感数据可控 | 只读保护、注入检测、脱敏、审计、权限控制 |
-| 多引擎统一 | 屏蔽数据库差异，提供一致 MCP 工具体验 | SQL/Mongo/Redis/SQLite，后续 DuckDB/向量库 |
+| 多引擎统一 | 屏蔽数据库差异，提供一致 MCP 工具体验 | SQL/Mongo/Redis/SQLite/DuckDB，后续向量库 |
 | 运维可观测 | 生产环境可诊断、可度量、可追责 | 健康检查、指标、日志、审计导出、告警接口 |
 | 开发者体验 | 易配置、易调试、易集成、易发布 | CLI、配置校验、错误提示、文档、模板、CI |
 
@@ -30,7 +30,7 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 
 ### 2.1 已具备能力
 
-- 支持 MySQL、PostgreSQL、SQL Server、Oracle、MongoDB、Redis、SQLite。
+- 支持 MySQL、PostgreSQL、SQL Server、Oracle、MongoDB、Redis、SQLite、DuckDB。
 - 支持 stdio 和 Streamable HTTP 双传输，HTTP 模式包含 `/mcp`、`/healthz`、`/readyz`。
 - SQL 查询在 MCP 层保留只读保护，驱动层也有 readonly 约束。
 - 已具备注入检测、数据脱敏、审计日志、查询缓存、查询回放、查询建议等安全与体验功能。
@@ -49,7 +49,7 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 | 安全规范 | cacheKey 序列化边界、分页数字拼接、正则 ReDoS 防护仍需收敛 | 边界安全风险 |
 | 发布体系 | 版本、文档、质量门禁、发布说明尚未形成自动化流水线 | 发布效率与一致性 |
 | 企业安全 | Bearer/RBAC 基线已完成，但完整多租户隔离、审计持久化和细粒度资源策略仍待扩展 | 企业治理深度不足 |
-| 高级数据库 | v1.9.0 已完成 P0 工作流，Redis Stream、Mongo explain、迁移草案仍待后续 | 工作流深度仍需扩展 |
+| 高级数据库 | v1.9.0 已完成 P0 工作流，v2.1.0 已完成 DuckDB P0；Redis Stream、Mongo explain、迁移草案仍待后续 | 工作流深度仍需扩展 |
 
 ---
 
@@ -75,7 +75,7 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 | Phase 1 | v1.8.0 | 2026 Q3 | 传输与运维增强 | 支持 HTTP 传输、健康端点、部署体验增强 |
 | Phase 2 | v1.9.0 | 2026 Q4 | 高级数据库能力 | Mongo 事务、Redis pipeline、SQL schema diff 已完成 |
 | Phase 3 | v2.0.0 | 2026 Q4 ~ 2027 Q1 | 企业安全 | OAuth 2.1、RBAC、租户隔离、审计增强 |
-| Phase 4 | v2.1.0 | 2027 Q1 | 分析与本地数据生态 | DuckDB、CSV/Parquet、只读分析场景 |
+| Phase 4 | v2.1.0 | 2027 Q1 | 分析与本地数据生态 | DuckDB 只读分析已完成，导出与采样后续推进 |
 | Phase 5 | v2.2.0 | 2027 Q2 | 可观测与治理 | Prometheus/OTel、策略引擎、配置中心化 |
 | Phase 6 | v3.0.0 | 2027 Q2+ | 插件化生态 | 插件式驱动、第三方工具包、可扩展能力市场 |
 
@@ -90,6 +90,9 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 | `docs/QUALITY-v1.9.0-质量报告.md` | v1.9.0 完成审计 | v1.9.0 | 已填写真实命令、高级工作流和安全边界结果 |
 | `docs/QUALITY-v2.0.0-质量报告.md` | v2.0.0 完成审计 | v2.0.0 | 已填写真实命令、Bearer/RBAC 和安全边界结果 |
 | `docs/QUALITY-v2.0.1-质量报告.md` | v2.0.1 完成审计 | v2.0.1 | policy masking 请求级执行和 CI gate 结果 |
+| `docs/PRD-v2.1.0.md` | DuckDB 本地分析产品需求 | v2.1.0 | Phase 4 P0/P1 范围 |
+| `docs/ITER-v2.1.0-迭代计划.md` | DuckDB driver、配置、文档、测试实施 | v2.1.0 | v2.1.0 执行记录 |
+| `docs/QUALITY-v2.1.0-质量报告.md` | DuckDB 安全边界和质量门禁 | v2.1.0 | v2.1.0 发布审计 |
 | `docs/PRD-v1.7.0.md` | 后续 HTTP、OAuth、RBAC、Mongo 事务、Redis Pipeline、DuckDB | v1.8 ~ v2.1 | ROADMAP Phase 1 ~ 4 |
 | `docs/MARKET-市场分析.md` | DBHub/FreePeak 等竞品压力，引擎覆盖和企业能力 | v1.8 ~ v2.2 | 传输、企业安全、可观测 |
 | AGENTS.md | `sql_query` 必须保持 MCP 层只读保护，测试先 build 后 test | 所有版本 | 质量门禁和发布 checklist |
@@ -262,11 +265,14 @@ v1.9.0 已完成 P0 范围：SQL `schema_diff`、MongoDB 多文档事务生命�
 ## 九、Phase 4：v2.1.0 分析型与本地数据生态
 
 **主题**: 把本项目扩展到本地分析和轻量数据湖场景。
+**前置 PRD**: `docs/PRD-v2.1.0.md`
+**实施计划**: `docs/ITER-v2.1.0-迭代计划.md`
+**状态**: DuckDB P0 已完成；查询结果导出、采样分析和更完整的本地文件数据源体验进入 v2.1.x/v2.2 后续。
 
 | 优先级 | 功能 | 说明 |
 |--------|------|------|
-| P0 | DuckDB 引擎 | CSV/Parquet/JSON 本地分析，默认只读 |
-| P1 | 文件数据源只读挂载 | 明确路径 allowlist，禁止任意文件读取 |
+| P0 | DuckDB 引擎 | 已完成；支持 `:memory:` 和本地数据库文件，默认只读 |
+| P1 | 文件数据源只读挂载 | 已完成基础版；通过 DuckDB `allowed_directories`/`allowed_paths` 约束 allowlist |
 | P1 | 查询结果导出 | CSV/JSON/Markdown，可配置最大行数 |
 | P2 | 采样分析 | 大表自动采样、字段类型推断、数据质量提示 |
 
@@ -349,7 +355,7 @@ v1.9.0 已完成 P0 范围：SQL `schema_diff`、MongoDB 多文档事务生命�
 
 | 指标 | v1.7 基线 | 2026 Q4 目标 | 2027 Q2 目标 |
 |------|-----------|--------------|--------------|
-| 支持引擎数 | 7 | 7 ~ 8 | 8 ~ 10 |
+| 支持引擎数 | 8 | 8 | 8 ~ 10 |
 | 工具测试覆盖 | 良好但不均衡 | 核心模块全覆盖 | 所有工具有注册+行为测试 |
 | 启动模式 | stdio | stdio + HTTP | stdio + HTTP + 企业部署模板 |
 | 认证授权 | 无 | API key / 初版 OAuth | OAuth + RBAC + 审计持久化 |
@@ -360,10 +366,9 @@ v1.9.0 已完成 P0 范围：SQL `schema_diff`、MongoDB 多文档事务生命�
 
 ## 十五、近期建议执行顺序
 
-1. v2.0.x：补充 policy 模板、审计持久化设计和细粒度资源策略说明。
-2. v2.1.0：评审 DuckDB、本地文件数据源和导出边界。
-3. v2.2.0：推进 OTel/Prometheus 和策略治理。
-4. v3.0.0：在权限、审计、策略稳定后进入插件化生态。
+1. v2.1.x：补齐查询结果导出、采样分析和更细的本地文件数据源体验。
+2. v2.2.0：推进 OTel/Prometheus、审计持久化和策略治理。
+3. v3.0.0：在权限、审计、策略稳定后进入插件化生态。
 
 ---
 
@@ -421,10 +426,10 @@ v1.9.0 已完成 P0 范围：SQL `schema_diff`、MongoDB 多文档事务生命�
 
 ## 十八、下一步
 
-建议下一步进入 **v2.0.x 安全收口与 v2.1.0 分析生态评审**：
+建议下一步进入 **v2.1.x 分析生态补强与 v2.2.0 治理能力设计**：
 
-1. v2.0.x 补齐更完整的 RBAC policy 示例、审计持久化设计和细粒度资源策略说明。
-2. v2.1.0 开发前评审 DuckDB、本地文件数据源和导出边界。
+1. v2.1.x 补齐 DuckDB 查询结果导出和采样分析。
+2. v2.2.0 前评审 Prometheus/OTel、审计持久化和 policy 模板。
 3. v3.0.0 开发前复核 `docs/ADR-003-plugin-architecture.md`，确认插件安全边界。
 4. 提交规划包前按 `docs/PLANNING_AUDIT.md` 运行引用和格式审计。
 5. 每阶段完成后运行 `npm run build`、`npm test`、`npm run lint`，再提交发布补丁。

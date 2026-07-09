@@ -1,6 +1,6 @@
 {
   "name": "@yclenove/polyglot-db-mcp-server",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -54,12 +54,14 @@
     "oracle",
     "mongodb",
     "redis",
+    "duckdb",
     "model-context-protocol"
   ],
   "author": "yclenove",
   "license": "MIT",
-  "description": "Multi-engine database MCP server (MySQL, PostgreSQL, SQL Server, Oracle, MongoDB, Redis, SQLite)",
+  "description": "Multi-engine database MCP server (MySQL, PostgreSQL, SQL Server, Oracle, MongoDB, Redis, SQLite, DuckDB)",
   "dependencies": {
+    "@duckdb/node-api": "^1.5.4-r.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.9.0",
     "dotenv": "^16.4.7",

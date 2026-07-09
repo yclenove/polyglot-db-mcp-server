@@ -47,6 +47,14 @@ export function describeTableSql(
       return {
         sql: `PRAGMA table_info(\`${table.replace(/`/g, '')}\`)`,
       };
+    case 'duckdb':
+      return {
+        sql: `SELECT column_name, data_type, is_nullable
+              FROM information_schema.columns
+              WHERE table_name = ?
+              ORDER BY ordinal_position`,
+        params: [table],
+      };
     default: {
       const e: never = engine;
       throw new Error(`不支持的 SQL 引擎: ${e}`);
@@ -94,6 +102,14 @@ export function listIndexesSql(
       return {
         sql: `PRAGMA index_list(\`${table.replace(/`/g, '')}\`)`,
       };
+    case 'duckdb':
+      return {
+        sql: `SELECT index_name AS name, expressions AS definition
+              FROM duckdb_indexes()
+              WHERE table_name = ?
+              ORDER BY index_name`,
+        params: [table],
+      };
     default: {
       const e: never = engine;
       throw new Error(`不支持的 SQL 引擎: ${e}`);
@@ -129,6 +145,13 @@ export function listTablesSql(
       return {
         sql: `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`,
       };
+    case 'duckdb':
+      return {
+        sql: `SELECT table_name AS name
+              FROM information_schema.tables
+              WHERE table_type = 'BASE TABLE'
+              ORDER BY table_name`,
+      };
     default: {
       const e: never = engine;
       throw new Error(`不支持的 SQL 引擎: ${e}`);
@@ -148,6 +171,8 @@ export function explainQuerySql(engine: SqlEngine, sql: string): string {
       return `EXPLAIN PLAN FOR ${sql}`;
     case 'sqlite':
       return `EXPLAIN QUERY PLAN ${sql}`;
+    case 'duckdb':
+      return `EXPLAIN ${sql}`;
     default: {
       const e: never = engine;
       throw new Error(`不支持的 SQL 引擎: ${e}`);

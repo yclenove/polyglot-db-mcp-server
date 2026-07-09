@@ -1,10 +1,10 @@
 # 配置指南
 
 **文档编号**: CONFIG
-**版本**: 2.0
+**版本**: 2.1
 **日期**: 2026-07-10
 **状态**: 当前有效
-**适用版本**: v2.0.x+
+**适用版本**: v2.1.x+
 
 ---
 
@@ -63,7 +63,7 @@ LOG_FORMAT=human
 > 以下示例只使用开发占位符，不可直接作为生产凭证。
 
 ```env
-DB_MCP_CONNECTIONS=[{"id":"pg","engine":"postgres","url":"postgres://<pg_user>:<pg_password>@127.0.0.1:5432/<pg_database>","readonly":true},{"id":"mysql","engine":"mysql","host":"127.0.0.1","port":3306,"user":"<mysql_user>","password":"<mysql_password>","database":"<mysql_database>","readonly":true},{"id":"redis","engine":"redis","url":"redis://:<redis_password>@127.0.0.1:6379/0","readonly":false,"keyPrefix":"app:"},{"id":"mongo","engine":"mongodb","url":"mongodb://<mongo_user>:<mongo_password>@127.0.0.1:27017/?authSource=admin","database":"<mongo_database>","readonly":true,"allowlist":["users","orders"]},{"id":"local","engine":"sqlite","url":"file:./data/local.db","readonly":false}]
+DB_MCP_CONNECTIONS=[{"id":"pg","engine":"postgres","url":"postgres://<pg_user>:<pg_password>@127.0.0.1:5432/<pg_database>","readonly":true},{"id":"mysql","engine":"mysql","host":"127.0.0.1","port":3306,"user":"<mysql_user>","password":"<mysql_password>","database":"<mysql_database>","readonly":true},{"id":"redis","engine":"redis","url":"redis://:<redis_password>@127.0.0.1:6379/0","readonly":false,"keyPrefix":"app:"},{"id":"mongo","engine":"mongodb","url":"mongodb://<mongo_user>:<mongo_password>@127.0.0.1:27017/?authSource=admin","database":"<mongo_database>","readonly":true,"allowlist":["users","orders"]},{"id":"local","engine":"sqlite","url":"file:./data/local.db","readonly":false},{"id":"duck","engine":"duckdb","url":":memory:","readonly":true,"allowlist":["./data"]}]
 DB_MCP_DEFAULT_CONNECTION_ID=local
 ```
 
@@ -72,6 +72,7 @@ DB_MCP_DEFAULT_CONNECTION_ID=local
 - Redis 写操作必须配合 `keyPrefix` 限制业务前缀。
 - MongoDB 建议使用 `allowlist` 限制集合。
 - SQL 连接建议生产默认 `readonly:true`，写入场景使用独立连接 id。
+- DuckDB 默认只读；读取 CSV/Parquet/JSON 等外部文件时必须配置 `allowlist`。
 
 ---
 
@@ -80,15 +81,15 @@ DB_MCP_DEFAULT_CONNECTION_ID=local
 | 字段 | 类型 | 适用引擎 | 必填 | 说明 |
 |------|------|----------|------|------|
 | `id` | string | 全部 | 是 | 只能使用字母、数字、下划线 |
-| `engine` | string | 全部 | 是 | `mysql`、`postgres`、`mssql`、`oracle`、`sqlite`、`mongodb`、`redis` |
-| `url` | string | 推荐全部 | 条件 | Redis/MongoDB 必填；SQL 可用 url 或 host |
+| `engine` | string | 全部 | 是 | `mysql`、`postgres`、`mssql`、`oracle`、`sqlite`、`duckdb`、`mongodb`、`redis` |
+| `url` | string | 推荐全部 | 条件 | Redis/MongoDB 必填；多数 SQL 可用 url 或 host；DuckDB 可省略 |
 | `host` | string | SQL | 条件 | 未提供 url 时使用 |
 | `port` | number | SQL | 否 | 1-65535 |
 | `user` | string | SQL | 否 | 用户名 |
 | `password` | string | SQL | 否 | 密码；不要提交真实值 |
-| `database` | string | SQL/Mongo/SQLite | 否 | 数据库名或 SQLite 路径替代 |
-| `readonly` | boolean | 全部 | 否 | 默认 `false`；生产建议显式设置 |
-| `allowlist` | string[] | MongoDB/部分工具 | 否 | 允许访问的集合或对象列表 |
+| `database` | string | SQL/Mongo/SQLite/DuckDB | 否 | 数据库名，或 SQLite/DuckDB 路径替代 |
+| `readonly` | boolean | 全部 | 否 | 默认 `false`；DuckDB 默认 `true`；生产建议显式设置 |
+| `allowlist` | string[] | MongoDB/DuckDB | 否 | MongoDB 允许访问的集合；DuckDB 允许读取的本地文件或目录 |
 | `keyPrefix` | string | Redis | 否 | 限制 key 必须以此前缀开头 |
 
 ---
@@ -142,7 +143,25 @@ DB_MCP_DEFAULT_CONNECTION_ID=local
 | `DB_MSSQL_ENCRYPT` | `true` | MSSQL 连接加密开关；设为 `false` 关闭 |
 | `DB_MSSQL_TRUST_SERVER_CERTIFICATE` | `false` | MSSQL 是否信任自签证书 |
 
-### 5.6 日志和关闭
+### 5.6 DuckDB 专项
+
+DuckDB 使用 `url` 或 `database` 指向数据库文件，未提供时使用 `:memory:`。与其他 SQL 引擎不同，DuckDB 连接默认 `readonly:true`，只有显式设置 `readonly:false` 时才允许写入。
+
+示例：
+
+```env
+DB_MCP_CONNECTIONS=[{"id":"duck","engine":"duckdb","url":":memory:","readonly":true,"allowlist":["./data"]}]
+DB_MCP_DEFAULT_CONNECTION_ID=duck
+```
+
+安全边界：
+
+- `sql_query` 仍在 MCP 工具层执行只读 SQL 检查。
+- driver 层会再次执行 readonly 检查；`:memory:` 连接也会保持只读策略。
+- 外部文件读取默认关闭。配置 `allowlist` 后，只允许读取列表内的文件或目录，例如 `read_csv_auto('./data/demo.csv')`。
+- 不要把用户主目录、仓库根目录或系统目录整体加入 `allowlist`。
+
+### 5.7 日志和关闭
 
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
@@ -152,7 +171,7 @@ DB_MCP_DEFAULT_CONNECTION_ID=local
 | `DB_MONGO_TRANSACTION_TIMEOUT_MS` | `300000` | MongoDB 事务清理超时；未设置时回退到 `DB_TRANSACTION_TIMEOUT_MS` |
 | `DB_SHUTDOWN_TIMEOUT_MS` | `10000` | 优雅关闭超时 |
 
-### 5.7 HTTP 传输配置
+### 5.8 HTTP 传输配置
 
 默认仍为 `stdio`。只有设置 `DB_MCP_TRANSPORT=http` 或 CLI `--transport http` 时才启动 Streamable HTTP。
 
@@ -242,6 +261,7 @@ HTTP endpoint：
 | 项目 | 建议 |
 |------|------|
 | SQLite | 可使用 `readonly:false` 验证写入工具 |
+| DuckDB | 默认只读；只给本地样例数据目录配置 `allowlist` |
 | SQL 外部数据库 | 默认 `readonly:true` |
 | Redis | 配置 `keyPrefix` |
 | MongoDB | 配置 `allowlist` |
@@ -254,6 +274,7 @@ HTTP endpoint：
 |------|------|
 | 连接权限 | 使用最小权限账号 |
 | 写连接 | 使用独立 id，并明确 `readonly:false` |
+| DuckDB 文件访问 | `allowlist` 只包含业务需要的只读数据目录 |
 | 查询限制 | 调低 `DB_MAX_ROWS`，配置超时和 SQL 长度 |
 | 限流 | 设置 `DB_RATE_LIMIT_PER_SECOND` |
 | 脱敏 | 开启 `strict` 或 `strict-v2` |
@@ -273,6 +294,7 @@ HTTP endpoint：
 | Redis key 被拒绝 | 检查 `keyPrefix` 与传入 key 是否一致 |
 | Mongo 集合被拒绝 | 检查 `allowlist` 是否包含目标集合 |
 | SQLite 文件找不到 | 确认当前工作目录和 `file:` 相对路径 |
+| DuckDB 外部文件被拒绝 | 检查文件路径是否位于 DuckDB 连接的 `allowlist` 内 |
 | 日志出现敏感信息 | 提交 issue 前先脱敏，检查 `LOG_LEVEL` 和错误输出 |
 
 ---

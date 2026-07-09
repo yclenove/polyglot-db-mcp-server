@@ -222,7 +222,16 @@ async function interactiveInitCommand(options: InitOptions): Promise<number> {
 
   const connections: Record<string, unknown>[] = [];
 
-  const engines = ['mysql', 'postgres', 'mssql', 'oracle', 'mongodb', 'redis', 'sqlite'] as const;
+  const engines = [
+    'mysql',
+    'postgres',
+    'mssql',
+    'oracle',
+    'mongodb',
+    'redis',
+    'sqlite',
+    'duckdb',
+  ] as const;
   console.log('支持的引擎: ' + engines.join(', '));
   console.log('输入引擎名称添加连接，输入空行结束\n');
 
@@ -246,6 +255,16 @@ async function interactiveInitCommand(options: InitOptions): Promise<number> {
     if (engine === 'sqlite') {
       const url = await ask('  SQLite URL（默认 file:./data/local.db）：');
       conn.url = url || 'file:./data/local.db';
+    } else if (engine === 'duckdb') {
+      const url = await ask('  DuckDB URL（默认 :memory:，可填 file:./data/analytics.duckdb）：');
+      conn.url = url || ':memory:';
+      const allowlist = await ask('  文件 allowlist（逗号分隔目录或文件，可选）：');
+      if (allowlist) {
+        conn.allowlist = allowlist
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean);
+      }
     } else if (engine === 'redis' || engine === 'mongodb') {
       const url = await ask(
         `  ${engine} URL（如 ${engine === 'redis' ? 'redis://localhost:6379' : 'mongodb://localhost:27017/db'}）：`,
