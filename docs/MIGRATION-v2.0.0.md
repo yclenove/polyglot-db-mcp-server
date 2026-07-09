@@ -3,7 +3,7 @@
 **文档编号**: MIGRATION-v2.0.0
 **版本**: 1.0
 **日期**: 2026-07-09
-**状态**: 草案，待 v2.0 实施前评审
+**状态**: 当前有效
 **适用范围**: v1.7.x / v1.8.x -> v2.0.0
 **关联文档**: `docs/ADR-002-oauth-rbac.md`, `docs/PRD-v2.0.0.md`, `docs/CONFIG.md`, `docs/ERRORS.md`
 
@@ -24,7 +24,7 @@ v2.0.0 的核心变化是把 HTTP 模式从“轻量 API key 保护”升级为�
 
 ## 二、兼容性总览
 
-| 使用方式 | v1.x 行为 | v2.0 目标行为 | 是否需要迁移 |
+| 使用方式 | v1.x 行为 | v2.0 行为 | 是否需要迁移 |
 |----------|-----------|---------------|--------------|
 | stdio 本地启动 | 默认无认证 | 默认仍可无认证，subject=`local:stdio` | 通常不需要 |
 | HTTP + 无认证 | v1.8 开发模式可能允许 | 默认拒绝，除非显式 `DB_AUTH_DISABLED=true` | 需要 |
@@ -232,13 +232,18 @@ npm test
 
 ---
 
-## 八、发布前必须补齐
+## 八、发布状态与后续项
 
-v2.0.0 RC 前必须补齐：
+v2.0.0 已补齐：
 
-1. 可执行 policy validator。
-2. 最小 bearer 配置示例。
-3. 至少三个 policy 示例：readonly、redis operator、admin。
-4. 401/403 错误码和 hint 文档。
-5. v1.8 API key 到 v2.0 bearer 的迁移示例。
-6. 审计字段变更说明。
+1. 可执行 policy validator：`auth_policy_validate`。
+2. 最小 bearer 配置示例：README、`.env.example`、`docs/CONFIG.md`。
+3. 401/403 错误码和 hint 文档：`docs/ERRORS.md`。
+4. v1.8 API key 到 v2.0 bearer 的迁移路径。
+5. 授权 allow/deny 审计字段说明。
+
+后续项：
+
+1. 增加更多生产 policy 模板：readonly、Redis operator、admin 分离文件。
+2. 将 `maskingMode` condition 接入逐请求脱敏执行上下文。
+3. 增加审计持久化 sink，与 v2.2 可观测治理合流。

@@ -3,9 +3,9 @@
 **文档编号**: ADR-002
 **版本**: 1.0
 **日期**: 2026-07-09
-**状态**: Proposed
+**状态**: Accepted
 **目标版本**: v2.0.0
-**关联文档**: `docs/ROADMAP.md`, `docs/PRD-v1.8.0.md`, `docs/ADR-001-streamable-http.md`
+**关联文档**: `docs/ROADMAP.md`, `docs/PRD-v2.0.0.md`, `docs/MIGRATION-v2.0.0.md`, `docs/ADR-001-streamable-http.md`
 
 ---
 
@@ -277,18 +277,20 @@ withAuthorization(toolName, input, context, async () => {
 
 ## 十三、验收清单
 
-- [ ] HTTP 模式默认要求认证。
-- [ ] Bearer Token 验证 issuer/audience/expiry/signature。
-- [ ] RBAC policy default deny。
-- [ ] 工具调用前有统一授权 wrapper。
-- [ ] 现有 readonly、SQL guard、NoSQL guard、keyPrefix、allowlist 未被绕过。
-- [ ] 审计记录 subject/roles/decision/reason。
-- [ ] stdio 默认兼容。
-- [ ] 文档包含迁移指南和 policy 示例。
-- [ ] auth/rbac/policy 测试覆盖通过。
+- [x] HTTP 模式默认要求认证。
+- [x] Bearer Token 验证 issuer/audience/expiry/signature。
+- [x] RBAC policy default deny。
+- [x] 工具调用前有统一授权 wrapper。
+- [x] 现有 readonly、SQL guard、NoSQL guard、keyPrefix、allowlist 未被绕过。
+- [x] 审计记录 subject/roles/decision/reason。
+- [x] stdio 默认兼容。
+- [x] 文档包含迁移指南和 policy 示例。
+- [x] auth/rbac/policy 测试覆盖通过。
 
 ---
 
 ## 十四、结论
 
-v2.0.0 应以 **Bearer Token + RBAC + Policy Conditions + Audit Decision** 作为企业安全基线。API key 可作为 v1.8 过渡能力，但不应成为 v2.0 的最终权限模型。所有授权能力必须建立在现有工具安全边界之上，而不是替代它们。
+v2.0.0 已以 **Bearer Token + RBAC + Policy Conditions + Audit Decision** 作为企业安全基线。API key 保留为开发/迁移能力，但不作为企业生产推荐权限模型。所有授权能力建立在现有工具安全边界之上，而不是替代它们。
+
+实施备注：`maskingMode` condition 已完成 schema 验证，但逐请求强制脱敏需要从全局状态迁移到请求上下文，避免并发串扰，作为 v2.0.x 后续项处理。

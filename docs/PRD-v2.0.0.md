@@ -4,7 +4,7 @@
 **版本**: 1.0
 **日期**: 2026-07-09
 **目标版本**: v2.0.0
-**状态**: 草案，待评审
+**状态**: 已完成
 **主题**: 企业安全：OAuth/Bearer Token、RBAC、审计增强
 **关联 ADR**: `docs/ADR-002-oauth-rbac.md`
 **前置依赖**: v1.8.0 HTTP 传输稳定
@@ -41,6 +41,10 @@ v2.0.0 的目标是建立企业安全基线，让项目从“可部署 HTTP MCP 
 | O-004 | 审计增强 | allow/deny 决策均可追踪 |
 | O-005 | 兼容迁移 | stdio 本地用户不被破坏，v1.x 配置可迁移 |
 | O-006 | 文档可操作 | 提供 policy 示例、迁移指南、错误码说明 |
+
+### 3.1 实施结论
+
+v2.0.0 已完成 HTTP Bearer Token、RBAC policy、统一授权 wrapper、授权审计、认证诊断工具和迁移文档。Policy conditions 已覆盖 `maxRows`、`transport`、`timeWindow` 的运行时限制，并验证 `maskingMode` 配置合法性；`maskingMode` 的逐请求强制执行需要避免全局脱敏配置并发串扰，已接受为 v2.0.x 后续项。
 
 ---
 
@@ -172,9 +176,9 @@ DB_RBAC_DEFAULT_EFFECT=deny
 |----------|------|
 | `test/auth/token-verifier.test.mjs` | issuer/audience/expiry/signature |
 | `test/auth/rbac.test.mjs` | role/resource/action/default deny |
-| `test/auth/policy.test.mjs` | maxRows/masking/time window |
+| `test/auth/rbac.test.mjs` | role/resource/action/default deny/maxRows 条件 |
 | `test/auth/tool-action-map.test.mjs` | 所有工具 action 映射 |
-| `test/auth/audit.test.mjs` | allow/deny 审计脱敏 |
+| `test/auth/authorization.test.mjs` | allow/deny 审计脱敏 |
 | `test/transports/http-auth.test.mjs` | HTTP bearer 集成 |
 
 ### 8.2 回归测试
@@ -205,22 +209,22 @@ DB_RBAC_DEFAULT_EFFECT=deny
 
 ## 十、验收清单
 
-- [ ] HTTP bearer 验证完整。
-- [ ] RBAC policy loader 和 default deny 完成。
-- [ ] 工具调用前统一授权。
-- [ ] 所有工具有 action map 覆盖。
-- [ ] allow/deny 审计完整且脱敏。
-- [ ] 现有工具安全边界未削弱。
-- [ ] stdio 默认兼容。
-- [ ] Policy 示例和迁移指南完成。
-- [ ] `npm run build`、`npm test`、`npm run lint`、`npm run typecheck` 通过。
+- [x] HTTP bearer 验证完整。
+- [x] RBAC policy loader 和 default deny 完成。
+- [x] 工具调用前统一授权。
+- [x] 所有工具有 action map 覆盖。
+- [x] allow/deny 审计完整且脱敏。
+- [x] 现有工具安全边界未削弱。
+- [x] stdio 默认兼容。
+- [x] Policy 示例和迁移指南完成。
+- [x] `npm run build`、`npm test`、`npm run lint`、`npm run typecheck` 通过。
 
 ---
 
-## 十一、待评审问题
+## 十一、评审结论
 
-1. 初版是否支持 YAML policy，还是仅 JSON。
-2. 是否将 tenant 作为 v2.0 P0。
-3. API key fallback 是否保留到 v2.0 GA。
-4. Tool action map 是否按工具硬编码，还是从注册元数据生成。
-5. 是否引入外部 JWT/JOSE 依赖，具体库选择需安全评审。
+1. 初版 policy 仅支持 JSON；YAML 不纳入 v2.0。
+2. tenant 进入 AuthContext 与 audit，完整租户隔离留给 v2.x。
+3. API key fallback 保留为开发/迁移模式，生产文档推荐 bearer/RBAC。
+4. Tool action map 采用集中硬编码，并用测试自动覆盖所有注册工具。
+5. JWT/JWKS 使用 `jose`，覆盖 issuer、audience、expiry 和签名验证测试。

@@ -4,6 +4,23 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.0] - 2026-07-10
+
+### 新增
+- **Bearer Token 认证**：HTTP 模式支持 JWT issuer/audience/expiry/signature 校验，JWKS 可来自 URL 或本地文件。
+- **RBAC 授权**：新增 policy loader、subject/role/resource/action 授权、默认拒绝和 maxRows/transport/timeWindow 条件。
+- **统一授权包装**：工具调用前统一执行授权，所有工具映射到 read/write/admin/diagnose/export/replay action。
+- **认证工具**：新增 `auth_whoami` 和 `auth_policy_validate`。
+
+### 变更
+- 版本升至 `2.0.0`，HTTP 默认认证从 API key 过渡为 bearer；API key fallback 保留给开发和迁移。
+- 默认测试脚本纳入 `test/auth/*.test.mjs`。
+- API 文档生成器补齐认证工具。
+
+### 安全
+- 授权 allow/deny 决策写入审计，包含 subject、tenant、tool、action、roles、reason 和 policy version，不记录 token 原文。
+- 现有 SQL 只读、Mongo allowlist/NoSQL guard、Redis keyPrefix/blocked command 仍保留在工具/driver 层。
+
 ## [1.9.0] - 2026-07-10
 
 ### 新增

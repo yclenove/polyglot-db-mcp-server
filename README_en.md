@@ -57,7 +57,7 @@ The default transport is still `stdio`, so existing desktop MCP client configs k
 Enable Streamable HTTP explicitly:
 
 ```bash
-DB_MCP_TRANSPORT=http DB_HTTP_AUTH_DISABLED=true node dist/index.js
+DB_MCP_TRANSPORT=http DB_AUTH_DISABLED=true node dist/index.js
 ```
 
 Or:
@@ -76,9 +76,22 @@ HTTP mode provides:
 Security defaults:
 
 - Listens on `127.0.0.1` by default.
-- Binding to `0.0.0.0` requires `DB_HTTP_API_KEY` unless `DB_HTTP_AUTH_DISABLED=true` is explicit.
+- HTTP defaults to `DB_AUTH_MODE=bearer`; configure issuer/audience/JWKS and an RBAC policy.
+- API key fallback accepts `Authorization: Bearer <key>` or `x-api-key`, and is intended for development or migration only.
+- `DB_AUTH_DISABLED=true` disables HTTP auth explicitly for local development.
 - `DB_HTTP_ORIGINS` is the Origin allowlist; unmatched Origin headers are rejected.
-- API keys are accepted via `Authorization: Bearer <key>` or `x-api-key`.
+
+Minimal bearer/RBAC example:
+
+```bash
+DB_MCP_TRANSPORT=http \
+DB_AUTH_MODE=bearer \
+DB_AUTH_ISSUER=https://idp.example.com/ \
+DB_AUTH_AUDIENCE=polyglot-db-mcp-server \
+DB_AUTH_JWKS_FILE=./jwks.json \
+DB_RBAC_POLICY_FILE=./rbac-policy.json \
+node dist/index.js
+```
 
 Smoke test:
 

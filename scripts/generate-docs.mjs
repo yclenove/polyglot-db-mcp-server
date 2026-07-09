@@ -157,6 +157,12 @@ const tools = [
       { name: 'sql', type: 'string', required: true, description: '要分析的 SQL 查询（SELECT 语句）' },
     ],
   },
+  {
+    name: 'sql_cache_stats',
+    category: 'SQL',
+    description: '返回查询缓存的统计信息（大小、配置、命中率）。通过 DB_QUERY_CACHE_SIZE 启用缓存。',
+    params: [],
+  },
 
   // MongoDB 工具
   {
@@ -875,6 +881,22 @@ const tools = [
     params: [
       { name: 'sql', type: 'string', required: true, description: '要分析的 SQL 查询' },
       { name: 'connectionId', type: 'string', required: false, description: '连接 ID，用于执行 EXPLAIN' },
+    ],
+  },
+
+  // 认证与授权
+  {
+    name: 'auth_whoami',
+    category: '认证与授权',
+    description: '返回当前认证主体、tenant、scope 和 token roles。不会返回 token 原文。',
+    params: [],
+  },
+  {
+    name: 'auth_policy_validate',
+    category: '认证与授权',
+    description: '验证 RBAC policy JSON，返回版本、角色和绑定数量。',
+    params: [
+      { name: 'policy_json', type: 'string', required: true, description: 'RBAC policy JSON 字符串' },
     ],
   },
 

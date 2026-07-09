@@ -4,12 +4,15 @@ import type { AddressInfo } from 'node:net';
 import { URL } from 'node:url';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { ConnectionRegistry } from '../core/registry.js';
 import type { HttpTransportConfig } from '../core/http-config.js';
 import { createErrorPayload, maskErrorCredentials, type ErrorCode } from '../core/error-codes.js';
 import { logger } from '../core/logger.js';
 import { createServer as createMcpServer } from '../server.js';
 import { healthPayload, readinessPayload, type PingSummary } from './health.js';
+import { createJwtVerifier, type JwtVerifier } from '../auth/token-verifier.js';
+import type { AuthorizationRuntime } from '../auth/authorization.js';
 
 interface SessionEntry {
   server: McpServer;
@@ -92,12 +95,84 @@ function extractBearerToken(value: string | undefined): string | undefined {
   return match?.[1];
 }
 
-function assertAuthorized(req: IncomingMessage, config: HttpTransportConfig): void {
-  if (config.authDisabled || !config.apiKey) return;
+function apiKeyAuthInfo(): AuthInfo {
+  return {
+    token: 'api-key',
+    clientId: 'api-key',
+    scopes: ['*'],
+    extra: {
+      subject: 'api-key',
+      transport: 'http',
+      authMode: 'api_key',
+      claims: {},
+    },
+  };
+}
+
+function disabledHttpAuthInfo(): AuthInfo {
+  return {
+    token: '',
+    clientId: 'anonymous:http',
+    scopes: ['anonymous'],
+    extra: {
+      subject: 'anonymous:http',
+      transport: 'http',
+      authMode: 'none',
+      claims: {},
+    },
+  };
+}
+
+function effectiveAuthMode(config: HttpTransportConfig): 'none' | 'api_key' | 'bearer' {
+  if (config.authDisabled) return 'none';
+  return config.authMode ?? (config.apiKey ? 'api_key' : 'bearer');
+}
+
+function createVerifier(config: HttpTransportConfig): JwtVerifier | undefined {
+  if (effectiveAuthMode(config) !== 'bearer') return undefined;
+  if (!config.authIssuer || !config.authAudience) {
+    throw new HttpResponseError(500, 'AUTH_006', 'Bearer auth missing issuer or audience');
+  }
+  return createJwtVerifier({
+    issuer: config.authIssuer,
+    audience: config.authAudience,
+    jwksUrl: config.authJwksUrl,
+    jwksFile: config.authJwksFile,
+  });
+}
+
+async function authenticateHttpRequest(
+  req: IncomingMessage,
+  config: HttpTransportConfig,
+  verifier: JwtVerifier | undefined,
+): Promise<AuthInfo> {
+  const authMode = effectiveAuthMode(config);
+  if (authMode === 'none') return disabledHttpAuthInfo();
+
+  if (authMode === 'api_key') {
+    if (!config.apiKey) {
+      throw new HttpResponseError(401, 'AUTH_003', 'Missing HTTP API key configuration');
+    }
+    const bearer = extractBearerToken(getHeader(req, 'authorization'));
+    const apiKey = getHeader(req, 'x-api-key');
+    if (bearer === config.apiKey || apiKey === config.apiKey) return apiKeyAuthInfo();
+    throw new HttpResponseError(401, 'AUTH_003', 'Missing or invalid HTTP API key');
+  }
+
   const bearer = extractBearerToken(getHeader(req, 'authorization'));
-  const apiKey = getHeader(req, 'x-api-key');
-  if (bearer === config.apiKey || apiKey === config.apiKey) return;
-  throw new HttpResponseError(401, 'AUTH_003', 'Missing or invalid HTTP API key');
+  if (!bearer) {
+    throw new HttpResponseError(401, 'AUTH_003', 'Missing Bearer token');
+  }
+  if (!verifier) {
+    throw new HttpResponseError(401, 'AUTH_006', 'Bearer verifier is not configured');
+  }
+  try {
+    return await verifier.verify(bearer);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const code: ErrorCode = message.includes('[AUTH_004]') ? 'AUTH_004' : 'AUTH_006';
+    throw new HttpResponseError(401, code, maskErrorCredentials(message));
+  }
 }
 
 async function readJsonBody(
@@ -140,14 +215,17 @@ export async function startHttpTransport(options: {
   registry: ConnectionRegistry;
   config: HttpTransportConfig;
   startupPings: readonly PingSummary[];
+  authorization?: AuthorizationRuntime;
   startedAt?: Date;
 }): Promise<StartedHttpTransport> {
-  const { registry, config, startupPings, startedAt = new Date() } = options;
+  const { registry, config, startupPings, authorization, startedAt = new Date() } = options;
   const sessions = new Map<string, SessionEntry>();
+  const jwtVerifier = createVerifier(config);
 
   const handleMcpPost = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     assertOriginAllowed(req, config);
-    assertAuthorized(req, config);
+    const authInfo = await authenticateHttpRequest(req, config, jwtVerifier);
+    (req as IncomingMessage & { auth?: AuthInfo }).auth = authInfo;
     const body = await readJsonBody(req, config.bodyLimitBytes, config.requestTimeoutMs);
     const sessionId = getHeader(req, 'mcp-session-id');
 
@@ -162,7 +240,7 @@ export async function startHttpTransport(options: {
       return;
     }
 
-    const mcpServer = createMcpServer(registry);
+    const mcpServer = createMcpServer(registry, { authorization });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       enableJsonResponse: true,
@@ -225,7 +303,7 @@ export async function startHttpTransport(options: {
 
       if (req.method === 'GET' || req.method === 'DELETE') {
         assertOriginAllowed(req, config);
-        assertAuthorized(req, config);
+        await authenticateHttpRequest(req, config, jwtVerifier);
         sendMcpError(res, 405, 'HTTP_003', 'Method not allowed', { allow: 'POST' });
         return;
       }

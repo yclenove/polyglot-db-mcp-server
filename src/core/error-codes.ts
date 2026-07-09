@@ -181,8 +181,8 @@ export const ErrorDefinitions = {
     applies_to: ['Auth', 'MongoDB', 'Redis'],
   },
   AUTH_003: {
-    message: 'HTTP API key 缺失或无效',
-    hint: '设置正确 Authorization 或 x-api-key header',
+    message: 'HTTP 认证凭证缺失或无效',
+    hint: '设置正确 Authorization Bearer token 或 x-api-key header',
     severity: 'error',
     retryable: false,
     applies_to: ['Auth', 'HTTP'],
@@ -200,6 +200,21 @@ export const ErrorDefinitions = {
     severity: 'error',
     retryable: false,
     applies_to: ['Auth'],
+  },
+  AUTH_006: {
+    message: 'Bearer Token 无效',
+    hint: '检查 token 签名、issuer、audience、nbf/exp 和 JWKS 配置',
+    severity: 'error',
+    retryable: false,
+    applies_to: ['Auth', 'HTTP'],
+  },
+
+  POLICY_001: {
+    message: 'RBAC policy 无效',
+    hint: '检查 policy JSON 的 version、roles、bindings、actions 和 resources',
+    severity: 'error',
+    retryable: false,
+    applies_to: ['Auth', 'Config'],
   },
 
   CFG_001: {
@@ -333,6 +348,8 @@ export const ErrorCodes: { readonly [K in ErrorCode]: (typeof ErrorDefinitions)[
   AUTH_003: ErrorDefinitions.AUTH_003.message,
   AUTH_004: ErrorDefinitions.AUTH_004.message,
   AUTH_005: ErrorDefinitions.AUTH_005.message,
+  AUTH_006: ErrorDefinitions.AUTH_006.message,
+  POLICY_001: ErrorDefinitions.POLICY_001.message,
   CFG_001: ErrorDefinitions.CFG_001.message,
   CFG_002: ErrorDefinitions.CFG_002.message,
   CFG_003: ErrorDefinitions.CFG_003.message,

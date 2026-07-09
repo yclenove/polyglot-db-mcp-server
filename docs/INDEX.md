@@ -37,15 +37,17 @@
 13. `docs/ADR-002-oauth-rbac.md`
 14. `docs/PRD-v2.0.0.md`
 15. `docs/MIGRATION-v2.0.0.md`
-16. `docs/ADR-003-plugin-architecture.md`
-17. `docs/PLANNING_AUDIT.md`
-18. `docs/QUALITY-v1.7.1-质量报告.md`
-19. `docs/QUALITY-v1.7.2-质量报告.md`
-20. `docs/QUALITY-v1.7.3-质量报告.md`
-21. `docs/QUALITY-v1.8.0-质量报告.md`
-22. `docs/QUALITY-v1.9.0-质量报告.md`
-23. `docs/QUALITY-v1.7.0-质量报告.md`
-24. `CHANGELOG.md`
+16. `docs/ITER-v2.0.0-迭代计划.md`
+17. `docs/ADR-003-plugin-architecture.md`
+18. `docs/PLANNING_AUDIT.md`
+19. `docs/QUALITY-v1.7.1-质量报告.md`
+20. `docs/QUALITY-v1.7.2-质量报告.md`
+21. `docs/QUALITY-v1.7.3-质量报告.md`
+22. `docs/QUALITY-v1.8.0-质量报告.md`
+23. `docs/QUALITY-v1.9.0-质量报告.md`
+24. `docs/QUALITY-v2.0.0-质量报告.md`
+25. `docs/QUALITY-v1.7.0-质量报告.md`
+26. `CHANGELOG.md`
 
 ### 1.3 发布负责人
 
@@ -74,9 +76,10 @@
 | `docs/ITER-v1.8.0-迭代计划.md` | 已完成 | v1.8.0 | HTTP 传输实施任务、排期和验收 |
 | `docs/PRD-v1.9.0.md` | 已完成 | v1.9.0 | 高级数据库工作流产品需求 |
 | `docs/ITER-v1.9.0-迭代计划.md` | 已完成 | v1.9.0 | Schema diff、Mongo 事务、Redis pipeline 实施任务 |
-| `docs/ADR-002-oauth-rbac.md` | Proposed | v2.0.0 | OAuth/Bearer Token 与 RBAC 企业安全架构决策 |
-| `docs/PRD-v2.0.0.md` | 草案，待评审 | v2.0.0 | 企业安全产品需求 |
-| `docs/MIGRATION-v2.0.0.md` | 草案，待评审 | v2.0.0 | v1.x 到 v2.0 企业安全迁移路径 |
+| `docs/ADR-002-oauth-rbac.md` | Accepted | v2.0.0 | OAuth/Bearer Token 与 RBAC 企业安全架构决策 |
+| `docs/PRD-v2.0.0.md` | 已完成 | v2.0.0 | 企业安全产品需求 |
+| `docs/MIGRATION-v2.0.0.md` | 当前有效 | v2.0.0 | v1.x 到 v2.0 企业安全迁移路径 |
+| `docs/ITER-v2.0.0-迭代计划.md` | 已完成 | v2.0.0 | Bearer/RBAC 实施任务和接受风险 |
 | `docs/ADR-003-plugin-architecture.md` | Proposed | v3.0.0 | 插件化生态架构决策 |
 | `docs/PLANNING_AUDIT.md` | 当前有效 | 全规划包 | 规划完备性审计与提交前检查 |
 | `docs/API.md` | 当前有效，需持续生成/校验 | v1.9.x | MCP 工具接口和传输说明 |
@@ -85,6 +88,7 @@
 | `docs/QUALITY-v1.7.3-质量报告.md` | 已完成 | v1.7.3 | v1.7.3 CLI、错误码、诊断和快速开始签核 |
 | `docs/QUALITY-v1.8.0-质量报告.md` | 已完成 | v1.8.0 | HTTP 传输质量门禁和发布签核 |
 | `docs/QUALITY-v1.9.0-质量报告.md` | 已完成 | v1.9.0 | 高级数据库工作流质量门禁和发布签核 |
+| `docs/QUALITY-v2.0.0-质量报告.md` | 已完成 | v2.0.0 | 企业安全质量门禁和发布签核 |
 | `docs/QUALITY-v1.7.0-质量报告.md` | 历史质量依据，需 v1.7.1 复核 | v1.7.0 | 质量债来源和修复追踪 |
 
 ---
@@ -172,7 +176,8 @@ flowchart TD
   K --> L[ADR-002: OAuth/RBAC]
   L --> M[PRD v2.0.0: 企业安全]
   M --> N[MIGRATION v2.0.0]
-  N --> O[ADR-003: 插件化架构]
+  N --> O[ITER v2.0.0: Bearer/RBAC 实施]
+  O --> P[ADR-003: 插件化架构]
 ```
 
 ---
@@ -196,5 +201,5 @@ flowchart TD
 | P1 | `docs/CONFIG.md` 与 `.env.example`、README 持续对齐 | 每次配置变更 |
 | P1 | `docs/RELEASE_CHECKLIST.md` 跟随真实发布流程持续更新 | 每次发布工程变更 |
 | P1 | `docs/ERRORS.md` 与源码 `ErrorCodes`、API 文档持续对齐 | 每次错误行为变更 |
-| P1 | `docs/ADR-002-oauth-rbac.md`、`docs/PRD-v2.0.0.md`、`docs/MIGRATION-v2.0.0.md` 评审 | v2.0.0 启动前 |
+| P1 | v2.0.x 持续补充 policy 模板和 `maskingMode` 逐请求强制执行说明 | v2.0.x |
 | P2 | `docs/ADR-003-plugin-architecture.md` 在 v2.x 后复核 | v3.0.0 启动前 |

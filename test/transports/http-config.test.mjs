@@ -14,9 +14,10 @@ describe('HTTP transport config', () => {
     assert.equal(config.endpoint, '/mcp');
     assert.deepEqual(config.origins, []);
     assert.equal(config.authDisabled, false);
+    assert.equal(config.authMode, 'none');
     assert.equal(config.bodyLimitBytes, 1024 * 1024);
 
-    const safe = safeHttpConfig({ ...config, apiKey: 'secret-key' });
+    const safe = safeHttpConfig({ ...config, authMode: 'api_key', apiKey: 'secret-key' });
     assert.equal(safe.auth, 'api_key');
     assert.equal(Object.values(safe).includes('secret-key'), false);
   });
@@ -29,13 +30,24 @@ describe('HTTP transport config', () => {
         DB_MCP_TRANSPORT: 'stdio',
         DB_HTTP_PORT: '3000',
       },
-      ['--transport', 'http', '--host', 'localhost', '--port', '3100', '--endpoint', '/db'],
+      [
+        '--transport',
+        'http',
+        '--host',
+        'localhost',
+        '--port',
+        '3100',
+        '--endpoint',
+        '/db',
+        '--auth-disabled',
+      ],
     );
 
     assert.equal(config.transport, 'http');
     assert.equal(config.host, 'localhost');
     assert.equal(config.port, 3100);
     assert.equal(config.endpoint, '/db');
+    assert.equal(config.authDisabled, true);
   });
 
   test('rejects invalid transport, endpoint, and port', async () => {
@@ -46,7 +58,7 @@ describe('HTTP transport config', () => {
     assert.throws(() => parseHttpTransportConfig({ DB_HTTP_PORT: '70000' }), /CFG_005/);
   });
 
-  test('requires API key for non-local HTTP bind unless explicitly disabled', async () => {
+  test('HTTP defaults to bearer and keeps API key fallback explicit', async () => {
     const { parseHttpTransportConfig } = await import('../../dist/core/http-config.js');
 
     assert.throws(
@@ -55,8 +67,17 @@ describe('HTTP transport config', () => {
           DB_MCP_TRANSPORT: 'http',
           DB_HTTP_HOST: '0.0.0.0',
         }),
-      /AUTH_003/,
+      /AUTH_006/,
     );
+
+    const withBearer = parseHttpTransportConfig({
+      DB_MCP_TRANSPORT: 'http',
+      DB_HTTP_HOST: '0.0.0.0',
+      DB_AUTH_ISSUER: 'https://idp.example.com/',
+      DB_AUTH_AUDIENCE: 'polyglot-db-mcp-server',
+      DB_AUTH_JWKS_FILE: './jwks.json',
+    });
+    assert.equal(withBearer.authMode, 'bearer');
 
     const withKey = parseHttpTransportConfig({
       DB_MCP_TRANSPORT: 'http',
@@ -64,12 +85,14 @@ describe('HTTP transport config', () => {
       DB_HTTP_API_KEY: 'dev-key',
     });
     assert.equal(withKey.apiKey, 'dev-key');
+    assert.equal(withKey.authMode, 'api_key');
 
     const disabled = parseHttpTransportConfig({
       DB_MCP_TRANSPORT: 'http',
       DB_HTTP_HOST: '0.0.0.0',
-      DB_HTTP_AUTH_DISABLED: 'true',
+      DB_AUTH_DISABLED: 'true',
     });
     assert.equal(disabled.authDisabled, true);
+    assert.equal(disabled.authMode, 'none');
   });
 });

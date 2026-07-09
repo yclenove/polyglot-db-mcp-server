@@ -1,10 +1,10 @@
 # 错误码与提示规范
 
 **文档编号**: ERRORS
-**版本**: 1.1
+**版本**: 2.0
 **日期**: 2026-07-10
 **状态**: 当前有效
-**适用版本**: v1.7.x+
+**适用版本**: v2.0.x+
 
 ---
 
@@ -110,11 +110,18 @@
 |------|---------|------|-----------|
 | `AUTH_001` | 连接配置为只读 | 如确需写入，使用单独写连接并设置 `readonly:false` | false |
 | `AUTH_002` | 不在允许列表中 | 检查 allowlist/keyPrefix/RBAC 策略 | false |
-| `AUTH_003` | HTTP API key 缺失或无效 | 设置正确 Authorization 或 x-api-key header | false |
+| `AUTH_003` | HTTP 认证凭证缺失或无效 | 设置正确 Authorization Bearer token 或 x-api-key header | false |
 | `AUTH_004` | Token 已过期 | 重新获取 token | true |
 | `AUTH_005` | 权限不足 | 联系管理员授予对应 connection/tool/action 权限 | false |
+| `AUTH_006` | Bearer Token 无效 | 检查 token 签名、issuer、audience、nbf/exp 和 JWKS 配置 | false |
 
-### 4.6 配置错误
+### 4.6 Policy 错误
+
+| Code | Message | Hint | Retryable |
+|------|---------|------|-----------|
+| `POLICY_001` | RBAC policy 无效 | 检查 policy JSON 的 version、roles、bindings、actions 和 resources | false |
+
+### 4.7 配置错误
 
 | Code | Message | Hint | Retryable |
 |------|---------|------|-----------|
@@ -124,7 +131,7 @@
 | `CFG_004` | 不支持的引擎类型 | 使用支持的 engine 枚举 | false |
 | `CFG_005` | 缺少必填字段 | 检查 `id`、`engine`、`url` 或 host/database | false |
 
-### 4.7 HTTP 传输错误
+### 4.8 HTTP 传输错误
 
 | Code | Message | Hint | Retryable |
 |------|---------|------|-----------|
@@ -134,7 +141,7 @@
 | `HTTP_004` | Endpoint 不存在 | 检查 `DB_HTTP_ENDPOINT` | false |
 | `HTTP_005` | HTTP transport 未启用 | 设置 `DB_MCP_TRANSPORT=http` | false |
 
-### 4.8 CLI 错误
+### 4.9 CLI 错误
 
 | Code | Message | Hint | Retryable |
 |------|---------|------|-----------|

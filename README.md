@@ -62,7 +62,7 @@ polyglot-db-mcp-server
 显式启用 Streamable HTTP：
 
 ```bash
-DB_MCP_TRANSPORT=http DB_HTTP_AUTH_DISABLED=true node dist/index.js
+DB_MCP_TRANSPORT=http DB_AUTH_DISABLED=true node dist/index.js
 ```
 
 或：
@@ -81,9 +81,22 @@ HTTP 模式提供：
 安全默认值：
 
 - 默认监听 `127.0.0.1`。
-- 监听 `0.0.0.0` 时必须配置 `DB_HTTP_API_KEY`，除非显式 `DB_HTTP_AUTH_DISABLED=true`。
+- HTTP 模式默认使用 `DB_AUTH_MODE=bearer`，需要配置 issuer/audience/JWKS 和 RBAC policy。
+- API key fallback 支持 `Authorization: Bearer <key>` 和 `x-api-key`，仅建议开发/过渡使用。
+- 显式 `DB_AUTH_DISABLED=true` 可关闭 HTTP 认证，仅限本地开发。
 - `DB_HTTP_ORIGINS` 非空时作为 Origin allowlist；带 Origin 且不匹配会被拒绝。
-- API key 支持 `Authorization: Bearer <key>` 和 `x-api-key`。
+
+最小 bearer/RBAC 配置示例：
+
+```bash
+DB_MCP_TRANSPORT=http \
+DB_AUTH_MODE=bearer \
+DB_AUTH_ISSUER=https://idp.example.com/ \
+DB_AUTH_AUDIENCE=polyglot-db-mcp-server \
+DB_AUTH_JWKS_FILE=./jwks.json \
+DB_RBAC_POLICY_FILE=./rbac-policy.json \
+node dist/index.js
+```
 
 HTTP smoke test：
 

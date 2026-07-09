@@ -9,6 +9,7 @@ import { runCli } from './cli.js';
 import { parseHttpTransportConfig, safeHttpConfig } from './core/http-config.js';
 import { connectStdioTransport } from './transports/stdio.js';
 import { startHttpTransport, type StartedHttpTransport } from './transports/http.js';
+import { createAuthorizationRuntime } from './auth/authorization.js';
 
 loadEnv({ path: path.join(process.cwd(), '.env'), override: true });
 
@@ -25,6 +26,11 @@ async function main(): Promise<void> {
   logger.info('transport config', safeHttpConfig(transportConfig));
 
   const registry = await createRegistryFromEnv();
+  const authorization = createAuthorizationRuntime(registry, {
+    mode: transportConfig.authMode,
+    policyFile: transportConfig.rbacPolicyFile,
+    defaultEffect: transportConfig.rbacDefaultEffect,
+  });
   const pings = await pingAll(registry);
   logStartupDiagnostics(registry, pings);
   const defaultId = registry.getDefaultId();
@@ -49,7 +55,7 @@ async function main(): Promise<void> {
   let httpTransport: StartedHttpTransport | undefined;
 
   if (transportConfig.transport === 'stdio') {
-    mcpServer = createServer(registry);
+    mcpServer = createServer(registry, { authorization });
     await connectStdioTransport(mcpServer);
     logger.info('stdio transport connected');
   } else {
@@ -57,6 +63,7 @@ async function main(): Promise<void> {
       registry,
       config: transportConfig,
       startupPings: pings,
+      authorization,
     });
     logger.info('http transport listening', { url: httpTransport.url });
   }

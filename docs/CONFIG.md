@@ -1,10 +1,10 @@
 # 配置指南
 
 **文档编号**: CONFIG
-**版本**: 1.1
+**版本**: 2.0
 **日期**: 2026-07-10
 **状态**: 当前有效
-**适用版本**: v1.8.x+
+**适用版本**: v2.0.x+
 
 ---
 
@@ -163,8 +163,16 @@ DB_MCP_DEFAULT_CONNECTION_ID=local
 | `DB_HTTP_PORT` | `3000` | HTTP 监听端口 |
 | `DB_HTTP_ENDPOINT` | `/mcp` | MCP HTTP endpoint |
 | `DB_HTTP_ORIGINS` | 空 | 逗号分隔 Origin allowlist；请求带 Origin 且不匹配时拒绝 |
-| `DB_HTTP_API_KEY` | 空 | 轻量 API key，支持 Bearer 和 `x-api-key` |
-| `DB_HTTP_AUTH_DISABLED` | `false` | 显式关闭 HTTP 认证，仅本地开发使用 |
+| `DB_AUTH_MODE` | `none` for stdio, `bearer` for HTTP | `none`、`api_key`、`bearer` |
+| `DB_AUTH_ISSUER` | 空 | Bearer JWT issuer |
+| `DB_AUTH_AUDIENCE` | 空 | Bearer JWT audience |
+| `DB_AUTH_JWKS_URL` | 空 | 远程 JWKS URL |
+| `DB_AUTH_JWKS_FILE` | 空 | 本地 JWKS JSON 文件，适合离线测试和内网部署 |
+| `DB_RBAC_POLICY_FILE` | 空 | RBAC policy JSON 文件路径 |
+| `DB_RBAC_DEFAULT_EFFECT` | `deny` | 未匹配策略时 `deny` 或 `allow`；生产必须使用 `deny` |
+| `DB_HTTP_API_KEY` | 空 | API key fallback，支持 Bearer 和 `x-api-key`，仅建议开发/过渡使用 |
+| `DB_AUTH_DISABLED` | `false` | 显式关闭 HTTP 认证，仅本地开发使用 |
+| `DB_HTTP_AUTH_DISABLED` | `false` | 旧别名；建议改用 `DB_AUTH_DISABLED` |
 | `DB_HTTP_BODY_LIMIT_BYTES` | `1048576` | POST `/mcp` JSON body 大小限制 |
 | `DB_HTTP_REQUEST_TIMEOUT_MS` | `30000` | HTTP 请求体读取超时 |
 
@@ -174,15 +182,28 @@ DB_MCP_DEFAULT_CONNECTION_ID=local
 $env:DB_MCP_TRANSPORT="http"
 $env:DB_HTTP_HOST="127.0.0.1"
 $env:DB_HTTP_PORT="3000"
-$env:DB_HTTP_AUTH_DISABLED="true"
+$env:DB_AUTH_DISABLED="true"
 node dist/index.js
 ```
 
-远程监听必须配置 API key，除非显式关闭认证：
+生产或共享 HTTP 部署建议使用 bearer + RBAC：
 
 ```powershell
 $env:DB_MCP_TRANSPORT="http"
 $env:DB_HTTP_HOST="0.0.0.0"
+$env:DB_AUTH_MODE="bearer"
+$env:DB_AUTH_ISSUER="https://idp.example.com/"
+$env:DB_AUTH_AUDIENCE="polyglot-db-mcp-server"
+$env:DB_AUTH_JWKS_FILE="./jwks.json"
+$env:DB_RBAC_POLICY_FILE="./rbac-policy.json"
+node dist/index.js
+```
+
+API key fallback 仍可用于开发或迁移期：
+
+```powershell
+$env:DB_MCP_TRANSPORT="http"
+$env:DB_AUTH_MODE="api_key"
 $env:DB_HTTP_API_KEY="<change-me>"
 node dist/index.js
 ```

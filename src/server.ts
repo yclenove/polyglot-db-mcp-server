@@ -10,14 +10,27 @@ import { registerSchemaTools } from './tools/schema.js';
 import { registerMaskingTools } from './tools/masking.js';
 import { registerReplayTools } from './tools/replay.js';
 import { registerAdvisorTools } from './tools/advisor.js';
+import { registerAuthTools } from './tools/auth.js';
+import { installAuthorization, type AuthorizationRuntime } from './auth/authorization.js';
 
-export function createServer(registry: ConnectionRegistry): McpServer {
+export interface CreateServerOptions {
+  authorization?: AuthorizationRuntime;
+}
+
+export function createServer(
+  registry: ConnectionRegistry,
+  options: CreateServerOptions = {},
+): McpServer {
   const server = new McpServer({ name: 'polyglot-db-mcp-server', version: getVersion() });
+  if (options.authorization) {
+    installAuthorization(server, options.authorization);
+  }
   registerConnectionTools(server, registry);
   registerSqlTools(server, registry);
   registerMongoTools(server, registry);
   registerRedisTools(server, registry);
   registerAuditTools(server);
+  registerAuthTools(server);
   registerSchemaTools(server, registry);
   registerMaskingTools(server);
   registerReplayTools(server, registry);
