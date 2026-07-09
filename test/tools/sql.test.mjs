@@ -254,6 +254,26 @@ describe('SQL Tools', () => {
     assert.equal(result.isError, true);
   });
 
+  test('sql_explain returns clear error for mssql without executing SHOWPLAN batch', async () => {
+    const mssqlDriver = new MockSqlDriver('mssql');
+    registry.handles.set('ms', {
+      id: 'ms',
+      spec: { id: 'ms', engine: 'mssql', readonly: false },
+      kind: 'sql',
+      driver: mssqlDriver,
+    });
+
+    const tool = server.tools.get('sql_explain');
+    const result = await tool.handler({
+      connection_id: 'ms',
+      sql: 'SELECT * FROM users',
+    });
+
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /MSSQL EXPLAIN 暂不支持安全批处理/);
+    assert.equal(mssqlDriver.executedSql.length, 0);
+  });
+
   // ── v1.3.0 新增工具测试 ──────────────────────────────────
 
   test('sql_call_procedure tool is registered', () => {
@@ -286,6 +306,18 @@ describe('SQL Tools', () => {
     assert.ok(result.content[0].text);
     const data = JSON.parse(result.content[0].text);
     assert.equal(data.procedure, 'my_proc');
+  });
+
+  test('sql_call_procedure rejects invalid procedure identifier', async () => {
+    const tool = server.tools.get('sql_call_procedure');
+    const result = await tool.handler({
+      procedure: 'my_proc; DROP TABLE users',
+      params: [],
+    });
+
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /procedure 不合法/);
+    assert.equal(mockDriver.executedSql.length, 0);
   });
 
   test('sql_list_views returns views', async () => {

@@ -8,6 +8,8 @@ interface CacheEntry {
   expiresAt: number;
 }
 
+type SerializedValue = readonly [string, unknown?];
+
 export class QueryCache {
   private readonly cache = new Map<string, CacheEntry>();
   private readonly maxSize: number;
@@ -82,5 +84,57 @@ export function createQueryCacheFromEnv(): QueryCache {
 
 /** 生成缓存键 */
 export function cacheKey(connectionId: string, sql: string, params: unknown[]): string {
-  return `${connectionId}:${sql}:${JSON.stringify(params)}`;
+  return JSON.stringify({
+    connectionId,
+    sql,
+    params: stableSerialize(params, new WeakSet<object>()),
+  });
+}
+
+function stableSerialize(value: unknown, seen: WeakSet<object>): SerializedValue {
+  if (value === null) return ['null'];
+
+  switch (typeof value) {
+    case 'undefined':
+      return ['undefined'];
+    case 'string':
+      return ['string', value];
+    case 'boolean':
+      return ['boolean', value];
+    case 'number':
+      if (Number.isNaN(value)) return ['number', 'NaN'];
+      if (value === Infinity) return ['number', 'Infinity'];
+      if (value === -Infinity) return ['number', '-Infinity'];
+      if (Object.is(value, -0)) return ['number', '-0'];
+      return ['number', value];
+    case 'bigint':
+      return ['bigint', value.toString()];
+    case 'symbol':
+      return ['symbol', String(value.description ?? '')];
+    case 'function':
+      return ['function', value.name || 'anonymous'];
+    case 'object':
+      break;
+  }
+
+  if (value instanceof Date) {
+    return ['date', value.toISOString()];
+  }
+
+  if (Array.isArray(value)) {
+    if (seen.has(value)) throw new Error('缓存参数包含循环引用，无法生成缓存键');
+    seen.add(value);
+    const out = value.map((item) => stableSerialize(item, seen));
+    seen.delete(value);
+    return ['array', out];
+  }
+
+  const obj = value as Record<string, unknown>;
+  if (seen.has(obj)) throw new Error('缓存参数包含循环引用，无法生成缓存键');
+  seen.add(obj);
+  const out = Object.keys(obj)
+    .sort()
+    .map((key) => [key, stableSerialize(obj[key], seen)] as const);
+  seen.delete(obj);
+  return ['object', out];
 }

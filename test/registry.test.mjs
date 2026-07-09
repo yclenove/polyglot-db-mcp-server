@@ -62,3 +62,51 @@ test('resolveConnectionId: unknown non-empty id throws', () => {
   const reg = new ConnectionRegistry(specs, 'only', handles);
   assert.throws(() => reg.resolveConnectionId('nosuch'), /未知 connection_id/);
 });
+
+test('recordRequest updates success and failure metrics', () => {
+  const json = JSON.stringify([{ id: 'only', engine: 'postgres', url: 'postgres://u:p@127.0.0.1:5432/d' }]);
+  const specs = parseConnectionSpecs(json);
+  const noopDriver = {
+    engine: 'postgres',
+    ping: async () => ({ ok: true }),
+    execute: async () => ({ success: true }),
+    close: async () => {},
+  };
+  const handles = [{ id: 'only', spec: specs[0], kind: 'sql', driver: noopDriver }];
+  const reg = new ConnectionRegistry(specs, 'only', handles);
+
+  reg.recordRequest('only', true, 10);
+  reg.recordRequest('only', false, 30, 'boom');
+
+  const metrics = reg.getMetrics('only');
+  assert.equal(metrics.totalRequests, 2);
+  assert.equal(metrics.successRequests, 1);
+  assert.equal(metrics.failedRequests, 1);
+  assert.equal(metrics.totalLatencyMs, 40);
+  assert.equal(metrics.lastError, 'boom');
+  assert.ok(metrics.lastUsedAt > 0);
+});
+
+test('recordRequest ignores unknown connection ids', () => {
+  const json = JSON.stringify([{ id: 'only', engine: 'postgres', url: 'postgres://u:p@127.0.0.1:5432/d' }]);
+  const specs = parseConnectionSpecs(json);
+  const noopDriver = {
+    engine: 'postgres',
+    ping: async () => ({ ok: true }),
+    execute: async () => ({ success: true }),
+    close: async () => {},
+  };
+  const handles = [{ id: 'only', spec: specs[0], kind: 'sql', driver: noopDriver }];
+  const reg = new ConnectionRegistry(specs, 'only', handles);
+
+  reg.recordRequest('missing', false, 10, 'boom');
+
+  assert.equal(reg.getAllMetrics().has('missing'), false);
+  assert.deepEqual(reg.getMetrics('missing'), {
+    totalRequests: 0,
+    successRequests: 0,
+    failedRequests: 0,
+    totalLatencyMs: 0,
+    lastUsedAt: 0,
+  });
+});

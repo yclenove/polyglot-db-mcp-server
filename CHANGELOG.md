@@ -4,6 +4,23 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.7.1] - 2026-07-09
+
+### 新增
+- **核心质量测试补齐**：新增 QueryCache、RateLimiter、SQL helpers、Version、Registry metrics 等独立测试，并纳入默认 `npm test` 与覆盖率脚本。
+- **MSSQL EXPLAIN 安全覆盖**：新增单元测试确保 MSSQL 不再生成 `SHOWPLAN` 多语句批处理。
+
+### 修复
+- **RateLimiter 长运行清理**：增加不活跃 bucket 清理、定时器 `unref`、`dispose()` 和确定性测试，降低长期运行内存增长风险。
+- **QueryCache 缓存键稳定性**：改用带类型标记的稳定序列化，区分 `undefined`、`null`、`Date`、`BigInt`、`NaN` 等边界值，并对对象 key 排序。
+- **MSSQL EXPLAIN 降级**：`sql_explain` 与 `query_optimize` 统一使用 `explainQuerySql`，MSSQL 返回明确错误，不再拼接 `SET SHOWPLAN_ALL ON; ...; OFF` 单批语句。
+- **Registry 指标污染**：`recordRequest` 忽略未知连接 ID，避免指标 Map 被无效 ID 污染。
+- **邮箱脱敏边界**：修正短邮箱 local-part 与 strict 模式非邮箱字符串的脱敏行为。
+
+### 变更
+- **Lint 收敛**：移除 `advisor.ts`、`sql.ts` 中的 `any` warning，`npm run lint` 现在 0 error / 0 warning。
+- **测试数量**：默认测试从 451 个增至 455 个，全部通过。
+
 ## [1.7.0] - 2026-05-05
 
 ### 新增

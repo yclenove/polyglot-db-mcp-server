@@ -29,10 +29,14 @@ function maskPhone(value: string): string {
 
 function maskEmail(value: string): string {
   const atIdx = value.indexOf('@');
-  if (atIdx < 0) return value;
+  if (atIdx < 0) {
+    if (value.length === 0) return value;
+    if (value.length <= 2) return value[0] + '***';
+    return value[0] + '***' + value.slice(-1);
+  }
   const local = value.slice(0, atIdx);
   const domain = value.slice(atIdx);
-  if (local.length <= 1) return '*' + domain;
+  if (local.length === 0) return '*' + domain;
   return local[0] + '***' + domain;
 }
 

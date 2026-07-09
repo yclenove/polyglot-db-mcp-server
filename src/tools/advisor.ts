@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ConnectionRegistry } from '../core/registry.js';
+import type { SqlDriver } from '../core/types.js';
 import { globalLimits } from '../core/config.js';
 import { isReadOnlyQuery } from '../core/sql-guards.js';
 import {
@@ -8,7 +9,9 @@ import {
   generateAnalysis,
   type TableInfo,
 } from '../core/query-suggest.js';
-import { describeTableSql, listIndexesSql } from '../core/sql-helpers.js';
+import { describeTableSql, explainQuerySql, listIndexesSql } from '../core/sql-helpers.js';
+
+type SqlResultRow = Record<string, unknown>;
 
 // 提取 WHERE/ORDER BY 列名用于索引建议
 function extractReferencedTables(sql: string): string[] {
@@ -29,7 +32,7 @@ function extractReferencedTables(sql: string): string[] {
 }
 
 async function fetchTableInfo(
-  driver: import('../core/types.js').SqlDriver,
+  driver: SqlDriver,
   tableName: string,
   L: ReturnType<typeof globalLimits>
 ): Promise<TableInfo> {
@@ -42,7 +45,7 @@ async function fetchTableInfo(
     maxSqlLength: L.maxSqlLength,
   });
 
-  const columns = (colRes.data ?? []).map((row: any) => ({
+  const columns = ((colRes.data ?? []) as SqlResultRow[]).map((row) => ({
     name: String(row.column_name ?? row.COLUMN_NAME ?? row.Field ?? Object.values(row)[0]),
     type: String(row.data_type ?? row.DATA_TYPE ?? row.Type ?? Object.values(row)[1]),
     isPrimaryKey: String(row.column_key ?? row.COLUMN_KEY ?? '').toUpperCase() === 'PRI',
@@ -58,7 +61,7 @@ async function fetchTableInfo(
   });
 
   const indexesMap = new Map<string, string[]>();
-  for (const row of (idxRes.data ?? []) as any[]) {
+  for (const row of ((idxRes.data ?? []) as SqlResultRow[])) {
     const idxName = String(row.name ?? row.Key_name ?? row.indexname ?? '');
     const colName = String(row.column_name ?? row.Column_name ?? '');
     if (idxName && colName) {
@@ -189,23 +192,7 @@ export function registerAdvisorTools(server: McpServer, registry: ConnectionRegi
         let planError: string | undefined;
 
         try {
-          let explainSql: string;
-          switch (driver.engine) {
-            case 'mysql':
-              explainSql = `EXPLAIN ${sql}`;
-              break;
-            case 'postgres':
-              explainSql = `EXPLAIN (FORMAT JSON, VERBOSE) ${sql}`;
-              break;
-            case 'mssql':
-              explainSql = `SET SHOWPLAN_ALL ON; ${sql}; SET SHOWPLAN_ALL OFF`;
-              break;
-            case 'oracle':
-              explainSql = `EXPLAIN PLAN FOR ${sql}`;
-              break;
-            default:
-              throw new Error(`不支持的引擎: ${driver.engine}`);
-          }
+          const explainSql = explainQuerySql(driver.engine, sql);
 
           const explainRes = await driver.execute(explainSql, [], {
             mode: 'readonly',

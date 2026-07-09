@@ -108,6 +108,7 @@ export class ConnectionRegistry {
 
   /** 记录一次请求的指标 */
   recordRequest(id: string, success: boolean, latencyMs: number, error?: string): void {
+    if (!this.byId.has(id)) return;
     let m = this.metrics.get(id);
     if (!m) {
       m = { totalRequests: 0, successRequests: 0, failedRequests: 0, totalLatencyMs: 0, lastUsedAt: 0 };

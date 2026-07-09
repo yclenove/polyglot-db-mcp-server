@@ -6,7 +6,9 @@ import { isReadOnlyQuery } from '../core/sql-guards.js';
 import type { SqlEngine } from '../core/types.js';
 import { createQueryCacheFromEnv, cacheKey as makeCacheKey } from '../core/query-cache.js';
 import { createRateLimiterFromEnv } from '../core/rate-limiter.js';
-import { IDENT, validateIdent, describeTableSql, listIndexesSql, listTablesSql } from '../core/sql-helpers.js';
+import { IDENT, validateIdent, describeTableSql, explainQuerySql, listIndexesSql, listTablesSql } from '../core/sql-helpers.js';
+
+type SqlResultRow = Record<string, unknown>;
 
 export function registerSqlTools(server: McpServer, registry: ConnectionRegistry): void {
   const limits = () => globalLimits();
@@ -237,7 +239,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
               text: JSON.stringify({
                 connection_id: id,
                 engine: driver.engine,
-                tables: (res.data ?? []).map((row: any) => row.name ?? row.NAME ?? row.table_name),
+                tables: ((res.data ?? []) as SqlResultRow[]).map((row) => row.name ?? row.NAME ?? row.table_name),
               }),
             },
           ],
@@ -542,25 +544,6 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
 
   // ── sql_explain ─────────────────────────────────────────
 
-  function explainSql(engine: SqlEngine, sql: string): string {
-    switch (engine) {
-      case 'mysql':
-        return `EXPLAIN ${sql}`;
-      case 'postgres':
-        return `EXPLAIN (FORMAT JSON, VERBOSE) ${sql}`;
-      case 'mssql':
-        return `SET SHOWPLAN_ALL ON; ${sql}; SET SHOWPLAN_ALL OFF`;
-      case 'oracle':
-        return `EXPLAIN PLAN FOR ${sql}`;
-      case 'sqlite':
-        return `EXPLAIN QUERY PLAN ${sql}`;
-      default: {
-        const e: never = engine;
-        throw new Error(`不支持的引擎: ${e}`);
-      }
-    }
-  }
-
   server.registerTool(
     'sql_explain',
     {
@@ -584,7 +567,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
           };
         }
 
-        const explainSqlStr = explainSql(driver.engine, sql);
+        const explainSqlStr = explainQuerySql(driver.engine, sql);
         const res = await driver.execute(explainSqlStr, [], {
           mode: 'readonly',
           maxRows: 100,
@@ -792,7 +775,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
               text: JSON.stringify({
                 connection_id: id,
                 engine: driver.engine,
-                views: (res.data ?? []).map((row: any) => row.name ?? row.NAME ?? row.view_name),
+                views: ((res.data ?? []) as SqlResultRow[]).map((row) => row.name ?? row.NAME ?? row.view_name),
               }),
             },
           ],
@@ -887,10 +870,10 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
           return { content: [{ type: 'text', text: res.error ?? '失败' }], isError: true };
         }
 
-        const columns = res.data ?? [];
+        const columns = (res.data ?? []) as SqlResultRow[];
         const interfaceName = table.charAt(0).toUpperCase() + table.slice(1).replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 
-        const fields = columns.map((row: any) => {
+        const fields = columns.map((row) => {
           const colName = row.column_name ?? row.COLUMN_NAME ?? Object.values(row)[0];
           const dataType = row.data_type ?? row.DATA_TYPE ?? Object.values(row)[1];
           const nullable = (row.is_nullable ?? row.IS_NULLABLE ?? row.nullable ?? '') === 'YES';

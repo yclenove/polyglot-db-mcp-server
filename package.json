@@ -1,6 +1,6 @@
 {
   "name": "@yclenove/polyglot-db-mcp-server",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -34,11 +34,11 @@
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
-    "test": "node --test --test-name-pattern=. test/registry.test.mjs test/sql-guards.test.mjs test/redis-guards.test.mjs test/config.test.mjs test/audit.test.mjs test/logger.test.mjs test/schema.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs",
+    "test": "node --test --test-name-pattern=. test/*.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs",
     "test:unit": "node --test --test-name-pattern=. test/*.test.mjs test/tools/*.test.mjs",
     "test:integration": "node --test --test-name-pattern=. test/integration/*.test.mjs",
-    "test:coverage": "c8 --reporter=text --reporter=json --reporter=lcov node --test --test-name-pattern=. test/registry.test.mjs test/sql-guards.test.mjs test/redis-guards.test.mjs test/config.test.mjs test/audit.test.mjs test/logger.test.mjs test/schema.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs",
-    "test:coverage:check": "c8 --lines 50 --branches 50 --functions 50 node --test --test-name-pattern=. test/registry.test.mjs test/sql-guards.test.mjs test/redis-guards.test.mjs test/config.test.mjs test/audit.test.mjs test/logger.test.mjs test/schema.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs",
+    "test:coverage": "c8 --reporter=text --reporter=json --reporter=lcov node --test --test-name-pattern=. test/*.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs",
+    "test:coverage:check": "c8 --lines 50 --branches 50 --functions 50 node --test --test-name-pattern=. test/*.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs",
     "benchmark": "node test/benchmark/sql-guards.bench.mjs",
     "docs": "node scripts/generate-docs.mjs"
   },

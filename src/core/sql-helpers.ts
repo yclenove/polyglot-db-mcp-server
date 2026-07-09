@@ -132,3 +132,22 @@ export function listTablesSql(engine: SqlEngine, schema?: string): { sql: string
     }
   }
 }
+
+export function explainQuerySql(engine: SqlEngine, sql: string): string {
+  switch (engine) {
+    case 'mysql':
+      return `EXPLAIN ${sql}`;
+    case 'postgres':
+      return `EXPLAIN (FORMAT JSON, VERBOSE) ${sql}`;
+    case 'mssql':
+      throw new Error('MSSQL EXPLAIN 暂不支持安全批处理；请使用数据库客户端查看执行计划');
+    case 'oracle':
+      return `EXPLAIN PLAN FOR ${sql}`;
+    case 'sqlite':
+      return `EXPLAIN QUERY PLAN ${sql}`;
+    default: {
+      const e: never = engine;
+      throw new Error(`不支持的 SQL 引擎: ${e}`);
+    }
+  }
+}
