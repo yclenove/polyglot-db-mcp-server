@@ -4,6 +4,23 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.9.0] - 2026-07-10
+
+### 新增
+- **SQL Schema diff**：新增 `schema_diff`，只读比较两个 SQL 连接或 schema 的表/列差异，返回新增、删除和变更详情。
+- **MongoDB 多文档事务**：新增 `mongo_begin_transaction`、`mongo_execute_in_transaction`、`mongo_commit`、`mongo_rollback`。
+- **Redis pipeline**：新增 `redis_pipeline`，批量执行安全 Redis 命令子集，保留 keyPrefix、readonly 和阻断命令边界。
+- **Mongo 事务错误码**：新增 `MONGO_005` 表示事务不存在或已结束。
+
+### 变更
+- `schema_export` 新增 `schema` 参数，主要用于 PostgreSQL schema 选择。
+- 新增 `DB_MONGO_TRANSACTION_TIMEOUT_MS`，未设置时回退到 `DB_TRANSACTION_TIMEOUT_MS`。
+- API 生成脚本补齐 v1.9.0 新工具。
+
+### 安全
+- MongoDB 事务在 readonly 连接上拒绝开始，事务内 filter 继续执行 NoSQL 注入检测。
+- Redis pipeline 在工具层拒绝阻断命令，driver 层继续执行 keyPrefix 和 readonly 检查。
+
 ## [1.8.0] - 2026-07-10
 
 ### 新增

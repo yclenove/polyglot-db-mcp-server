@@ -148,6 +148,8 @@ DB_MCP_DEFAULT_CONNECTION_ID=local
 |----------|--------|------|
 | `LOG_LEVEL` | `info` | `debug`、`info`、`warn`、`error` |
 | `LOG_FORMAT` | `human` | `human` 或 `json` |
+| `DB_TRANSACTION_TIMEOUT_MS` | `300000` | SQL 事务清理超时 |
+| `DB_MONGO_TRANSACTION_TIMEOUT_MS` | `300000` | MongoDB 事务清理超时；未设置时回退到 `DB_TRANSACTION_TIMEOUT_MS` |
 | `DB_SHUTDOWN_TIMEOUT_MS` | `10000` | 优雅关闭超时 |
 
 ### 5.7 HTTP 传输配置

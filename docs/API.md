@@ -1,12 +1,13 @@
 # polyglot-db-mcp-server API 文档
 
-> 自动生成于 2026-07-09T16:56:50.705Z
+> 自动生成于 2026-07-09T17:37:25.947Z
 
 ## 目录
 
 - [连接管理](#连接管理)
 - [SQL](#sql)
 - [MongoDB](#mongodb)
+- [MongoDB 事务](#mongodb-事务)
 - [Redis](#redis)
 - [审计](#审计)
 - [Schema](#schema)
@@ -440,6 +441,63 @@ HTTP 安全默认值：
 
 ---
 
+## MongoDB 事务
+
+### `mongo_begin_transaction`
+
+开始 MongoDB 多文档事务，返回 transaction_id。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `connection_id` | string | 否 | 连接 id；缺省为默认连接 |
+
+---
+
+### `mongo_execute_in_transaction`
+
+在 MongoDB 事务中执行一个受控写操作。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `transaction_id` | string | 是 | 事务 ID |
+| `operation` | string | 是 | insert_one / insert_many / update_one / update_many / delete_one / delete_many |
+| `collection` | string | 是 | 集合名称 |
+| `document_json` | string | 否 | insert_one 使用的 JSON 对象 |
+| `documents_json` | string | 否 | insert_many 使用的 JSON 对象数组 |
+| `filter_json` | string | 否 | update/delete 使用的 JSON filter |
+| `update_json` | string | 否 | update 使用的 JSON 更新对象 |
+| `upsert` | boolean | 否 | update_one 可选 upsert |
+
+---
+
+### `mongo_commit`
+
+提交 MongoDB 事务。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `transaction_id` | string | 是 | 事务 ID |
+
+---
+
+### `mongo_rollback`
+
+回滚 MongoDB 事务。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `transaction_id` | string | 是 | 事务 ID |
+
+---
+
 ## Redis
 
 ### `redis_get`
@@ -501,6 +559,19 @@ HTTP 安全默认值：
 ### `redis_blocked_commands`
 
 列出本服务默认禁止执行的 Redis 命令名。
+
+---
+
+### `redis_pipeline`
+
+批量执行安全 Redis 命令子集。遵守 keyPrefix、readonly 和阻断命令规则。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `connection_id` | string | 否 | 连接 id；缺省为默认连接 |
+| `commands_json` | string | 是 | 命令 JSON 数组，每项包含 command、key、args |
 
 ---
 
@@ -637,6 +708,21 @@ HTTP 安全默认值：
 | `connection_id` | string | 否 | 连接 id；缺省为默认连接 |
 | `format` | string | 否 | 输出格式：json 或 sql，默认 json |
 | `schema` | string | 否 | Schema 名称（PostgreSQL） |
+
+---
+
+### `schema_diff`
+
+比较两个 SQL 连接或 schema 的表结构差异，返回新增、删除和变更的表/列。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `source_connection_id` | string | 是 | 源连接 id |
+| `target_connection_id` | string | 是 | 目标连接 id |
+| `source_schema` | string | 否 | 源 schema（PostgreSQL） |
+| `target_schema` | string | 否 | 目标 schema（PostgreSQL） |
 
 ---
 

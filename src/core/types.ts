@@ -123,7 +123,38 @@ export interface MongoDriver {
     keys: Record<string, 1 | -1>,
     options?: { name?: string; unique?: boolean; sparse?: boolean },
   ): Promise<string>;
+  beginTransaction(): Promise<MongoTransaction>;
   close(): Promise<void>;
+}
+
+export type MongoTransactionOperationName =
+  | 'insert_one'
+  | 'insert_many'
+  | 'update_one'
+  | 'update_many'
+  | 'delete_one'
+  | 'delete_many';
+
+export interface MongoTransactionOperation {
+  operation: MongoTransactionOperationName;
+  collection: string;
+  document?: Record<string, unknown>;
+  documents?: Record<string, unknown>[];
+  filter?: Record<string, unknown>;
+  update?: Record<string, unknown>;
+  options?: { upsert?: boolean };
+}
+
+export interface MongoTransactionOperationResult {
+  operation: MongoTransactionOperationName;
+  collection: string;
+  result: unknown;
+}
+
+export interface MongoTransaction {
+  execute(operation: MongoTransactionOperation): Promise<MongoTransactionOperationResult>;
+  commit(): Promise<void>;
+  rollback(): Promise<void>;
 }
 
 export interface RedisDriver {
@@ -159,7 +190,51 @@ export interface RedisDriver {
   type(key: string): Promise<string>;
   expire(key: string, seconds: number): Promise<number>;
   ttl(key: string): Promise<number>;
+  pipeline(commands: RedisPipelineCommand[]): Promise<RedisPipelineResult[]>;
   close(): Promise<void>;
+}
+
+export type RedisPipelineCommandName =
+  | 'get'
+  | 'set'
+  | 'del'
+  | 'hget'
+  | 'hset'
+  | 'hgetall'
+  | 'hdel'
+  | 'lpush'
+  | 'rpush'
+  | 'lpop'
+  | 'rpop'
+  | 'lrange'
+  | 'llen'
+  | 'sadd'
+  | 'smembers'
+  | 'srem'
+  | 'scard'
+  | 'sismember'
+  | 'zadd'
+  | 'zrange'
+  | 'zrem'
+  | 'zcard'
+  | 'zscore'
+  | 'type'
+  | 'expire'
+  | 'ttl';
+
+export interface RedisPipelineCommand {
+  command: RedisPipelineCommandName;
+  key: string;
+  args?: unknown[];
+}
+
+export interface RedisPipelineResult {
+  index: number;
+  command: RedisPipelineCommandName;
+  key: string;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
 }
 
 export type RuntimeHandle =

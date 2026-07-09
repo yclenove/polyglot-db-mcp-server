@@ -225,3 +225,151 @@ describe('DDL generation', () => {
     assert.ok(pkClause.includes('role_id'));
   });
 });
+
+class MockMcpServer {
+  constructor() {
+    this.tools = new Map();
+  }
+
+  registerTool(name, schema, handler) {
+    this.tools.set(name, { schema, handler });
+  }
+}
+
+class MockSchemaDriver {
+  constructor(engine, rows) {
+    this.engine = engine;
+    this.rows = rows;
+    this.queries = [];
+  }
+
+  async execute(sql, params, options) {
+    this.queries.push({ sql, params, options });
+    return { success: true, data: this.rows };
+  }
+}
+
+class MockSchemaRegistry {
+  constructor() {
+    this.defaultId = 'source';
+    this.drivers = new Map();
+  }
+
+  resolveConnectionId(id) {
+    if (!id || id.trim() === '') return this.defaultId;
+    if (!this.drivers.has(id)) throw new Error(`未知 connection_id: ${id}`);
+    return id;
+  }
+
+  requireSql(id) {
+    const driver = this.drivers.get(id);
+    if (!driver) throw new Error(`未知 connection_id: ${id}`);
+    return driver;
+  }
+}
+
+describe('Schema tools integration', () => {
+  test('schema_export passes PostgreSQL schema parameter and returns table counts', async () => {
+    const server = new MockMcpServer();
+    const registry = new MockSchemaRegistry();
+    const driver = new MockSchemaDriver('postgres', [
+      {
+        table_name: 'users',
+        column_name: 'id',
+        data_type: 'integer',
+        is_nullable: 'NO',
+        column_key: 'YES',
+      },
+    ]);
+    registry.drivers.set('source', driver);
+
+    const { registerSchemaTools } = await import('../dist/tools/schema.js');
+    registerSchemaTools(server, registry);
+
+    const result = await server.tools.get('schema_export').handler({
+      connection_id: 'source',
+      schema: 'analytics',
+    });
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.connection_id, 'source');
+    assert.equal(data.engine, 'postgres');
+    assert.equal(data.schema, 'analytics');
+    assert.equal(data.table_count, 1);
+    assert.deepEqual(driver.queries[0].params, ['analytics']);
+  });
+
+  test('schema_diff reports table and column differences', async () => {
+    const server = new MockMcpServer();
+    const registry = new MockSchemaRegistry();
+    registry.drivers.set(
+      'source',
+      new MockSchemaDriver('sqlite', [
+        {
+          table_name: 'users',
+          column_name: 'id',
+          data_type: 'integer',
+          is_nullable: 'NO',
+          column_key: 'YES',
+        },
+        {
+          table_name: 'users',
+          column_name: 'name',
+          data_type: 'text',
+          is_nullable: 'YES',
+          column_key: '',
+        },
+        {
+          table_name: 'legacy',
+          column_name: 'id',
+          data_type: 'integer',
+          is_nullable: 'NO',
+          column_key: 'YES',
+        },
+      ]),
+    );
+    registry.drivers.set(
+      'target',
+      new MockSchemaDriver('sqlite', [
+        {
+          table_name: 'users',
+          column_name: 'id',
+          data_type: 'bigint',
+          is_nullable: 'NO',
+          column_key: 'YES',
+        },
+        {
+          table_name: 'users',
+          column_name: 'email',
+          data_type: 'text',
+          is_nullable: 'NO',
+          column_key: '',
+        },
+        {
+          table_name: 'orders',
+          column_name: 'id',
+          data_type: 'integer',
+          is_nullable: 'NO',
+          column_key: 'YES',
+        },
+      ]),
+    );
+
+    const { registerSchemaTools } = await import('../dist/tools/schema.js');
+    registerSchemaTools(server, registry);
+
+    const result = await server.tools.get('schema_diff').handler({
+      source_connection_id: 'source',
+      target_connection_id: 'target',
+    });
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.summary.added_tables, 1);
+    assert.equal(data.summary.removed_tables, 1);
+    assert.equal(data.summary.changed_tables, 1);
+    assert.equal(data.diff.added_tables[0].name, 'orders');
+    assert.equal(data.diff.removed_tables[0].name, 'legacy');
+    assert.equal(data.diff.changed_tables[0].table, 'users');
+    assert.equal(data.diff.changed_tables[0].added_columns[0].name, 'email');
+    assert.equal(data.diff.changed_tables[0].removed_columns[0].name, 'name');
+    assert.deepEqual(data.diff.changed_tables[0].changed_columns[0].changes, ['type']);
+  });
+});

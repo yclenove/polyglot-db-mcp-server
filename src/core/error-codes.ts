@@ -129,6 +129,13 @@ export const ErrorDefinitions = {
     retryable: false,
     applies_to: ['MongoDB', 'Auth'],
   },
+  MONGO_005: {
+    message: 'MongoDB 事务不存在或已结束',
+    hint: '重新调用 mongo_begin_transaction，确认 transaction_id 未过期',
+    severity: 'error',
+    retryable: false,
+    applies_to: ['MongoDB'],
+  },
 
   REDIS_001: {
     message: '不是 Redis 连接',
@@ -316,6 +323,7 @@ export const ErrorCodes: { readonly [K in ErrorCode]: (typeof ErrorDefinitions)[
   MONGO_002: ErrorDefinitions.MONGO_002.message,
   MONGO_003: ErrorDefinitions.MONGO_003.message,
   MONGO_004: ErrorDefinitions.MONGO_004.message,
+  MONGO_005: ErrorDefinitions.MONGO_005.message,
   REDIS_001: ErrorDefinitions.REDIS_001.message,
   REDIS_002: ErrorDefinitions.REDIS_002.message,
   REDIS_003: ErrorDefinitions.REDIS_003.message,

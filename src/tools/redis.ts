@@ -3,6 +3,36 @@ import { z } from 'zod';
 import type { ConnectionRegistry } from '../core/registry.js';
 import { REDIS_BLOCKED_COMMANDS } from '../core/redis-guards.js';
 import { createErrorPayload, type ErrorCode } from '../core/error-codes.js';
+import type { RedisPipelineCommand, RedisPipelineCommandName } from '../core/types.js';
+
+const ALLOWED_REDIS_PIPELINE_COMMANDS = new Set<RedisPipelineCommandName>([
+  'get',
+  'set',
+  'del',
+  'hget',
+  'hset',
+  'hgetall',
+  'hdel',
+  'lpush',
+  'rpush',
+  'lpop',
+  'rpop',
+  'lrange',
+  'llen',
+  'sadd',
+  'smembers',
+  'srem',
+  'scard',
+  'sismember',
+  'zadd',
+  'zrange',
+  'zrem',
+  'zcard',
+  'zscore',
+  'type',
+  'expire',
+  'ttl',
+]);
 
 function classifyRedisToolError(message: string): ErrorCode | null {
   if (message.includes('不是 Redis')) return 'REDIS_001';
@@ -28,6 +58,50 @@ function redisToolError(e: unknown) {
     ],
     isError: true,
   };
+}
+
+function parseRedisPipelineCommands(raw: string): RedisPipelineCommand[] {
+  const parsed = JSON.parse(raw) as unknown;
+  if (!Array.isArray(parsed)) {
+    throw new Error('commands_json 须为 JSON 数组');
+  }
+  if (parsed.length === 0) {
+    throw new Error('commands_json 不能为空');
+  }
+  if (parsed.length > 50) {
+    throw new Error('redis_pipeline 单次最多允许 50 条命令');
+  }
+
+  return parsed.map((item, index) => {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(`commands_json[${index}] 须为对象`);
+    }
+    const commandItem = item as Record<string, unknown>;
+    const commandRaw = commandItem.command;
+    const key = commandItem.key;
+    if (typeof commandRaw !== 'string' || commandRaw.trim() === '') {
+      throw new Error(`commands_json[${index}].command 必须是字符串`);
+    }
+    const command = commandRaw.trim().toLowerCase();
+    if (REDIS_BLOCKED_COMMANDS.has(command.toUpperCase())) {
+      throw new Error(`Redis pipeline 禁止执行命令 ${command.toUpperCase()}`);
+    }
+    if (!ALLOWED_REDIS_PIPELINE_COMMANDS.has(command as RedisPipelineCommandName)) {
+      throw new Error(`Redis pipeline 不支持命令 ${command}`);
+    }
+    if (typeof key !== 'string' || key.trim() === '') {
+      throw new Error(`commands_json[${index}].key 必须是非空字符串`);
+    }
+    const args = commandItem.args;
+    if (args !== undefined && !Array.isArray(args)) {
+      throw new Error(`commands_json[${index}].args 必须是数组`);
+    }
+    return {
+      command: command as RedisPipelineCommandName,
+      key,
+      args: args as unknown[] | undefined,
+    };
+  });
 }
 
 export function registerRedisTools(server: McpServer, registry: ConnectionRegistry): void {
@@ -158,6 +232,44 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           },
         ],
       };
+    },
+  );
+
+  server.registerTool(
+    'redis_pipeline',
+    {
+      description:
+        '批量执行安全 Redis 命令子集。commands_json 为数组，每项包含 command、key、args。遵守 keyPrefix、readonly 和阻断命令规则。',
+      inputSchema: {
+        connection_id: z.string().optional(),
+        commands_json: z
+          .string()
+          .describe(
+            'JSON 数组，如 [{"command":"set","key":"app:k","args":["v",60]},{"command":"get","key":"app:k"}]',
+          ),
+      },
+    },
+    async ({ connection_id, commands_json }) => {
+      try {
+        const id = registry.resolveConnectionId(connection_id);
+        const r = registry.requireRedis(id);
+        const commands = parseRedisPipelineCommands(commands_json);
+        const results = await r.pipeline(commands);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                connection_id: id,
+                results,
+                ok: results.every((item) => item.ok),
+              }),
+            },
+          ],
+        };
+      } catch (e) {
+        return redisToolError(e);
+      }
     },
   );
 

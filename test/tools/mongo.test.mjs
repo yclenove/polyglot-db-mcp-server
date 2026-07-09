@@ -78,6 +78,29 @@ class MockMongoDriver {
     this.operations.push({ op: 'createIndex', collection, keys, options });
     return 'index_name';
   }
+  async beginTransaction() {
+    this.operations.push({ op: 'beginTransaction' });
+    const driver = this;
+    return {
+      async execute(operation) {
+        driver.operations.push({ op: 'tx.execute', operation });
+        return {
+          operation: operation.operation,
+          collection: operation.collection,
+          result:
+            operation.operation === 'insert_one'
+              ? { acknowledged: true, insertedId: 'tx1', insertedCount: 1 }
+              : { acknowledged: true, matchedCount: 1, modifiedCount: 1 },
+        };
+      },
+      async commit() {
+        driver.operations.push({ op: 'tx.commit' });
+      },
+      async rollback() {
+        driver.operations.push({ op: 'tx.rollback' });
+      },
+    };
+  }
 }
 
 // Mock ConnectionRegistry
@@ -169,6 +192,13 @@ describe('MongoDB Tools', () => {
 
   test('mongo_create_index tool is registered', () => {
     assert.ok(server.tools.has('mongo_create_index'));
+  });
+
+  test('mongo transaction tools are registered', () => {
+    assert.ok(server.tools.has('mongo_begin_transaction'));
+    assert.ok(server.tools.has('mongo_execute_in_transaction'));
+    assert.ok(server.tools.has('mongo_commit'));
+    assert.ok(server.tools.has('mongo_rollback'));
   });
 
   test('mongo_list_collections returns collection names', async () => {
@@ -445,5 +475,73 @@ describe('MongoDB Tools', () => {
     const data = JSON.parse(result.content[0].text);
     assert.equal(data.connection_id, 'mdb');
     assert.equal(data.collectionName, 'new_name');
+  });
+
+  test('mongo transaction executes operation and commits', async () => {
+    const begin = await server.tools.get('mongo_begin_transaction').handler({});
+    const tx = JSON.parse(begin.content[0].text);
+    assert.equal(tx.connection_id, 'mdb');
+    assert.match(tx.transaction_id, /^mongo_tx_/);
+
+    const exec = await server.tools.get('mongo_execute_in_transaction').handler({
+      transaction_id: tx.transaction_id,
+      operation: 'insert_one',
+      collection: 'users',
+      document_json: '{"name":"tx"}',
+    });
+    const execData = JSON.parse(exec.content[0].text);
+    assert.equal(execData.connection_id, 'mdb');
+    assert.equal(execData.operation, 'insert_one');
+    assert.equal(execData.result.insertedCount, 1);
+
+    const commit = await server.tools.get('mongo_commit').handler({
+      transaction_id: tx.transaction_id,
+    });
+    const commitData = JSON.parse(commit.content[0].text);
+    assert.equal(commitData.status, 'committed');
+    assert.deepEqual(
+      mockDriver.operations.map((item) => item.op),
+      ['beginTransaction', 'tx.execute', 'tx.commit'],
+    );
+  });
+
+  test('mongo_begin_transaction rejects readonly connection', async () => {
+    const result = await server.tools.get('mongo_begin_transaction').handler({
+      connection_id: 'mdb_ro',
+    });
+    assert.equal(result.isError, true);
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.error_info.code, 'MONGO_004');
+  });
+
+  test('mongo_execute_in_transaction rejects unknown transaction id', async () => {
+    const result = await server.tools.get('mongo_execute_in_transaction').handler({
+      transaction_id: 'missing',
+      operation: 'insert_one',
+      collection: 'users',
+      document_json: '{"name":"tx"}',
+    });
+    assert.equal(result.isError, true);
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.error_info.code, 'MONGO_005');
+  });
+
+  test('mongo_execute_in_transaction rejects NoSQL injection before driver execution', async () => {
+    const begin = await server.tools.get('mongo_begin_transaction').handler({});
+    const tx = JSON.parse(begin.content[0].text);
+
+    const result = await server.tools.get('mongo_execute_in_transaction').handler({
+      transaction_id: tx.transaction_id,
+      operation: 'update_one',
+      collection: 'users',
+      filter_json: '{"$where":"function(){return true;}"}',
+      update_json: '{"$set":{"name":"blocked"}}',
+    });
+    assert.equal(result.isError, true);
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.error_info.code, 'MONGO_003');
+    assert.equal(mockDriver.operations.filter((item) => item.op === 'tx.execute').length, 0);
+
+    await server.tools.get('mongo_rollback').handler({ transaction_id: tx.transaction_id });
   });
 });

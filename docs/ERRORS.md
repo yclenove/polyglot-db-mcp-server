@@ -93,6 +93,7 @@
 | `MONGO_002` | 集合不在 allowlist 中 | 使用允许集合或更新连接 allowlist | false |
 | `MONGO_003` | NoSQL 注入风险被拦截 | 移除 `$where`、`$function` 等危险 operator | false |
 | `MONGO_004` | 只读连接拒绝写操作 | 使用写连接或显式 `readonly:false` | false |
+| `MONGO_005` | MongoDB 事务不存在或已结束 | 重新 `mongo_begin_transaction`，确认 transaction_id 未过期 | false |
 
 ### 4.4 Redis 错误
 

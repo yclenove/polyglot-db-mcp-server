@@ -1,6 +1,6 @@
 import { MongoClient, type Db } from 'mongodb';
 import type { ConnectionSpec } from '../../core/types.js';
-import type { MongoDriver } from '../../core/types.js';
+import type { MongoDriver, MongoTransactionOperation } from '../../core/types.js';
 import { auditLog } from '../../core/audit.js';
 
 function dbFromClient(client: MongoClient, spec: ConnectionSpec): Db {
@@ -189,6 +189,118 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
         });
       auditLog({ engine: 'mongodb', op: 'createIndex', collection, indexName });
       return indexName;
+    },
+    async beginTransaction() {
+      assertNotReadonly();
+      const session = client.startSession();
+      session.startTransaction();
+
+      return {
+        async execute(operation: MongoTransactionOperation) {
+          assertCollectionAllowed(operation.collection);
+          const collection = db.collection(operation.collection);
+          let result: unknown;
+
+          switch (operation.operation) {
+            case 'insert_one': {
+              if (!operation.document) {
+                throw new Error('insert_one 需要 document');
+              }
+              const r = await collection.insertOne(operation.document, { session });
+              result = {
+                acknowledged: r.acknowledged,
+                insertedId: r.insertedId,
+                insertedCount: 1,
+              };
+              break;
+            }
+            case 'insert_many': {
+              if (!operation.documents?.length) {
+                throw new Error('insert_many 需要 documents');
+              }
+              const r = await collection.insertMany(operation.documents, { session });
+              result = {
+                acknowledged: r.acknowledged,
+                insertedId: r.insertedIds,
+                insertedCount: r.insertedCount,
+              };
+              break;
+            }
+            case 'update_one': {
+              if (!operation.filter || !operation.update) {
+                throw new Error('update_one 需要 filter 和 update');
+              }
+              const r = await collection.updateOne(operation.filter, operation.update, {
+                ...operation.options,
+                session,
+              });
+              result = {
+                acknowledged: r.acknowledged,
+                matchedCount: r.matchedCount,
+                modifiedCount: r.modifiedCount,
+                upsertedId: r.upsertedId,
+              };
+              break;
+            }
+            case 'update_many': {
+              if (!operation.filter || !operation.update) {
+                throw new Error('update_many 需要 filter 和 update');
+              }
+              const r = await collection.updateMany(operation.filter, operation.update, {
+                session,
+              });
+              result = {
+                acknowledged: r.acknowledged,
+                matchedCount: r.matchedCount,
+                modifiedCount: r.modifiedCount,
+                upsertedId: r.upsertedId,
+              };
+              break;
+            }
+            case 'delete_one': {
+              if (!operation.filter) {
+                throw new Error('delete_one 需要 filter');
+              }
+              const r = await collection.deleteOne(operation.filter, { session });
+              result = {
+                acknowledged: r.acknowledged,
+                deletedCount: r.deletedCount,
+              };
+              break;
+            }
+            case 'delete_many': {
+              if (!operation.filter) {
+                throw new Error('delete_many 需要 filter');
+              }
+              const r = await collection.deleteMany(operation.filter, { session });
+              result = {
+                acknowledged: r.acknowledged,
+                deletedCount: r.deletedCount,
+              };
+              break;
+            }
+            default: {
+              const neverOperation: never = operation.operation;
+              throw new Error(`不支持的 MongoDB 事务操作: ${neverOperation}`);
+            }
+          }
+
+          auditLog({
+            engine: 'mongodb',
+            op: `tx.${operation.operation}`,
+            collection: operation.collection,
+          });
+          return { operation: operation.operation, collection: operation.collection, result };
+        },
+        async commit() {
+          await session.commitTransaction();
+          await session.endSession();
+        },
+        async rollback() {
+          await session.abortTransaction();
+          await session.endSession();
+        },
+      };
     },
     async close() {
       await client.close();

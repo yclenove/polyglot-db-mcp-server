@@ -192,11 +192,13 @@ docker compose up -d
 
 - `mongo_list_collections`、`mongo_find`、`mongo_aggregate`、`mongo_count`
 - `mongo_insert_one`、`mongo_insert_many`、`mongo_update_one`、`mongo_delete_one`
+- `mongo_begin_transaction`、`mongo_execute_in_transaction`、`mongo_commit`、`mongo_rollback`
 
 **Redis**
 
 - `redis_get`、`redis_set`、`redis_del`、`redis_scan`、`redis_blocked_commands`
 - `redis_hget`、`redis_hset`、`redis_hgetall`、`redis_hdel`
+- `redis_pipeline` — 批量执行安全命令子集，保留 keyPrefix/readonly 边界
 
 **审计**
 
@@ -208,6 +210,7 @@ docker compose up -d
 **Schema**
 
 - `schema_export` — 导出数据库 Schema 为 JSON 或 SQL DDL 格式
+- `schema_diff` — 比较两个 SQL 连接或 schema 的表结构差异
 
 **数据脱敏**
 
@@ -241,6 +244,7 @@ docker compose up -d
 | `DB_MASKING_EXCLUDE_CONNECTIONS` | 排除脱敏的连接 ID（逗号分隔） |
 | `DB_REPLAY_BUFFER_SIZE` | 查询历史缓冲大小，默认 50 |
 | `DB_SUGGEST_TIMEOUT_MS` | 查询建议分析超时（ms），默认 5000 |
+| `DB_TRANSACTION_TIMEOUT_MS`、`DB_MONGO_TRANSACTION_TIMEOUT_MS` | SQL/Mongo 事务清理超时 |
 | `LOG_LEVEL` | 日志级别：`debug`、`info`（默认）、`warn`、`error` |
 | `LOG_FORMAT` | 日志格式：`json` 或人类可读（默认） |
 

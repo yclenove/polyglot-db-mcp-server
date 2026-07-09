@@ -195,6 +195,49 @@ class MockRedisDriver {
     this.operations.push({ op: 'ttl', key });
     return this.store.has(key) ? 3600 : -2;
   }
+  async pipeline(commands) {
+    this.operations.push({ op: 'pipeline', commands });
+    const results = [];
+    for (const [index, command] of commands.entries()) {
+      try {
+        let result;
+        switch (command.command) {
+          case 'get':
+            result = await this.get(command.key);
+            break;
+          case 'set':
+            await this.set(command.key, command.args[0], command.args[1]);
+            result = 'OK';
+            break;
+          case 'del':
+            result = await this.del(command.key);
+            break;
+          case 'hget':
+            result = await this.hget(command.key, command.args[0]);
+            break;
+          case 'hset':
+            await this.hset(command.key, command.args[0], command.args[1]);
+            result = 1;
+            break;
+          case 'ttl':
+            result = await this.ttl(command.key);
+            break;
+          default:
+            throw new Error(`unsupported ${command.command}`);
+        }
+        results.push({ index, command: command.command, key: command.key, ok: true, result });
+      } catch (e) {
+        results.push({
+          index,
+          command: command.command,
+          key: command.key,
+          ok: false,
+          error: e.message,
+        });
+      }
+    }
+    return results;
+  }
 }
 
 // Mock ConnectionRegistry
@@ -528,6 +571,10 @@ describe('Redis Tools', () => {
     assert.ok(server.tools.has('redis_ttl'));
   });
 
+  test('redis_pipeline tool is registered', () => {
+    assert.ok(server.tools.has('redis_pipeline'));
+  });
+
   test('redis_lpush inserts to list head', async () => {
     const tool = server.tools.get('redis_lpush');
     const result = await tool.handler({ key: 'app:queue', values: ['a', 'b'] });
@@ -647,5 +694,48 @@ describe('Redis Tools', () => {
     assert.ok(result.content[0].text);
     const data = JSON.parse(result.content[0].text);
     assert.equal(data.ttl, -2);
+  });
+
+  test('redis_pipeline executes allowed command batch', async () => {
+    const tool = server.tools.get('redis_pipeline');
+    const result = await tool.handler({
+      commands_json: JSON.stringify([
+        { command: 'set', key: 'app:pipeline', args: ['v1', 60] },
+        { command: 'get', key: 'app:pipeline' },
+        { command: 'ttl', key: 'app:pipeline' },
+      ]),
+    });
+    assert.ok(result.content[0].text);
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.connection_id, 'rd');
+    assert.equal(data.ok, true);
+    assert.equal(data.results.length, 3);
+    assert.equal(data.results[1].result, 'v1');
+    assert.equal(mockDriver.operations[0].op, 'pipeline');
+  });
+
+  test('redis_pipeline rejects blocked commands before driver execution', async () => {
+    const tool = server.tools.get('redis_pipeline');
+    const result = await tool.handler({
+      commands_json: JSON.stringify([{ command: 'flushdb', key: 'app:any' }]),
+    });
+    assert.equal(result.isError, true);
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.error_info.code, 'REDIS_003');
+    assert.equal(mockDriver.operations.length, 0);
+  });
+
+  test('redis_pipeline maps readonly rejection to REDIS_004', async () => {
+    mockDriver.pipeline = async () => {
+      throw new Error('该 Redis 连接为只读');
+    };
+    const tool = server.tools.get('redis_pipeline');
+    const result = await tool.handler({
+      connection_id: 'rd_ro',
+      commands_json: JSON.stringify([{ command: 'set', key: 'app:pipeline', args: ['v1'] }]),
+    });
+    assert.equal(result.isError, true);
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.error_info.code, 'REDIS_004');
   });
 });

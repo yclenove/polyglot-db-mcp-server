@@ -273,6 +273,45 @@ const tools = [
       { name: 'sample_size', type: 'number', required: false, description: '采样文档数，默认 100，最大 1000' },
     ],
   },
+  {
+    name: 'mongo_begin_transaction',
+    category: 'MongoDB 事务',
+    description: '开始 MongoDB 多文档事务，返回 transaction_id。',
+    params: [
+      { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
+    ],
+  },
+  {
+    name: 'mongo_execute_in_transaction',
+    category: 'MongoDB 事务',
+    description: '在 MongoDB 事务中执行一个受控写操作。',
+    params: [
+      { name: 'transaction_id', type: 'string', required: true, description: '事务 ID' },
+      { name: 'operation', type: 'string', required: true, description: 'insert_one / insert_many / update_one / update_many / delete_one / delete_many' },
+      { name: 'collection', type: 'string', required: true, description: '集合名称' },
+      { name: 'document_json', type: 'string', required: false, description: 'insert_one 使用的 JSON 对象' },
+      { name: 'documents_json', type: 'string', required: false, description: 'insert_many 使用的 JSON 对象数组' },
+      { name: 'filter_json', type: 'string', required: false, description: 'update/delete 使用的 JSON filter' },
+      { name: 'update_json', type: 'string', required: false, description: 'update 使用的 JSON 更新对象' },
+      { name: 'upsert', type: 'boolean', required: false, description: 'update_one 可选 upsert' },
+    ],
+  },
+  {
+    name: 'mongo_commit',
+    category: 'MongoDB 事务',
+    description: '提交 MongoDB 事务。',
+    params: [
+      { name: 'transaction_id', type: 'string', required: true, description: '事务 ID' },
+    ],
+  },
+  {
+    name: 'mongo_rollback',
+    category: 'MongoDB 事务',
+    description: '回滚 MongoDB 事务。',
+    params: [
+      { name: 'transaction_id', type: 'string', required: true, description: '事务 ID' },
+    ],
+  },
 
   // Redis 工具
   {
@@ -320,6 +359,15 @@ const tools = [
     category: 'Redis',
     description: '列出本服务默认禁止执行的 Redis 命令名。',
     params: [],
+  },
+  {
+    name: 'redis_pipeline',
+    category: 'Redis',
+    description: '批量执行安全 Redis 命令子集。遵守 keyPrefix、readonly 和阻断命令规则。',
+    params: [
+      { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
+      { name: 'commands_json', type: 'string', required: true, description: '命令 JSON 数组，每项包含 command、key、args' },
+    ],
   },
   {
     name: 'redis_type',
@@ -419,6 +467,17 @@ const tools = [
       { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
       { name: 'format', type: 'string', required: false, description: '输出格式：json 或 sql，默认 json' },
       { name: 'schema', type: 'string', required: false, description: 'Schema 名称（PostgreSQL）' },
+    ],
+  },
+  {
+    name: 'schema_diff',
+    category: 'Schema',
+    description: '比较两个 SQL 连接或 schema 的表结构差异，返回新增、删除和变更的表/列。',
+    params: [
+      { name: 'source_connection_id', type: 'string', required: true, description: '源连接 id' },
+      { name: 'target_connection_id', type: 'string', required: true, description: '目标连接 id' },
+      { name: 'source_schema', type: 'string', required: false, description: '源 schema（PostgreSQL）' },
+      { name: 'target_schema', type: 'string', required: false, description: '目标 schema（PostgreSQL）' },
     ],
   },
 

@@ -163,14 +163,17 @@ When you **explicitly** pass `connection_id` on any tool, it must match a config
 - `sql_execute` — write-capable SQL (blocked when connection is `readonly`)
 - `sql_list_tables` — list tables (optional `schema` for PostgreSQL)
 - `sql_describe_table` — column metadata for a table
+- `schema_export`, `schema_diff` — export or compare SQL schemas
 
 **MongoDB**
 
 - `mongo_list_collections`, `mongo_find`, `mongo_aggregate`, `mongo_count`
+- `mongo_begin_transaction`, `mongo_execute_in_transaction`, `mongo_commit`, `mongo_rollback`
 
 **Redis**
 
 - `redis_get`, `redis_set`, `redis_del`, `redis_scan`, `redis_blocked_commands`
+- `redis_pipeline` — batch a safe Redis command subset while preserving keyPrefix/readonly boundaries
 
 ## Environment variables
 
@@ -182,6 +185,7 @@ When you **explicitly** pass `connection_id` on any tool, it must match a config
 | `DB_HTTP_HOST`, `DB_HTTP_PORT`, `DB_HTTP_ENDPOINT` | HTTP bind host, port, and MCP endpoint |
 | `DB_HTTP_API_KEY`, `DB_HTTP_AUTH_DISABLED`, `DB_HTTP_ORIGINS` | HTTP API key, explicit auth disable flag, and Origin allowlist |
 | `DB_QUERY_TIMEOUT`, `DB_MAX_ROWS`, `DB_MAX_SQL_LENGTH`, `DB_RETRY_COUNT`, `DB_RETRY_DELAY_MS` | Global SQL limits (see `src/core/config.ts`) |
+| `DB_TRANSACTION_TIMEOUT_MS`, `DB_MONGO_TRANSACTION_TIMEOUT_MS` | SQL/Mongo transaction cleanup timeouts |
 
 ## License
 

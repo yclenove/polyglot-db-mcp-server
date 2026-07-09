@@ -2,6 +2,18 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ConnectionRegistry } from '../core/registry.js';
 import { createErrorPayload, type ErrorCode } from '../core/error-codes.js';
+import type { MongoTransaction, MongoTransactionOperation } from '../core/types.js';
+
+const activeMongoTransactions = new Map<
+  string,
+  {
+    connectionId: string;
+    transaction: MongoTransaction;
+    createdAt: number;
+  }
+>();
+let mongoTxCounter = 0;
+let mongoTransactionCleanupStarted = false;
 
 /** 分析文档结构，收集字段路径和类型 */
 function analyzeDocument(
@@ -53,7 +65,110 @@ function codedMongoErrorText(code: ErrorCode, detail: string): string {
   return JSON.stringify({ error: errorInfo.message, detail, error_info: errorInfo });
 }
 
+function ensureMongoTransactionCleanup(): void {
+  if (mongoTransactionCleanupStarted) return;
+  mongoTransactionCleanupStarted = true;
+  setInterval(() => {
+    const txTimeoutMs = parseInt(
+      process.env.DB_MONGO_TRANSACTION_TIMEOUT_MS ||
+        process.env.DB_TRANSACTION_TIMEOUT_MS ||
+        '300000',
+      10,
+    );
+    const now = Date.now();
+    for (const [txId, entry] of activeMongoTransactions) {
+      if (now - entry.createdAt > txTimeoutMs) {
+        entry.transaction.rollback().catch(() => {});
+        activeMongoTransactions.delete(txId);
+      }
+    }
+  }, 60_000).unref();
+}
+
+function parseJsonObject(raw: string | undefined, fieldName: string): Record<string, unknown> {
+  if (raw === undefined) {
+    throw new Error(`${fieldName} 为必填 JSON 对象字符串`);
+  }
+  const parsed = JSON.parse(raw) as unknown;
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`${fieldName} 须为 JSON 对象`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function parseJsonObjectArray(
+  raw: string | undefined,
+  fieldName: string,
+): Record<string, unknown>[] {
+  if (raw === undefined) {
+    throw new Error(`${fieldName} 为必填 JSON 数组字符串`);
+  }
+  const parsed = JSON.parse(raw) as unknown;
+  if (!Array.isArray(parsed)) {
+    throw new Error(`${fieldName} 须为 JSON 数组`);
+  }
+  if (!parsed.every((item) => typeof item === 'object' && item !== null && !Array.isArray(item))) {
+    throw new Error(`${fieldName} 的每一项都必须是 JSON 对象`);
+  }
+  return parsed as Record<string, unknown>[];
+}
+
+function buildMongoTransactionOperation(input: {
+  operation: MongoTransactionOperation['operation'];
+  collection: string;
+  document_json?: string;
+  documents_json?: string;
+  filter_json?: string;
+  update_json?: string;
+  upsert?: boolean;
+}): MongoTransactionOperation {
+  switch (input.operation) {
+    case 'insert_one':
+      return {
+        operation: input.operation,
+        collection: input.collection,
+        document: parseJsonObject(input.document_json, 'document_json'),
+      };
+    case 'insert_many':
+      return {
+        operation: input.operation,
+        collection: input.collection,
+        documents: parseJsonObjectArray(input.documents_json, 'documents_json'),
+      };
+    case 'update_one':
+    case 'update_many': {
+      const filter = parseJsonObject(input.filter_json, 'filter_json');
+      const injection = detectNoSqlInjection(filter);
+      if (injection) throw new Error(codedMongoErrorText('MONGO_003', injection));
+      return {
+        operation: input.operation,
+        collection: input.collection,
+        filter,
+        update: parseJsonObject(input.update_json, 'update_json'),
+        options: { upsert: input.upsert },
+      };
+    }
+    case 'delete_one':
+    case 'delete_many': {
+      const filter = parseJsonObject(input.filter_json, 'filter_json');
+      const injection = detectNoSqlInjection(filter);
+      if (injection) throw new Error(codedMongoErrorText('MONGO_003', injection));
+      return {
+        operation: input.operation,
+        collection: input.collection,
+        filter,
+      };
+    }
+    default: {
+      const neverOperation: never = input.operation;
+      throw new Error(`不支持的 MongoDB 事务操作: ${neverOperation}`);
+    }
+  }
+}
+
 export function registerMongoTools(server: McpServer, registry: ConnectionRegistry): void {
+  ensureMongoTransactionCleanup();
+
   server.registerTool(
     'mongo_list_collections',
     {
@@ -70,6 +185,200 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         return {
           content: [
             { type: 'text', text: JSON.stringify({ connection_id: id, collections: names }) },
+          ],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    'mongo_begin_transaction',
+    {
+      description:
+        '开始 MongoDB 多文档事务。返回 transaction_id，后续使用 mongo_execute_in_transaction、mongo_commit 或 mongo_rollback。',
+      inputSchema: {
+        connection_id: z.string().optional(),
+      },
+    },
+    async ({ connection_id }) => {
+      try {
+        const id = registry.resolveConnectionId(connection_id);
+        const h = registry.require(id);
+        if (h.kind !== 'mongo') {
+          return {
+            content: [
+              { type: 'text', text: codedMongoErrorText('MONGO_001', `当前连接类型: ${h.kind}`) },
+            ],
+            isError: true,
+          };
+        }
+        if (h.spec.readonly) {
+          return {
+            content: [
+              { type: 'text', text: codedMongoErrorText('MONGO_004', `connection_id=${id}`) },
+            ],
+            isError: true,
+          };
+        }
+        const transaction = await h.driver.beginTransaction();
+        const transactionId = `mongo_tx_${++mongoTxCounter}_${Date.now()}`;
+        activeMongoTransactions.set(transactionId, {
+          connectionId: id,
+          transaction,
+          createdAt: Date.now(),
+        });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ transaction_id: transactionId, connection_id: id }),
+            },
+          ],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    'mongo_execute_in_transaction',
+    {
+      description:
+        '在 MongoDB 事务中执行一个写操作。operation 支持 insert_one、insert_many、update_one、update_many、delete_one、delete_many。',
+      inputSchema: {
+        transaction_id: z.string(),
+        operation: z.enum([
+          'insert_one',
+          'insert_many',
+          'update_one',
+          'update_many',
+          'delete_one',
+          'delete_many',
+        ]),
+        collection: z.string(),
+        document_json: z.string().optional(),
+        documents_json: z.string().optional(),
+        filter_json: z.string().optional(),
+        update_json: z.string().optional(),
+        upsert: z.boolean().optional(),
+      },
+    },
+    async ({
+      transaction_id,
+      operation,
+      collection,
+      document_json,
+      documents_json,
+      filter_json,
+      update_json,
+      upsert,
+    }) => {
+      try {
+        const entry = activeMongoTransactions.get(transaction_id);
+        if (!entry) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: codedMongoErrorText('MONGO_005', transaction_id),
+              },
+            ],
+            isError: true,
+          };
+        }
+        const txOperation = buildMongoTransactionOperation({
+          operation,
+          collection,
+          document_json,
+          documents_json,
+          filter_json,
+          update_json,
+          upsert,
+        });
+        const result = await entry.transaction.execute(txOperation);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                transaction_id,
+                connection_id: entry.connectionId,
+                ...result,
+              }),
+            },
+          ],
+        };
+      } catch (e) {
+        const text = e instanceof Error ? e.message : String(e);
+        return { content: [{ type: 'text', text }], isError: true };
+      }
+    },
+  );
+
+  server.registerTool(
+    'mongo_commit',
+    {
+      description: '提交 MongoDB 事务。',
+      inputSchema: {
+        transaction_id: z.string(),
+      },
+    },
+    async ({ transaction_id }) => {
+      try {
+        const entry = activeMongoTransactions.get(transaction_id);
+        if (!entry) {
+          return {
+            content: [{ type: 'text', text: codedMongoErrorText('MONGO_005', transaction_id) }],
+            isError: true,
+          };
+        }
+        await entry.transaction.commit();
+        activeMongoTransactions.delete(transaction_id);
+        return {
+          content: [
+            { type: 'text', text: JSON.stringify({ transaction_id, status: 'committed' }) },
+          ],
+        };
+      } catch (e) {
+        return {
+          content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    'mongo_rollback',
+    {
+      description: '回滚 MongoDB 事务。',
+      inputSchema: {
+        transaction_id: z.string(),
+      },
+    },
+    async ({ transaction_id }) => {
+      try {
+        const entry = activeMongoTransactions.get(transaction_id);
+        if (!entry) {
+          return {
+            content: [{ type: 'text', text: codedMongoErrorText('MONGO_005', transaction_id) }],
+            isError: true,
+          };
+        }
+        await entry.transaction.rollback();
+        activeMongoTransactions.delete(transaction_id);
+        return {
+          content: [
+            { type: 'text', text: JSON.stringify({ transaction_id, status: 'rolled_back' }) },
           ],
         };
       } catch (e) {
