@@ -2,7 +2,7 @@
 
 **[简体中文](./README.md) | English**
 
-A multi-engine database [Model Context Protocol](https://modelcontextprotocol.io/) server for **MySQL**, **PostgreSQL**, **Microsoft SQL Server**, **Oracle**, **MongoDB**, and **Redis**. Connections are declared in a single environment variable **`DB_MCP_CONNECTIONS`** (a JSON array) so one process can expose multiple backends in one MCP session.
+A multi-engine database [Model Context Protocol](https://modelcontextprotocol.io/) server for **MySQL**, **PostgreSQL**, **Microsoft SQL Server**, **Oracle**, **MongoDB**, **Redis**, and **SQLite**. Connections are declared in a single environment variable **`DB_MCP_CONNECTIONS`** (a JSON array) so one process can expose multiple backends in one MCP session.
 
 NPM package: **`@yclenove/polyglot-db-mcp-server`**. CLI after install: **`polyglot-db-mcp-server`** (the old name `unified-db-mcp-server` is deprecated—update the `command` in your MCP config).
 
@@ -10,25 +10,47 @@ See **[CHANGELOG.md](./CHANGELOG.md)** for release notes. Migration from single-
 
 ## Requirements
 
-- **Node.js 24+** recommended (matches GitHub Actions CI; Node 20+ often works)
-- **`DB_MCP_CONNECTIONS`** must be a JSON **array** of connection objects (example below)
+- **Node.js 20+**; Node.js 24+ is recommended and matches GitHub Actions CI
 
-## Quick start
+## 5-Minute SQLite Quick Start
+
+SQLite does not require an external database service, so it is the fastest way to verify the server.
 
 ```bash
-npm install
+npm ci
 npm run build
-```
-
-Set `DB_MCP_CONNECTIONS` (and optionally `DB_MCP_DEFAULT_CONNECTION_ID`), then:
-
-```bash
+node dist/index.js init
+node dist/index.js test
 node dist/index.js
 ```
 
-The **default** connection must pass a ping at startup; otherwise the process exits with code `1`. Failures on **non-default** connections are logged to stderr but do not stop startup.
+`init` writes the minimal `.env` below unless `.env` already exists:
 
-## `DB_MCP_CONNECTIONS` example
+```dotenv
+DB_MCP_CONNECTIONS=[{"id":"local","engine":"sqlite","url":"file:./data/local.db","readonly":false}]
+DB_MCP_DEFAULT_CONNECTION_ID=local
+```
+
+If `.env` already exists, `init` will not overwrite it. Use `node dist/index.js init --stdout` to print the template, or `--force` to overwrite.
+
+Call `sql_query` from your MCP client:
+
+```json
+{
+  "connection_id": "local",
+  "sql": "SELECT 1 AS ok"
+}
+```
+
+When installed from npm, use:
+
+```bash
+polyglot-db-mcp-server init
+polyglot-db-mcp-server test
+polyglot-db-mcp-server
+```
+
+## Multi-Connection Configuration
 
 Each entry needs a unique **`id`**, **`engine`**, and either **`url`** or (for SQL engines) **`host`**. **Redis** and **MongoDB** require **`url`**.
 
@@ -37,35 +59,50 @@ Each entry needs a unique **`id`**, **`engine`**, and either **`url`** or (for S
   {
     "id": "pg",
     "engine": "postgres",
-    "url": "postgres://dev:devpass@127.0.0.1:5432/devdb"
+    "url": "postgres://<pg_user>:<pg_password>@127.0.0.1:5432/<pg_database>",
+    "readonly": true
   },
   {
     "id": "my",
     "engine": "mysql",
     "host": "127.0.0.1",
     "port": 3306,
-    "user": "dev",
-    "password": "devpass",
-    "database": "devdb",
-    "readonly": false
+    "user": "<mysql_user>",
+    "password": "<mysql_password>",
+    "database": "<mysql_database>",
+    "readonly": true
   },
   {
     "id": "rd",
     "engine": "redis",
-    "url": "redis://:redispass@127.0.0.1:6379/0",
+    "url": "redis://:<redis_password>@127.0.0.1:6379/0",
     "keyPrefix": "app:"
   },
   {
     "id": "mdb",
     "engine": "mongodb",
-    "url": "mongodb://dev:devpass@127.0.0.1:27017/?authSource=admin"
+    "url": "mongodb://<mongo_user>:<mongo_password>@127.0.0.1:27017/?authSource=admin",
+    "database": "<mongo_database>",
+    "allowlist": ["users", "orders"],
+    "readonly": true
   }
 ]
 ```
 
-Engines: `mysql`, `postgres`, `mssql`, `oracle`, `mongodb`, `redis`.
+Engines: `mysql`, `postgres`, `mssql`, `oracle`, `mongodb`, `redis`, `sqlite`.
 
 Optional fields include `readonly`, MongoDB `allowlist`, and Redis `keyPrefix`.
+
+See [docs/CONFIG.md](./docs/CONFIG.md) and [.env.example](./.env.example) for the full configuration reference.
+
+## Diagnostics
+
+- `polyglot-db-mcp-server test`: parses `.env`, pings every connection, and prints `code` plus `hint` for failures.
+- `connection_diagnose`: returns status, latency, `error_info`, and actionable suggestions inside MCP.
+- [docs/ERRORS.md](./docs/ERRORS.md): error-code matrix and hint conventions.
+- [docs/API.md](./docs/API.md): tool parameters and common error entry points.
+
+The **default** connection must pass a ping at startup; otherwise the process exits with code `1`. Failures on **non-default** connections are logged to stderr but do not stop startup.
 
 ## Local databases with Docker
 
@@ -84,7 +121,7 @@ See `docker-compose.yml` for default users, passwords, and published ports.
 
 When you **explicitly** pass `connection_id` on any tool, it must match a configured `id`. Invalid ids are **rejected** and do **not** fall back to the default. Omit the parameter or pass empty/whitespace to use the default connection.
 
-**SQL** (MySQL / PostgreSQL / SQL Server / Oracle)
+**SQL** (MySQL / PostgreSQL / SQL Server / Oracle / SQLite)
 
 - `sql_query` — read-only queries only (validated before execution)
 - `sql_execute` — write-capable SQL (blocked when connection is `readonly`)

@@ -4,7 +4,7 @@
 **版本**: 1.0
 **日期**: 2026-07-09
 **规划周期**: 2026 Q3 ~ 2027 Q2
-**当前基线**: v1.7.2
+**当前基线**: v1.7.3
 **状态**: 当前有效
 **当前详细迭代**: `docs/ITER-v1.7.1-迭代计划.md`、`docs/ITER-v1.7.2-迭代计划.md`、`docs/ITER-v1.7.3-迭代计划.md`
 **文档索引**: `docs/INDEX.md`
@@ -81,6 +81,7 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 |------|----------|----------|----------|
 | `docs/QUALITY-v1.7.0-质量报告.md` | 测试缺口、RateLimiter、cacheKey、MSSQL EXPLAIN | v1.7.1 | `ITER-v1.7.1` P0/P1 任务 |
 | `docs/QUALITY-v1.7.1-质量报告.md` | v1.7.1 完成审计 | v1.7.1 | 已填写真实命令和质量结果 |
+| `docs/QUALITY-v1.7.3-质量报告.md` | v1.7.3 完成审计 | v1.7.3 | 已填写真实命令、快速开始和质量结果 |
 | `docs/QUALITY-v1.8.0-质量报告.md` | v1.8.0 完成审计模板 | v1.8.0 | HTTP 发布前填写真正命令和质量结果 |
 | `docs/PRD-v1.7.0.md` | 后续 HTTP、OAuth、RBAC、Mongo 事务、Redis Pipeline、DuckDB | v1.8 ~ v2.1 | ROADMAP Phase 1 ~ 4 |
 | `docs/MARKET-市场分析.md` | DBHub/FreePeak 等竞品压力，引擎覆盖和企业能力 | v1.8 ~ v2.2 | 传输、企业安全、可观测 |
@@ -132,6 +133,7 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 ### 5.3 v1.7.3：体验补丁
 
 **详细计划**: `docs/ITER-v1.7.3-迭代计划.md`
+**状态**: 已完成。
 
 | 优先级 | 任务 | 验收标准 |
 |--------|------|----------|
@@ -405,13 +407,10 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 
 ## 十八、下一步
 
-建议下一步立即进入 **v1.7.1 质量补丁迭代**：
+建议下一步进入 **v1.8.0 传输与运维增强迭代**：
 
-1. 按 `docs/ITER-v1.7.1-迭代计划.md` 执行质量补丁。
-2. 接续 `docs/ITER-v1.7.2-迭代计划.md` 建立发布工程和配置模板。
-3. 接续 `docs/ITER-v1.7.3-迭代计划.md` 优化 CLI、错误码和 README 快速开始。
-4. v1.8.0 开发前评审 `docs/ADR-001-streamable-http.md`、`docs/PRD-v1.8.0.md` 和 `docs/ITER-v1.8.0-迭代计划.md`，确认 SDK/API 细节后再实现。
-5. v2.0.0 开发前评审 `docs/ADR-002-oauth-rbac.md`、`docs/PRD-v2.0.0.md` 和 `docs/MIGRATION-v2.0.0.md`，确认认证授权与迁移边界。
-6. v3.0.0 开发前复核 `docs/ADR-003-plugin-architecture.md`，确认插件安全边界。
-7. 提交规划包前按 `docs/PLANNING_AUDIT.md` 运行引用和格式审计。
-8. 每阶段完成后运行 `npm run build`、`npm test`、`npm run lint`，再提交发布补丁。
+1. 评审 `docs/ADR-001-streamable-http.md`、`docs/PRD-v1.8.0.md` 和 `docs/ITER-v1.8.0-迭代计划.md`，确认 SDK/API 细节后再实现。
+2. v2.0.0 开发前评审 `docs/ADR-002-oauth-rbac.md`、`docs/PRD-v2.0.0.md` 和 `docs/MIGRATION-v2.0.0.md`，确认认证授权与迁移边界。
+3. v3.0.0 开发前复核 `docs/ADR-003-plugin-architecture.md`，确认插件安全边界。
+4. 提交规划包前按 `docs/PLANNING_AUDIT.md` 运行引用和格式审计。
+5. 每阶段完成后运行 `npm run build`、`npm test`、`npm run lint`，再提交发布补丁。

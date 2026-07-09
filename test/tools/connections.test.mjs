@@ -292,6 +292,8 @@ describe('Connection Tools', () => {
     const myResult = data.connections.find((c) => c.id === 'my');
     assert.equal(myResult.status, 'error');
     assert.equal(myResult.error, 'Connection refused');
+    assert.equal(myResult.error_info.code, 'CONN_001');
+    assert.ok(myResult.suggestions.some((s) => /host\/port|端口映射/.test(s)));
   });
 
   test('connection_diagnose diagnoses a specific connection', async () => {
@@ -331,6 +333,8 @@ describe('Connection Tools', () => {
     assert.equal(result.isError, true);
     const data = JSON.parse(result.content[0].text);
     assert.ok(data.error);
+    assert.equal(data.error_info.code, 'CONN_006');
+    assert.deepEqual(data.error_info.details.available_connections, ['pg', 'my', 'rd']);
   });
 
   test('connection_diagnose returns version for SQL engines', async () => {
@@ -369,6 +373,30 @@ describe('Connection Tools', () => {
     assert.ok(pgResult.suggestions.length > 0);
     // 应该建议设置 database 字段
     assert.ok(pgResult.suggestions.some((s) => s.includes('database')));
+  });
+
+  test('connection_diagnose includes SQLite path hints', async () => {
+    const sqliteServer = new MockMcpServer();
+    const sqliteRegistry = new MockRegistry([
+      { id: 'local', engine: 'sqlite', readonly: false, url: 'file:./data/local.db' },
+    ], 'local');
+    sqliteRegistry.handles.set('local', {
+      id: 'local',
+      spec: { id: 'local', engine: 'sqlite', readonly: false, url: 'file:./data/local.db' },
+      kind: 'sql',
+      driver: {
+        engine: 'sqlite',
+        ping: async () => ({ ok: true }),
+        execute: async () => ({ success: true, data: [{ version: '3.45.0' }] }),
+      },
+    });
+    registerConnectionTools(sqliteServer, sqliteRegistry);
+
+    const tool = sqliteServer.tools.get('connection_diagnose');
+    const result = await tool.handler({ connection_id: 'local' });
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.connections[0].status, 'ok');
+    assert.ok(data.connections[0].suggestions.some((s) => s.includes('SQLite 文件路径')));
   });
 
   test('connection_diagnose handles ping throwing exception', async () => {

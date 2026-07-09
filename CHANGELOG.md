@@ -4,6 +4,22 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.7.3] - 2026-07-10
+
+### 新增
+- **SQLite 快速开始闭环**：`init` 默认生成最小 SQLite `.env`，README 中提供 5 分钟本地验证路径。
+- **错误码元数据**：`src/core/error-codes.ts` 补齐 `message`、`hint`、`severity`、`retryable` 和适用范围，并覆盖 CLI/HTTP 前瞻错误码。
+- **诊断错误对象**：`connection_diagnose` 返回 `error_info`，并针对端口、认证、timeout、readonly、Redis keyPrefix、SQLite 文件路径给出建议。
+- **CLI 测试体验**：`test` 子命令输出连接数量、默认连接、engine、readonly、失败 code 和 hint。
+
+### 修复
+- **API 文档漂移**：补齐 `scripts/generate-docs.mjs` 中缺失的当前工具，并生成包含通用错误章节的 `docs/API.md`。
+- **凭证脱敏边界**：错误脱敏覆盖 `redis://:password@host` 这类空用户名 URL。
+
+### 变更
+- **CLI init 行为**：默认不进入交互向导，改为生成最小 SQLite 配置；旧交互式向导保留为 `init --interactive`。
+- **README/CONFIG/ERRORS 同步**：文档统一指向 SQLite quickstart、`.env.example`、`connection_diagnose` 和错误码矩阵。
+
 ## [1.7.2] - 2026-07-10
 
 ### 新增

@@ -1,9 +1,9 @@
 # 错误码与提示规范
 
 **文档编号**: ERRORS
-**版本**: 1.0
-**日期**: 2026-07-09
-**状态**: 当前有效草案
+**版本**: 1.1
+**日期**: 2026-07-10
+**状态**: 当前有效
 **适用版本**: v1.7.x+
 
 ---
@@ -22,7 +22,7 @@
 
 ## 二、错误对象结构
 
-推荐结构：
+推荐结构。v1.7.3 起，`connection_diagnose`、CLI `test/init` 和部分关键工具错误已返回或展示 `code`/`hint`：
 
 ```json
 {
@@ -133,7 +133,7 @@
 | `HTTP_004` | Endpoint 不存在 | 检查 `DB_HTTP_ENDPOINT` | false |
 | `HTTP_005` | HTTP transport 未启用 | 设置 `DB_MCP_TRANSPORT=http` | false |
 
-### 4.8 CLI 前瞻错误
+### 4.8 CLI 错误
 
 | Code | Message | Hint | Retryable |
 |------|---------|------|-----------|
@@ -198,8 +198,8 @@
 
 ## 八、v1.7.3 落地清单
 
-- [ ] `src/core/error-codes.ts` 补齐本文档中的新增前瞻或当前错误码。
-- [ ] 工具层错误尽量返回 `{ code, message, hint }`。
-- [ ] `connection_diagnose` 使用错误码生成建议。
-- [ ] README/API 指向本文档。
-- [ ] 新增关键错误测试。
+- [x] `src/core/error-codes.ts` 补齐本文档中的当前、HTTP 前瞻和 CLI 错误码。
+- [x] 工具层关键错误返回 `{ error, error_info: { code, message, hint } }`。
+- [x] `connection_diagnose` 使用错误码生成建议，并保留兼容的 `error` 字符串。
+- [x] README/API 指向本文档。
+- [x] 新增关键错误测试：CLI、错误码元数据、连接诊断、SQL 只读、Redis keyPrefix、Mongo NoSQL 注入。

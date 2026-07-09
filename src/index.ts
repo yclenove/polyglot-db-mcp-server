@@ -13,8 +13,8 @@ loadEnv({ path: path.join(process.cwd(), '.env'), override: true });
 // CLI 子命令处理（init、test、--help）
 const cliCommands = new Set(['init', 'test', '--help', '-h']);
 if (cliCommands.has(process.argv[2] ?? '')) {
-  await runCli();
-  process.exit(0);
+  const exitCode = await runCli();
+  process.exit(exitCode);
 }
 
 async function main(): Promise<void> {

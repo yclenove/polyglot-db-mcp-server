@@ -1,9 +1,9 @@
 # 配置指南
 
 **文档编号**: CONFIG
-**版本**: 1.0
-**日期**: 2026-07-09
-**状态**: 当前有效草案
+**版本**: 1.1
+**日期**: 2026-07-10
+**状态**: 当前有效
 **适用版本**: v1.7.x，v1.8.0 HTTP 配置为前瞻规划
 
 ---
@@ -27,6 +27,18 @@ polyglot-db-mcp-server 通过环境变量配置。启动时会从当前工作目
 ## 二、最小 SQLite 配置
 
 适合本地 5 分钟快速开始，不依赖外部数据库服务。
+
+可以直接运行：
+
+```powershell
+polyglot-db-mcp-server init
+```
+
+或在源码仓库内运行：
+
+```powershell
+node dist/index.js init
+```
 
 ```env
 DB_MCP_CONNECTIONS=[{"id":"local","engine":"sqlite","url":"file:./data/local.db","readonly":false}]

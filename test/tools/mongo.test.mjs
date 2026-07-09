@@ -212,6 +212,9 @@ describe('MongoDB Tools', () => {
     });
     assert.equal(result.isError, true);
     assert.ok(result.content[0].text.includes('NoSQL 注入'));
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.error_info.code, 'MONGO_003');
+    assert.match(data.detail, /\$where/);
   });
 
   test('mongo_aggregate returns aggregated results', async () => {
@@ -304,6 +307,8 @@ describe('MongoDB Tools', () => {
     });
     assert.equal(result.isError, true);
     assert.ok(result.content[0].text.includes('NoSQL 注入'));
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.error_info.code, 'MONGO_003');
   });
 
   test('mongo_delete_one deletes document', async () => {

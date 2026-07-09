@@ -2,7 +2,7 @@
 
 **[简体中文](./README.md) | [English](./README_en.md)**
 
-面向 **MySQL**、**PostgreSQL**、**Microsoft SQL Server**、**Oracle**、**MongoDB**、**Redis** 的多引擎数据库 [Model Context Protocol](https://modelcontextprotocol.io/) 服务。所有连接在单一环境变量 **`DB_MCP_CONNECTIONS`**（JSON 数组）中声明，同一进程可在一次 MCP 会话中暴露多个后端。
+面向 **MySQL**、**PostgreSQL**、**Microsoft SQL Server**、**Oracle**、**MongoDB**、**Redis**、**SQLite** 的多引擎数据库 [Model Context Protocol](https://modelcontextprotocol.io/) 服务。所有连接在单一环境变量 **`DB_MCP_CONNECTIONS`**（JSON 数组）中声明，同一进程可在一次 MCP 会话中暴露多个后端。
 
 NPM 包名：**`@yclenove/polyglot-db-mcp-server`**；安装后 CLI：**`polyglot-db-mcp-server`**（旧名 `unified-db-mcp-server` 已弃用，请在 MCP 配置中更新 command）。
 
@@ -10,25 +10,52 @@ NPM 包名：**`@yclenove/polyglot-db-mcp-server`**；安装后 CLI：**`polyglo
 
 ## 环境要求
 
-- 推荐使用 **Node.js 24+**（与 GitHub Actions CI 一致；Node 20+ 多数场景仍可用）
-- 必须设置 **`DB_MCP_CONNECTIONS`** 为连接对象的 JSON **数组**（见下文示例）
+- Node.js **20+**；推荐 Node.js 24+（与 GitHub Actions CI 一致）
 
-## 快速开始
+## 5 分钟 SQLite 快速开始
+
+SQLite 不需要外部数据库服务，适合先确认 MCP server 能正常启动。
 
 ```bash
-npm install
+npm ci
 npm run build
+node dist/index.js init
+node dist/index.js test
 ```
 
-配置 `DB_MCP_CONNECTIONS`（可选 `DB_MCP_DEFAULT_CONNECTION_ID`）后：
+`init` 会生成最小 `.env`：
+
+```dotenv
+DB_MCP_CONNECTIONS=[{"id":"local","engine":"sqlite","url":"file:./data/local.db","readonly":false}]
+DB_MCP_DEFAULT_CONNECTION_ID=local
+```
+
+如果 `.env` 已存在，`init` 默认不会覆盖；可使用 `node dist/index.js init --stdout` 查看模板，或使用 `--force` 覆盖。
+
+测试通过后启动 MCP server：
 
 ```bash
 node dist/index.js
 ```
 
-**默认连接**在启动时必须 ping 成功，否则进程以退出码 `1` 结束。其他连接 ping 失败时会在 stderr 打日志，但不阻止进程启动（仅默认失败会退出）。
+在 MCP 客户端里调用 `sql_query`：
 
-## `DB_MCP_CONNECTIONS` 示例
+```json
+{
+  "connection_id": "local",
+  "sql": "SELECT 1 AS ok"
+}
+```
+
+已安装 npm 包时，命令名为：
+
+```bash
+polyglot-db-mcp-server init
+polyglot-db-mcp-server test
+polyglot-db-mcp-server
+```
+
+## 多连接配置
 
 每项需要唯一 **`id`**、**`engine`**，以及 SQL 类引擎的 **`url`** 或基于 **`host`** 的字段；**Redis** 与 **MongoDB** 必须提供 **`url`**。
 
@@ -37,28 +64,32 @@ node dist/index.js
   {
     "id": "pg",
     "engine": "postgres",
-    "url": "postgres://dev:devpass@127.0.0.1:5432/devdb"
+    "url": "postgres://<pg_user>:<pg_password>@127.0.0.1:5432/<pg_database>",
+    "readonly": true
   },
   {
     "id": "my",
     "engine": "mysql",
     "host": "127.0.0.1",
     "port": 3306,
-    "user": "dev",
-    "password": "devpass",
-    "database": "devdb",
-    "readonly": false
+    "user": "<mysql_user>",
+    "password": "<mysql_password>",
+    "database": "<mysql_database>",
+    "readonly": true
   },
   {
     "id": "rd",
     "engine": "redis",
-    "url": "redis://:redispass@127.0.0.1:6379/0",
+    "url": "redis://:<redis_password>@127.0.0.1:6379/0",
     "keyPrefix": "app:"
   },
   {
     "id": "mdb",
     "engine": "mongodb",
-    "url": "mongodb://dev:devpass@127.0.0.1:27017/?authSource=admin"
+    "url": "mongodb://<mongo_user>:<mongo_password>@127.0.0.1:27017/?authSource=admin",
+    "database": "<mongo_database>",
+    "allowlist": ["users", "orders"],
+    "readonly": true
   }
 ]
 ```
@@ -79,6 +110,17 @@ SQLite 支持 `file:` 前缀路径、相对路径、绝对路径和 `:memory:` �
 
 可选字段：`readonly`、`allowlist`（Mongo 库名白名单）、Redis 的 `keyPrefix` 等。
 
+完整配置说明见 [docs/CONFIG.md](./docs/CONFIG.md)，安全模板见 [.env.example](./.env.example)。
+
+## 诊断与排障
+
+- `polyglot-db-mcp-server test`：解析 `.env` 并 ping 所有连接，输出 `code` 和 `hint`。
+- `connection_diagnose`：在 MCP 内返回每个连接的状态、延迟、`error_info` 和可执行建议。
+- [docs/ERRORS.md](./docs/ERRORS.md)：错误码矩阵和 hint 编写规范。
+- [docs/API.md](./docs/API.md)：所有工具参数和常见错误入口。
+
+**默认连接**在启动时必须 ping 成功，否则进程以退出码 `1` 结束。其他连接 ping 失败时会在 stderr 打日志，但不阻止进程启动。
+
 ## 本地数据库（Docker）
 
 ```bash
@@ -98,7 +140,7 @@ docker compose up -d
 
 在任意工具上若**显式传入** `connection_id`，其值必须与配置中的 `id` 一致；**错误或未配置的 id 会报错，不会静默回退到默认连接**。省略或传空/空白则使用默认连接。
 
-**SQL**（MySQL / PostgreSQL / SQL Server / Oracle）
+**SQL**（MySQL / PostgreSQL / SQL Server / Oracle / SQLite）
 
 - `sql_query` — 仅只读查询（执行前校验），支持分页（`page`、`page_size` 参数）
 - `sql_execute` — 可写 SQL（连接 `readonly=true` 时拒绝）

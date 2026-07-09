@@ -188,14 +188,14 @@ mkdir tmp-polyglot-release-check
 cd tmp-polyglot-release-check
 npm init -y
 npm install @yclenove/polyglot-db-mcp-server@X.Y.Z
-npx polyglot-db-mcp-server --help
+npx @yclenove/polyglot-db-mcp-server --help
 ```
 
 如支持 CLI init：
 
 ```powershell
-npx polyglot-db-mcp-server init
-npx polyglot-db-mcp-server test
+npx @yclenove/polyglot-db-mcp-server init
+npx @yclenove/polyglot-db-mcp-server test
 ```
 
 验证点：

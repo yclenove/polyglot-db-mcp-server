@@ -2,6 +2,33 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ConnectionRegistry } from '../core/registry.js';
 import { REDIS_BLOCKED_COMMANDS } from '../core/redis-guards.js';
+import { createErrorPayload, type ErrorCode } from '../core/error-codes.js';
+
+function classifyRedisToolError(message: string): ErrorCode | null {
+  if (message.includes('不是 Redis')) return 'REDIS_001';
+  if (message.includes('前缀') || message.includes('keyPrefix')) return 'REDIS_002';
+  if (message.includes('禁止')) return 'REDIS_003';
+  if (message.includes('只读')) return 'REDIS_004';
+  return null;
+}
+
+function redisToolError(e: unknown) {
+  const message = e instanceof Error ? e.message : String(e);
+  const code = classifyRedisToolError(message);
+  if (!code) {
+    return { content: [{ type: 'text' as const, text: message }], isError: true };
+  }
+  const errorInfo = createErrorPayload(code, { error: message });
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify({ error: message, error_info: errorInfo }),
+      },
+    ],
+    isError: true,
+  };
+}
 
 export function registerRedisTools(server: McpServer, registry: ConnectionRegistry): void {
   server.registerTool(
@@ -22,10 +49,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           content: [{ type: 'text', text: JSON.stringify({ connection_id: id, value: v }) }],
         };
       } catch (e) {
-        return {
-          content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }],
-          isError: true,
-        };
+        return redisToolError(e);
       }
     },
   );
@@ -50,10 +74,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           content: [{ type: 'text', text: JSON.stringify({ connection_id: id, ok: true }) }],
         };
       } catch (e) {
-        return {
-          content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }],
-          isError: true,
-        };
+        return redisToolError(e);
       }
     },
   );

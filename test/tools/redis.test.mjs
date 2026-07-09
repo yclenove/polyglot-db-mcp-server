@@ -302,6 +302,19 @@ describe('Redis Tools', () => {
     assert.equal(data.value, null);
   });
 
+  test('redis_get returns REDIS_002 for keyPrefix rejection', async () => {
+    mockDriver.get = async () => {
+      throw new Error('Redis key 必须以配置的前缀「app:」开头');
+    };
+
+    const tool = server.tools.get('redis_get');
+    const result = await tool.handler({ key: 'other:test' });
+    assert.equal(result.isError, true);
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.error_info.code, 'REDIS_002');
+    assert.match(data.error_info.hint, /keyPrefix/);
+  });
+
   test('redis_set stores value', async () => {
     const tool = server.tools.get('redis_set');
     const result = await tool.handler({
@@ -313,6 +326,22 @@ describe('Redis Tools', () => {
     assert.equal(data.connection_id, 'rd');
     assert.equal(data.ok, true);
     assert.equal(mockDriver.store.get('app:test'), 'value1');
+  });
+
+  test('redis_set returns REDIS_004 for readonly rejection', async () => {
+    mockDriver.set = async () => {
+      throw new Error('该 Redis 连接为只读');
+    };
+
+    const tool = server.tools.get('redis_set');
+    const result = await tool.handler({
+      connection_id: 'rd_ro',
+      key: 'app:test',
+      value: 'value1',
+    });
+    assert.equal(result.isError, true);
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.error_info.code, 'REDIS_004');
   });
 
   test('redis_set with TTL', async () => {

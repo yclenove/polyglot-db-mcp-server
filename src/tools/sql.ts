@@ -14,8 +14,18 @@ import {
   listIndexesSql,
   listTablesSql,
 } from '../core/sql-helpers.js';
+import { createErrorPayload, type ErrorCode } from '../core/error-codes.js';
 
 type SqlResultRow = Record<string, unknown>;
+
+function codedErrorText(
+  code: ErrorCode,
+  details?: Record<string, unknown>,
+  hintOverride?: string,
+): string {
+  const errorInfo = createErrorPayload(code, details, hintOverride);
+  return JSON.stringify({ error: errorInfo.message, error_info: errorInfo });
+}
 
 export function registerSqlTools(server: McpServer, registry: ConnectionRegistry): void {
   const limits = () => globalLimits();
@@ -120,7 +130,12 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
 
         if (!isReadOnlyQuery(finalSql)) {
           return {
-            content: [{ type: 'text', text: '错误：sql_query 仅允许只读语句' }],
+            content: [
+              {
+                type: 'text',
+                text: codedErrorText('SQL_002', { tool: 'sql_query' }),
+              },
+            ],
             isError: true,
           };
         }
@@ -206,9 +221,14 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
           };
         }
         if (h.spec.readonly) {
-          const hint = '如需写入，请将连接配置中的 readonly 设为 false';
+          const hint = '如需写入，请使用独立写连接并将该连接配置为 readonly:false';
           return {
-            content: [{ type: 'text', text: JSON.stringify({ error: '该连接为只读', hint }) }],
+            content: [
+              {
+                type: 'text',
+                text: codedErrorText('SQL_002', { connection_id: id }, hint),
+              },
+            ],
             isError: true,
           };
         }
@@ -381,7 +401,12 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const entry = activeTransactions.get(transaction_id);
         if (!entry) {
           return {
-            content: [{ type: 'text', text: `事务 ${transaction_id} 不存在或已结束` }],
+            content: [
+              {
+                type: 'text',
+                text: codedErrorText('SQL_006', { transaction_id }),
+              },
+            ],
             isError: true,
           };
         }
@@ -429,7 +454,12 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const entry = activeTransactions.get(transaction_id);
         if (!entry) {
           return {
-            content: [{ type: 'text', text: `事务 ${transaction_id} 不存在或已结束` }],
+            content: [
+              {
+                type: 'text',
+                text: codedErrorText('SQL_006', { transaction_id }),
+              },
+            ],
             isError: true,
           };
         }
@@ -466,7 +496,12 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const entry = activeTransactions.get(transaction_id);
         if (!entry) {
           return {
-            content: [{ type: 'text', text: `事务 ${transaction_id} 不存在或已结束` }],
+            content: [
+              {
+                type: 'text',
+                text: codedErrorText('SQL_006', { transaction_id }),
+              },
+            ],
             isError: true,
           };
         }
@@ -513,7 +548,15 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
           return { content: [{ type: 'text', text: '非 SQL 连接' }], isError: true };
         }
         if (h.spec.readonly) {
-          return { content: [{ type: 'text', text: '该连接为只读' }], isError: true };
+          return {
+            content: [
+              {
+                type: 'text',
+                text: codedErrorText('SQL_002', { connection_id: id }),
+              },
+            ],
+            isError: true,
+          };
         }
         const L = limits();
         const tx = await h.driver.beginTransaction();
@@ -612,7 +655,12 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
 
         if (!isReadOnlyQuery(sql)) {
           return {
-            content: [{ type: 'text', text: '错误：sql_explain 仅支持 SELECT 类查询' }],
+            content: [
+              {
+                type: 'text',
+                text: codedErrorText('SQL_002', { tool: 'sql_explain' }),
+              },
+            ],
             isError: true,
           };
         }
@@ -1096,7 +1144,15 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
           return { content: [{ type: 'text', text: '非 SQL 连接' }], isError: true };
         }
         if (h.spec.readonly) {
-          return { content: [{ type: 'text', text: '该连接为只读' }], isError: true };
+          return {
+            content: [
+              {
+                type: 'text',
+                text: codedErrorText('SQL_002', { connection_id: id }),
+              },
+            ],
+            isError: true,
+          };
         }
         const L = limits();
         const sql = createIndexSql(h.driver.engine, table, columns, unique, indexName);

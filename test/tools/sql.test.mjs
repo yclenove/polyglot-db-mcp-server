@@ -154,6 +154,8 @@ describe('SQL Tools', () => {
     });
     assert.equal(result.isError, true);
     assert.ok(result.content[0].text.includes('只读'));
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.error_info.code, 'SQL_002');
   });
 
   test('sql_query with specific connection', async () => {
@@ -197,6 +199,9 @@ describe('SQL Tools', () => {
     });
     assert.equal(result.isError, true);
     assert.ok(result.content[0].text.includes('只读'));
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.error_info.code, 'SQL_002');
+    assert.match(data.error_info.hint, /readonly:false/);
   });
 
   test('sql_list_tables returns table list', async () => {

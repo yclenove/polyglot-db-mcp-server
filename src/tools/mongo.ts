@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ConnectionRegistry } from '../core/registry.js';
+import { createErrorPayload, type ErrorCode } from '../core/error-codes.js';
 
 /** 分析文档结构，收集字段路径和类型 */
 function analyzeDocument(
@@ -45,6 +46,11 @@ function detectNoSqlInjection(obj: unknown, path = ''): string | null {
   }
 
   return null;
+}
+
+function codedMongoErrorText(code: ErrorCode, detail: string): string {
+  const errorInfo = createErrorPayload(code, { detail });
+  return JSON.stringify({ error: errorInfo.message, detail, error_info: errorInfo });
 }
 
 export function registerMongoTools(server: McpServer, registry: ConnectionRegistry): void {
@@ -159,7 +165,12 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           throw new Error('filter_json 须为 JSON 对象');
         }
         const injection = detectNoSqlInjection(filter);
-        if (injection) throw new Error(injection);
+        if (injection) {
+          return {
+            content: [{ type: 'text', text: codedMongoErrorText('MONGO_003', injection) }],
+            isError: true,
+          };
+        }
         if (typeof update !== 'object' || update === null || Array.isArray(update)) {
           throw new Error('update_json 须为 JSON 对象');
         }
@@ -230,7 +241,12 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           throw new Error('filter_json 须为 JSON 对象');
         }
         const injection = detectNoSqlInjection(filter);
-        if (injection) throw new Error(injection);
+        if (injection) {
+          return {
+            content: [{ type: 'text', text: codedMongoErrorText('MONGO_003', injection) }],
+            isError: true,
+          };
+        }
         const lim = limit ?? 50;
         const rows = await d.find(collection, filter, { limit: lim, skip });
         return {

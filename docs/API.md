@@ -1,6 +1,6 @@
 # polyglot-db-mcp-server API 文档
 
-> 自动生成于 2026-05-05T05:38:22.754Z
+> 自动生成于 2026-07-09T16:33:54.548Z
 
 ## 目录
 
@@ -20,11 +20,44 @@
 - [SQL 存储过程](#sql-存储过程)
 - [SQL 视图](#sql-视图)
 - [SQL 索引](#sql-索引)
-- [服务器信息](#服务器信息)
+- [SQL 类型生成](#sql-类型生成)
 - [数据脱敏](#数据脱敏)
 - [查询回放](#查询回放)
 - [智能查询建议](#智能查询建议)
-- [智能查询建议](#智能查询建议)
+- [服务器信息](#服务器信息)
+
+- [通用错误与诊断](#通用错误与诊断)
+
+---
+
+## 通用错误与诊断
+
+工具错误可能返回纯文本，也可能返回包含 `error_info` 的 JSON。新增或结构化后的错误遵循：
+
+```json
+{
+  "error": "简短错误",
+  "error_info": {
+    "code": "CONN_006",
+    "message": "未知的 connection_id",
+    "hint": "可用连接: local",
+    "severity": "error",
+    "retryable": false
+  }
+}
+```
+
+常见错误码：
+
+| Code | 场景 | 处理入口 |
+|------|------|----------|
+| `CONN_006` | 未知 connection_id | 调用 `list_connections` 或 `connection_diagnose` |
+| `SQL_002` | 只读查询或只读连接拒绝写入 | 使用只读 SQL，或配置独立 `readonly:false` 写连接 |
+| `MONGO_003` | NoSQL 注入风险 | 移除危险 operator，改用安全 filter |
+| `REDIS_002` | Redis keyPrefix 不匹配 | 确认 key 以配置前缀开头 |
+| `CFG_001` | 未配置 DB_MCP_CONNECTIONS | 运行 `polyglot-db-mcp-server init` |
+
+完整错误码矩阵见 `docs/ERRORS.md`。
 
 ---
 
@@ -33,6 +66,18 @@
 ### `list_connections`
 
 列出 DB_MCP_CONNECTIONS 中所有 connection_id、engine 与是否只读
+
+---
+
+### `validate_connection_config`
+
+验证 DB_MCP_CONNECTIONS JSON 配置的合法性，返回解析结果或错误详情。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `config_json` | string | 是 | DB_MCP_CONNECTIONS 的 JSON 字符串 |
 
 ---
 
@@ -54,9 +99,27 @@
 
 ---
 
+### `connection_diagnose`
+
+全面诊断所有连接的健康状况，返回状态、延迟、版本信息、错误码和配置建议。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `connection_id` | string | 否 | 指定连接 ID；不传则诊断所有连接 |
+
+---
+
 ### `connection_stats`
 
 返回各连接的统计信息，包括总请求数、审计统计和性能指标。
+
+---
+
+### `prometheus_metrics`
+
+返回 Prometheus 文本格式指标，可用于监控系统集成。
 
 ---
 
@@ -342,6 +405,20 @@
 
 ---
 
+### `mongo_schema_analysis`
+
+分析集合的文档结构，采样文档并合并字段路径和类型。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `connection_id` | string | 否 | 连接 id；缺省为默认连接 |
+| `collection` | string | 是 | 集合名称 |
+| `sample_size` | number | 否 | 采样文档数，默认 100，最大 1000 |
+
+---
+
 ## Redis
 
 ### `redis_get`
@@ -403,6 +480,19 @@
 ### `redis_blocked_commands`
 
 列出本服务默认禁止执行的 Redis 命令名。
+
+---
+
+### `redis_type`
+
+返回 Redis 键的数据类型（string/hash/list/set/zset/stream/none）。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `connection_id` | string | 否 | 连接 id；缺省为默认连接 |
+| `key` | string | 是 | 键名 |
 
 ---
 
@@ -501,34 +591,15 @@
 
 ### `export_audit`
 
-导出审计日志为 JSON 格式。支持按时间范围、连接、工具名称过滤，单次最多导出 1000 条。
+导出审计日志，支持 JSON 格式，可按时间范围和数量限制过滤。
 
 **参数：**
 
 | 参数名 | 类型 | 必填 | 说明 |
 |--------|------|------|------|
-| `connection_id` | string | 否 | 按连接 ID 过滤 |
-| `tool` | string | 否 | 按工具名称过滤 |
-| `since` | string | 否 | 开始时间（ISO 8601） |
-| `until` | string | 否 | 结束时间（ISO 8601） |
+| `format` | string | 否 | 导出格式，默认 json |
 | `limit` | number | 否 | 最大导出条数，默认 1000 |
-
-**返回值示例：**
-
-```json
-{
-  "count": 42,
-  "records": [
-    {
-      "timestamp": "2026-05-05T10:30:00.000Z",
-      "connectionId": "pg",
-      "tool": "sql_query",
-      "success": true,
-      "duration": 12
-    }
-  ]
-}
-```
+| `since` | string | 否 | 起始时间（ISO 8601） |
 
 ---
 
@@ -975,11 +1046,19 @@
 
 ---
 
-## 服务器信息
+## SQL 类型生成
 
-### `server_info`
+### `sql_generate_types`
 
-返回服务器版本、运行时间、工具数量等信息。
+从表结构生成 TypeScript 接口定义，返回可直接使用的 TS 类型代码。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `connection_id` | string | 否 | 连接 id；缺省为默认连接 |
+| `table` | string | 是 | 表名 |
+| `schema` | string | 否 | PostgreSQL schema |
 
 ---
 
@@ -987,86 +1066,38 @@
 
 ### `set_masking_mode`
 
-设置数据脱敏模式。`strict` 模式对所有匹配字段脱敏；`strict-v2` 模式同时匹配字段名和值正则，提升精度；`loose` 模式仅对明确匹配值正则的字段脱敏；`off` 关闭脱敏。
+设置数据脱敏模式。off=关闭，loose=值匹配，strict=字段名匹配，strict-v2=字段名和值双重匹配。
 
 **参数：**
 
 | 参数名 | 类型 | 必填 | 说明 |
 |--------|------|------|------|
-| `mode` | string | 是 | 脱敏模式：strict / strict-v2 / loose / off |
-| `enabled` | boolean | 否 | 是否启用脱敏，默认 true |
-| `excludeFields` | array | 否 | 白名单字段列表，这些字段不脱敏 |
+| `mode` | string | 是 | off / loose / strict / strict-v2 |
+| `enabled` | boolean | 否 | 是否启用脱敏 |
+| `excludeFields` | array | 否 | 白名单字段列表 |
 | `excludeConnections` | array | 否 | 排除的连接 ID 列表 |
-
-**返回值示例：**
-
-```json
-{
-  "mode": "strict",
-  "enabled": true,
-  "rulesCount": 6
-}
-```
-
-**使用示例：**
-
-```json
-{
-  "mode": "strict",
-  "excludeFields": ["phone", "display_name"]
-}
-```
 
 ---
 
 ### `get_masking_config`
 
-获取当前数据脱敏配置，包括模式、启用状态、内置规则列表和白名单字段。
-
-**参数：**
-
-无。
-
-**返回值示例：**
-
-```json
-{
-  "mode": "strict",
-  "enabled": true,
-  "rules": ["phone", "email", "id_card", "credit_card", "bank_card", "ip_address"],
-  "excludeFields": ["phone"],
-  "excludeConnections": []
-}
-```
+获取当前数据脱敏配置，包括模式、规则列表和白名单字段。
 
 ---
 
 ### `manage_masking_rules`
 
-管理自定义脱敏规则。支持添加、删除、列出规则。
+管理自定义脱敏规则。支持 add、remove、list。
 
 **参数：**
 
 | 参数名 | 类型 | 必填 | 说明 |
 |--------|------|------|------|
-| `action` | string | 是 | 操作：add / remove / list |
-| `name` | string | 否 | 规则名称（add/remove 时必填） |
-| `fieldPattern` | string | 否 | 字段名正则（add 时必填） |
-| `valuePattern` | string | 否 | 值正则（add 时必填） |
-
-**返回值示例（list）：**
-
-```json
-{
-  "rules": [
-    {
-      "name": "custom_phone",
-      "fieldPattern": "^(mobile|cellphone)$",
-      "valuePattern": "^1[3-9]\\d{9}$"
-    }
-  ]
-}
-```
+| `action` | string | 是 | add / remove / list |
+| `name` | string | 否 | 规则名称 |
+| `fieldPattern` | string | 否 | 字段名正则 |
+| `valuePattern` | string | 否 | 值正则 |
+| `replacement` | string | 否 | 替换字符串 |
 
 ---
 
@@ -1074,82 +1105,40 @@
 
 ### `query_history`
 
-查询历史记录列表。返回最近执行的查询摘要（含 SQL、参数、执行时间、结果行数等），不包含完整结果集。
+获取最近的查询历史记录，返回 SQL、参数摘要、执行时间和结果摘要。
 
 **参数：**
 
 | 参数名 | 类型 | 必填 | 说明 |
 |--------|------|------|------|
-| `limit` | number | 否 | 返回条数，默认 20 |
+| `limit` | number | 否 | 返回记录数，默认 20 |
 | `connectionId` | string | 否 | 按连接 ID 过滤 |
-
-**返回值示例：**
-
-```json
-[
-  {
-    "id": "q-001",
-    "timestamp": "2026-05-05T10:30:00.000Z",
-    "connectionId": "pg",
-    "engine": "postgres",
-    "sql": "SELECT * FROM users WHERE id = $1",
-    "params": [42],
-    "resultSummary": { "rowCount": 1, "fields": ["id", "name", "email"], "sampleRows": [] },
-    "executionTime": 12,
-    "success": true
-  }
-]
-```
 
 ---
 
 ### `query_replay`
 
-回放指定历史查询。根据历史记录中的 SQL 和参数重新执行查询，返回完整结果。
+重新执行历史记录中的只读查询。
 
 **参数：**
 
 | 参数名 | 类型 | 必填 | 说明 |
 |--------|------|------|------|
-| `queryId` | string | 是 | 历史查询 ID |
-
-**返回值示例：**
-
-```json
-{
-  "queryId": "q-001",
-  "replayedAt": "2026-05-05T11:00:00.000Z",
-  "rows": [{ "id": 42, "name": "Alice", "email": "alice@example.com" }],
-  "rowCount": 1,
-  "executionTime": 8
-}
-```
+| `queryId` | string | 是 | 要回放的查询 ID |
+| `connectionId` | string | 否 | 使用指定连接执行 |
 
 ---
 
 ### `query_diff`
 
-对比两次查询结果的行级差异。返回新增、删除、修改的行数及具体差异详情。
+对比两次查询结果的采样差异。
 
 **参数：**
 
 | 参数名 | 类型 | 必填 | 说明 |
 |--------|------|------|------|
-| `queryIdA` | string | 是 | 基准查询 ID |
-| `queryIdB` | string | 是 | 对比查询 ID |
-
-**返回值示例：**
-
-```json
-{
-  "added": 2,
-  "removed": 0,
-  "modified": 1,
-  "details": [
-    { "field": "name", "old": "Alice", "new": "Alice Smith" }
-  ]
-}
-```
+| `queryIdA` | string | 是 | 第一个查询 ID |
+| `queryIdB` | string | 是 | 第二个查询 ID |
 
 ---
 
@@ -1157,64 +1146,35 @@
 
 ### `query_suggest`
 
-获取查询优化建议。基于 SQL 静态分析（SELECT * 检测、缺少 WHERE、LIKE 前缀通配等）和表结构信息，返回索引、重写、性能、安全方面的建议。
+对 SQL 进行静态分析，返回优化建议和索引建议。
 
 **参数：**
 
 | 参数名 | 类型 | 必填 | 说明 |
 |--------|------|------|------|
 | `sql` | string | 是 | 要分析的 SQL 查询 |
-| `connectionId` | string | 否 | 连接 id；缺省为默认连接 |
-
-**返回值示例：**
-
-```json
-[
-  {
-    "type": "index",
-    "severity": "warn",
-    "message": "WHERE 子句中的 email 列没有索引，建议创建索引以提升查询性能",
-    "suggestedSql": "CREATE INDEX idx_users_email ON users (email)"
-  },
-  {
-    "type": "rewrite",
-    "severity": "info",
-    "message": "建议指定需要的列名，避免使用 SELECT *"
-  }
-]
-```
+| `connectionId` | string | 否 | 连接 ID，用于获取表结构 |
 
 ---
 
 ### `query_optimize`
 
-分析慢查询并给出优化建议。先获取执行计划（EXPLAIN），再结合规则引擎分析全表扫描、未使用索引、filesort、临时表等问题。
+结合 SQL 静态分析和 EXPLAIN 执行计划，返回全面优化建议。
 
 **参数：**
 
 | 参数名 | 类型 | 必填 | 说明 |
 |--------|------|------|------|
-| `sql` | string | 是 | 要分析的 SQL 查询（SELECT 语句） |
-| `connectionId` | string | 否 | 连接 id；缺省为默认连接 |
+| `sql` | string | 是 | 要分析的 SQL 查询 |
+| `connectionId` | string | 否 | 连接 ID，用于执行 EXPLAIN |
 
-**返回值示例：**
+---
 
-```json
-{
-  "sql": "SELECT * FROM orders WHERE status = 'pending' ORDER BY created_at",
-  "suggestions": [
-    {
-      "type": "performance",
-      "severity": "critical",
-      "message": "检测到全表扫描（type=ALL），建议为 status 列创建索引",
-      "suggestedSql": "CREATE INDEX idx_orders_status ON orders (status)"
-    }
-  ],
-  "executionPlan": [
-    { "id": 1, "select_type": "SIMPLE", "table": "orders", "type": "ALL", "rows": 50000 }
-  ]
-}
-```
+## 服务器信息
+
+### `server_info`
+
+返回服务器版本、运行时间、工具数量等信息。
 
 ---
 

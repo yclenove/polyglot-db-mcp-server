@@ -39,9 +39,10 @@
 15. `docs/PLANNING_AUDIT.md`
 16. `docs/QUALITY-v1.7.1-质量报告.md`
 17. `docs/QUALITY-v1.7.2-质量报告.md`
-18. `docs/QUALITY-v1.8.0-质量报告.md`
-19. `docs/QUALITY-v1.7.0-质量报告.md`
-20. `CHANGELOG.md`
+18. `docs/QUALITY-v1.7.3-质量报告.md`
+19. `docs/QUALITY-v1.8.0-质量报告.md`
+20. `docs/QUALITY-v1.7.0-质量报告.md`
+21. `CHANGELOG.md`
 
 ### 1.3 发布负责人
 
@@ -61,9 +62,9 @@
 | `docs/ROADMAP.md` | 当前有效 | 2026 Q3 ~ 2027 Q2 | 长期路线图、治理原则、阶段边界 |
 | `docs/ITER-v1.7.1-迭代计划.md` | 已完成 | v1.7.1 | 质量基线、安全收敛、核心测试补齐 |
 | `docs/ITER-v1.7.2-迭代计划.md` | 已完成 | v1.7.2 | 发布工程、配置模板、CI、package dry-run |
-| `docs/ITER-v1.7.3-迭代计划.md` | 待执行 | v1.7.3 | CLI、错误码、诊断建议、README 快速开始 |
-| `docs/CONFIG.md` | 当前有效草案 | v1.7.x+ | 环境变量、连接对象、安全配置建议 |
-| `docs/ERRORS.md` | 当前有效草案 | v1.7.x+ | 错误码、hint 规范、测试要求 |
+| `docs/ITER-v1.7.3-迭代计划.md` | 已完成 | v1.7.3 | CLI、错误码、诊断建议、README 快速开始 |
+| `docs/CONFIG.md` | 当前有效 | v1.7.x+ | 环境变量、连接对象、安全配置建议 |
+| `docs/ERRORS.md` | 当前有效 | v1.7.x+ | 错误码、hint 规范、测试要求 |
 | `docs/RELEASE_CHECKLIST.md` | 当前有效草案 | v1.7.x+ | 发布前、中、后检查清单 |
 | `docs/ADR-001-streamable-http.md` | Proposed | v1.8.0 | Streamable HTTP 传输方案前置架构决策 |
 | `docs/PRD-v1.8.0.md` | 草案，待评审 | v1.8.0 | HTTP 传输和运维增强产品需求 |
@@ -76,6 +77,7 @@
 | `docs/API.md` | 当前有效，需持续生成/校验 | v1.7.x | MCP 工具接口说明 |
 | `docs/QUALITY-v1.7.1-质量报告.md` | 已完成 | v1.7.1 | v1.7.1 质量门禁和发布签核 |
 | `docs/QUALITY-v1.7.2-质量报告.md` | 已完成 | v1.7.2 | v1.7.2 CI、配置和发布工程签核 |
+| `docs/QUALITY-v1.7.3-质量报告.md` | 已完成 | v1.7.3 | v1.7.3 CLI、错误码、诊断和快速开始签核 |
 | `docs/QUALITY-v1.8.0-质量报告.md` | 模板，待迭代完成后填写 | v1.8.0 | HTTP 传输质量门禁和发布签核模板 |
 | `docs/QUALITY-v1.7.0-质量报告.md` | 历史质量依据，需 v1.7.1 复核 | v1.7.0 | 质量债来源和修复追踪 |
 
@@ -185,7 +187,7 @@ flowchart TD
 |--------|------|--------------|
 | P1 | `docs/CONFIG.md` 与 `.env.example`、README 持续对齐 | 每次配置变更 |
 | P1 | `docs/RELEASE_CHECKLIST.md` 跟随真实发布流程持续更新 | 每次发布工程变更 |
-| P1 | `docs/ERRORS.md` 与源码 `ErrorCodes`、API 文档最终对齐 | v1.7.3 |
+| P1 | `docs/ERRORS.md` 与源码 `ErrorCodes`、API 文档持续对齐 | 每次错误行为变更 |
 | P1 | `docs/PRD-v1.8.0.md` 和 `docs/ITER-v1.8.0-迭代计划.md` 评审并转待执行 | v1.8.0 启动前 |
 | P1 | `docs/QUALITY-v1.8.0-质量报告.md` 根据真实执行结果填写 | v1.8.0 完成前 |
 | P1 | `docs/ADR-002-oauth-rbac.md`、`docs/PRD-v2.0.0.md`、`docs/MIGRATION-v2.0.0.md` 评审 | v2.0.0 启动前 |

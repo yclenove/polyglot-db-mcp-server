@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { resolve } from 'node:path';
 import { z } from 'zod';
 import { pingRuntime } from '../core/handle-runtime.js';
 import type { ConnectionRegistry } from '../core/registry.js';
@@ -7,6 +8,12 @@ import { getVersion } from '../core/version.js';
 import { parseConnectionSpecs } from '../core/config.js';
 import type { ConnectionSpec, Engine, SqlEngine, RuntimeHandle } from '../core/types.js';
 import { isSqlEngine } from '../core/types.js';
+import {
+  createErrorPayload,
+  maskErrorCredentials,
+  type ErrorCode,
+  type ErrorPayload,
+} from '../core/error-codes.js';
 
 /** 服务器启动时间 */
 const serverStartTime = Date.now();
@@ -50,22 +57,94 @@ async function getServerVersion(handle: RuntimeHandle): Promise<string | null> {
   return null;
 }
 
-/** 根据连接配置生成诊断建议 */
-function generateSuggestions(spec: ConnectionSpec): string[] {
+function sqlitePathHint(spec: ConnectionSpec): string | null {
+  if (spec.engine !== 'sqlite') return null;
+  const raw = spec.url ?? spec.database ?? ':memory:';
+  if (raw === ':memory:') {
+    return 'SQLite 当前使用 :memory: 内存数据库；进程结束后数据不会保留';
+  }
+  const withoutPrefix = raw.startsWith('file:') ? raw.slice(5).replace(/^\/\//, '') : raw;
+  const resolved = resolve(process.cwd(), withoutPrefix);
+  return `SQLite 文件路径将按当前工作目录解析为 ${resolved}；如 ping 失败，请检查父目录权限`;
+}
+
+function classifyConnectionError(rawError?: string): ErrorCode {
+  const msg = (rawError ?? '').toLowerCase();
+  if (
+    msg.includes('timeout') ||
+    msg.includes('timed out') ||
+    msg.includes('etimedout') ||
+    msg.includes('eai_again')
+  ) {
+    return 'CONN_002';
+  }
+  if (
+    msg.includes('closed') ||
+    msg.includes('reset') ||
+    msg.includes('econnreset') ||
+    msg.includes('lost') ||
+    msg.includes('gone away')
+  ) {
+    return 'CONN_003';
+  }
+  if (msg.includes('pool') && (msg.includes('exhaust') || msg.includes('acquire'))) {
+    return 'CONN_004';
+  }
+  return 'CONN_001';
+}
+
+function errorSpecificSuggestions(spec: ConnectionSpec, rawError?: string): string[] {
+  if (!rawError) return [];
+  const msg = rawError.toLowerCase();
+  const suggestions: string[] = [];
+
+  if (msg.includes('econnrefused') || msg.includes('connection refused')) {
+    suggestions.push('确认数据库服务已启动，并检查 host/port 与 Docker 端口映射');
+  }
+  if (msg.includes('timeout') || msg.includes('etimedout') || msg.includes('timed out')) {
+    suggestions.push('检查网络、防火墙、VPN、数据库负载，并按需增大 DB_QUERY_TIMEOUT');
+  }
+  if (
+    msg.includes('auth') ||
+    msg.includes('password') ||
+    msg.includes('login failed') ||
+    msg.includes('permission denied') ||
+    msg.includes('access denied')
+  ) {
+    suggestions.push('检查 user/password/database；MongoDB 还需确认 authSource');
+  }
+  if (spec.engine === 'sqlite') {
+    const hint = sqlitePathHint(spec);
+    if (hint) suggestions.push(hint);
+  }
+
+  return suggestions;
+}
+
+/** 根据连接配置和错误生成诊断建议 */
+function generateSuggestions(spec: ConnectionSpec, rawError?: string): string[] {
   const suggestions: string[] = [];
 
   if (spec.readonly !== true && spec.readonly !== false) {
     suggestions.push('建议明确设置 readonly 字段，提高安全性');
   }
 
+  if (spec.readonly === true) {
+    suggestions.push('当前连接为只读；写操作需使用独立写连接并设置 readonly:false');
+  }
+
   if (!spec.database) {
-    if (spec.engine !== 'redis') {
+    if (spec.engine !== 'redis' && spec.engine !== 'sqlite') {
       suggestions.push(`建议设置 database 字段以明确目标数据库`);
     }
   }
 
   if (spec.engine === 'redis' && !spec.keyPrefix) {
     suggestions.push('建议设置 keyPrefix 字段以隔离键命名空间');
+  }
+
+  if (spec.engine === 'redis' && spec.keyPrefix) {
+    suggestions.push(`Redis key 必须以 keyPrefix「${spec.keyPrefix}」开头`);
   }
 
   if (isSqlEngine(spec.engine) && !spec.allowlist?.length) {
@@ -80,17 +159,34 @@ function generateSuggestions(spec: ConnectionSpec): string[] {
     suggestions.push('连接缺少 url 和 host 配置，请检查连接配置是否完整');
   }
 
-  return suggestions;
+  const sqliteHint = sqlitePathHint(spec);
+  if (sqliteHint) {
+    suggestions.push(sqliteHint);
+  }
+
+  suggestions.push(...errorSpecificSuggestions(spec, rawError));
+
+  return [...new Set(suggestions)];
+}
+
+function buildErrorInfo(spec: ConnectionSpec, rawError?: string): ErrorPayload {
+  const code = classifyConnectionError(rawError);
+  return createErrorPayload(code, {
+    connection_id: spec.id,
+    engine: spec.engine,
+  });
 }
 
 interface ConnectionDiagnoseResult {
   id: string;
+  connection_id: string;
   engine: Engine;
   status: 'ok' | 'error';
   latency_ms: number | null;
   server_version: string | null;
   readonly: boolean;
   error?: string;
+  error_info?: ErrorPayload;
   suggestions: string[];
 }
 
@@ -106,15 +202,18 @@ async function diagnoseConnection(
     const latency = Date.now() - pingStart;
 
     if (!r.ok) {
+      const error = maskErrorCredentials(r.error ?? 'ping 失败');
       return {
         id: spec.id,
+        connection_id: spec.id,
         engine: spec.engine,
         status: 'error',
         latency_ms: latency,
         server_version: null,
         readonly: spec.readonly === true,
-        error: r.error ?? 'ping 失败',
-        suggestions,
+        error,
+        error_info: buildErrorInfo(spec, error),
+        suggestions: generateSuggestions(spec, error),
       };
     }
 
@@ -128,6 +227,7 @@ async function diagnoseConnection(
 
     return {
       id: spec.id,
+      connection_id: spec.id,
       engine: spec.engine,
       status: 'ok',
       latency_ms: latency,
@@ -136,17 +236,28 @@ async function diagnoseConnection(
       suggestions,
     };
   } catch (e) {
+    const error = maskErrorCredentials(e instanceof Error ? e.message : String(e));
     return {
       id: spec.id,
+      connection_id: spec.id,
       engine: spec.engine,
       status: 'error',
       latency_ms: Date.now() - pingStart,
       server_version: null,
       readonly: spec.readonly === true,
-      error: e instanceof Error ? e.message : String(e),
-      suggestions,
+      error,
+      error_info: buildErrorInfo(spec, error),
+      suggestions: generateSuggestions(spec, error),
     };
   }
+}
+
+function unknownConnectionPayload(connectionId: string, available: string[]): ErrorPayload {
+  return createErrorPayload(
+    'CONN_006',
+    { connection_id: connectionId, available_connections: available },
+    `可用连接: ${available.join(', ') || '(无)'}`,
+  );
 }
 
 export function registerConnectionTools(server: McpServer, registry: ConnectionRegistry): void {
@@ -216,13 +327,32 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
         const id = registry.resolveConnectionId(connection_id);
         const h = registry.require(id);
         const r = await pingRuntime(h);
+        const error = r.error ? maskErrorCredentials(r.error) : undefined;
+        const errorInfo = r.ok ? undefined : buildErrorInfo(h.spec, error);
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, ...r }) }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                connection_id: id,
+                ok: r.ok,
+                error,
+                error_info: errorInfo,
+              }),
+            },
+          ],
           isError: !r.ok,
         };
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return { content: [{ type: 'text', text: msg }], isError: true };
+        const msg = maskErrorCredentials(e instanceof Error ? e.message : String(e));
+        const available = registry.getSpecs().map((s) => s.id);
+        const errorInfo = connection_id
+          ? unknownConnectionPayload(connection_id, available)
+          : createErrorPayload('CLI_004', { error: msg });
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ error: msg, error_info: errorInfo }) }],
+          isError: true,
+        };
       }
     },
   );
@@ -261,13 +391,14 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
             error: r.error,
           });
         } catch (e) {
+          const msg = maskErrorCredentials(e instanceof Error ? e.message : String(e));
           results.push({
             id: spec.id,
             engine: spec.engine,
             readonly: spec.readonly === true,
             status: 'error',
             latency_ms: Date.now() - pingStart,
-            error: e instanceof Error ? e.message : String(e),
+            error: msg,
           });
         }
       }
@@ -460,14 +591,48 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
     async ({ connection_id }) => {
       try {
         const specs = registry.getSpecs();
-        const targetSpecs = connection_id
-          ? specs.filter((s) => s.id === registry.resolveConnectionId(connection_id))
-          : [...specs];
+        let targetSpecs: readonly ConnectionSpec[];
+        if (connection_id && connection_id.trim() !== '') {
+          let resolvedId: string;
+          try {
+            resolvedId = registry.resolveConnectionId(connection_id);
+          } catch {
+            const errorInfo = unknownConnectionPayload(
+              connection_id,
+              specs.map((s) => s.id),
+            );
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    error: errorInfo.message,
+                    error_info: errorInfo,
+                  }),
+                },
+              ],
+              isError: true,
+            };
+          }
+          targetSpecs = specs.filter((s) => s.id === resolvedId);
+        } else {
+          targetSpecs = [...specs];
+        }
 
         if (connection_id && targetSpecs.length === 0) {
+          const errorInfo = unknownConnectionPayload(
+            connection_id,
+            specs.map((s) => s.id),
+          );
           return {
             content: [
-              { type: 'text', text: JSON.stringify({ error: `未找到连接: ${connection_id}` }) },
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  error: errorInfo.message,
+                  error_info: errorInfo,
+                }),
+              },
             ],
             isError: true,
           };
@@ -500,8 +665,19 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
           isError: unhealthy > 0,
         };
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return { content: [{ type: 'text', text: JSON.stringify({ error: msg }) }], isError: true };
+        const msg = maskErrorCredentials(e instanceof Error ? e.message : String(e));
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                error: msg,
+                error_info: createErrorPayload('CLI_004', { error: msg }),
+              }),
+            },
+          ],
+          isError: true,
+        };
       }
     },
   );

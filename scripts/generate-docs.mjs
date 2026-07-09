@@ -20,6 +20,14 @@ const tools = [
     params: [],
   },
   {
+    name: 'validate_connection_config',
+    category: '连接管理',
+    description: '验证 DB_MCP_CONNECTIONS JSON 配置的合法性，返回解析结果或错误详情。',
+    params: [
+      { name: 'config_json', type: 'string', required: true, description: 'DB_MCP_CONNECTIONS 的 JSON 字符串' },
+    ],
+  },
+  {
     name: 'test_connection',
     category: '连接管理',
     description: '对指定 connection_id 执行 ping（缺省使用 DB_MCP_DEFAULT_CONNECTION_ID 或第一条）',
@@ -34,9 +42,23 @@ const tools = [
     params: [],
   },
   {
+    name: 'connection_diagnose',
+    category: '连接管理',
+    description: '全面诊断所有连接的健康状况，返回状态、延迟、版本信息、错误码和配置建议。',
+    params: [
+      { name: 'connection_id', type: 'string', required: false, description: '指定连接 ID；不传则诊断所有连接' },
+    ],
+  },
+  {
     name: 'connection_stats',
     category: '连接管理',
     description: '返回各连接的统计信息，包括总请求数、审计统计和性能指标。',
+    params: [],
+  },
+  {
+    name: 'prometheus_metrics',
+    category: '连接管理',
+    description: '返回 Prometheus 文本格式指标，可用于监控系统集成。',
     params: [],
   },
 
@@ -241,6 +263,16 @@ const tools = [
       { name: 'sparse', type: 'boolean', required: false, description: '是否稀疏索引' },
     ],
   },
+  {
+    name: 'mongo_schema_analysis',
+    category: 'MongoDB',
+    description: '分析集合的文档结构，采样文档并合并字段路径和类型。',
+    params: [
+      { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
+      { name: 'collection', type: 'string', required: true, description: '集合名称' },
+      { name: 'sample_size', type: 'number', required: false, description: '采样文档数，默认 100，最大 1000' },
+    ],
+  },
 
   // Redis 工具
   {
@@ -288,6 +320,15 @@ const tools = [
     category: 'Redis',
     description: '列出本服务默认禁止执行的 Redis 命令名。',
     params: [],
+  },
+  {
+    name: 'redis_type',
+    category: 'Redis',
+    description: '返回 Redis 键的数据类型（string/hash/list/set/zset/stream/none）。',
+    params: [
+      { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
+      { name: 'key', type: 'string', required: true, description: '键名' },
+    ],
   },
   {
     name: 'redis_hget',
@@ -357,6 +398,16 @@ const tools = [
     category: '审计',
     description: '获取审计统计信息。',
     params: [],
+  },
+  {
+    name: 'export_audit',
+    category: '审计',
+    description: '导出审计日志，支持 JSON 格式，可按时间范围和数量限制过滤。',
+    params: [
+      { name: 'format', type: 'string', required: false, description: '导出格式，默认 json' },
+      { name: 'limit', type: 'number', required: false, description: '最大导出条数，默认 1000' },
+      { name: 'since', type: 'string', required: false, description: '起始时间（ISO 8601）' },
+    ],
   },
 
   // Schema 工具
@@ -677,6 +728,96 @@ const tools = [
       { name: 'indexName', type: 'string', required: false, description: '索引名称' },
     ],
   },
+  {
+    name: 'sql_generate_types',
+    category: 'SQL 类型生成',
+    description: '从表结构生成 TypeScript 接口定义，返回可直接使用的 TS 类型代码。',
+    params: [
+      { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
+      { name: 'table', type: 'string', required: true, description: '表名' },
+      { name: 'schema', type: 'string', required: false, description: 'PostgreSQL schema' },
+    ],
+  },
+
+  // 数据脱敏
+  {
+    name: 'set_masking_mode',
+    category: '数据脱敏',
+    description: '设置数据脱敏模式。off=关闭，loose=值匹配，strict=字段名匹配，strict-v2=字段名和值双重匹配。',
+    params: [
+      { name: 'mode', type: 'string', required: true, description: 'off / loose / strict / strict-v2' },
+      { name: 'enabled', type: 'boolean', required: false, description: '是否启用脱敏' },
+      { name: 'excludeFields', type: 'array', required: false, description: '白名单字段列表' },
+      { name: 'excludeConnections', type: 'array', required: false, description: '排除的连接 ID 列表' },
+    ],
+  },
+  {
+    name: 'get_masking_config',
+    category: '数据脱敏',
+    description: '获取当前数据脱敏配置，包括模式、规则列表和白名单字段。',
+    params: [],
+  },
+  {
+    name: 'manage_masking_rules',
+    category: '数据脱敏',
+    description: '管理自定义脱敏规则。支持 add、remove、list。',
+    params: [
+      { name: 'action', type: 'string', required: true, description: 'add / remove / list' },
+      { name: 'name', type: 'string', required: false, description: '规则名称' },
+      { name: 'fieldPattern', type: 'string', required: false, description: '字段名正则' },
+      { name: 'valuePattern', type: 'string', required: false, description: '值正则' },
+      { name: 'replacement', type: 'string', required: false, description: '替换字符串' },
+    ],
+  },
+
+  // 查询回放
+  {
+    name: 'query_history',
+    category: '查询回放',
+    description: '获取最近的查询历史记录，返回 SQL、参数摘要、执行时间和结果摘要。',
+    params: [
+      { name: 'limit', type: 'number', required: false, description: '返回记录数，默认 20' },
+      { name: 'connectionId', type: 'string', required: false, description: '按连接 ID 过滤' },
+    ],
+  },
+  {
+    name: 'query_replay',
+    category: '查询回放',
+    description: '重新执行历史记录中的只读查询。',
+    params: [
+      { name: 'queryId', type: 'string', required: true, description: '要回放的查询 ID' },
+      { name: 'connectionId', type: 'string', required: false, description: '使用指定连接执行' },
+    ],
+  },
+  {
+    name: 'query_diff',
+    category: '查询回放',
+    description: '对比两次查询结果的采样差异。',
+    params: [
+      { name: 'queryIdA', type: 'string', required: true, description: '第一个查询 ID' },
+      { name: 'queryIdB', type: 'string', required: true, description: '第二个查询 ID' },
+    ],
+  },
+
+  // 智能查询建议
+  {
+    name: 'query_suggest',
+    category: '智能查询建议',
+    description: '对 SQL 进行静态分析，返回优化建议和索引建议。',
+    params: [
+      { name: 'sql', type: 'string', required: true, description: '要分析的 SQL 查询' },
+      { name: 'connectionId', type: 'string', required: false, description: '连接 ID，用于获取表结构' },
+    ],
+  },
+  {
+    name: 'query_optimize',
+    category: '智能查询建议',
+    description: '结合 SQL 静态分析和 EXPLAIN 执行计划，返回全面优化建议。',
+    params: [
+      { name: 'sql', type: 'string', required: true, description: '要分析的 SQL 查询' },
+      { name: 'connectionId', type: 'string', required: false, description: '连接 ID，用于执行 EXPLAIN' },
+    ],
+  },
 
   // 服务器信息
   {
@@ -704,7 +845,41 @@ function generateMarkdown(tools) {
     md += `- [${cat}](#${cat.toLowerCase().replace(/\s+/g, '-')})\n`;
   });
 
+  md += '\n- [通用错误与诊断](#通用错误与诊断)\n';
   md += '\n---\n\n';
+
+  md += `## 通用错误与诊断
+
+工具错误可能返回纯文本，也可能返回包含 \`error_info\` 的 JSON。新增或结构化后的错误遵循：
+
+\`\`\`json
+{
+  "error": "简短错误",
+  "error_info": {
+    "code": "CONN_006",
+    "message": "未知的 connection_id",
+    "hint": "可用连接: local",
+    "severity": "error",
+    "retryable": false
+  }
+}
+\`\`\`
+
+常见错误码：
+
+| Code | 场景 | 处理入口 |
+|------|------|----------|
+| \`CONN_006\` | 未知 connection_id | 调用 \`list_connections\` 或 \`connection_diagnose\` |
+| \`SQL_002\` | 只读查询或只读连接拒绝写入 | 使用只读 SQL，或配置独立 \`readonly:false\` 写连接 |
+| \`MONGO_003\` | NoSQL 注入风险 | 移除危险 operator，改用安全 filter |
+| \`REDIS_002\` | Redis keyPrefix 不匹配 | 确认 key 以配置前缀开头 |
+| \`CFG_001\` | 未配置 DB_MCP_CONNECTIONS | 运行 \`polyglot-db-mcp-server init\` |
+
+完整错误码矩阵见 \`docs/ERRORS.md\`。
+
+---
+
+`;
 
   // 按类别生成文档
   categories.forEach(cat => {

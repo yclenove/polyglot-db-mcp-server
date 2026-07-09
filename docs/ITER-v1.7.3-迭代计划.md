@@ -6,7 +6,7 @@
 **目标版本**: v1.7.3
 **迭代类型**: Patch / Developer Experience
 **建议周期**: 3 ~ 5 个工作日
-**状态**: 初稿，待执行
+**状态**: 已完成
 **前置依赖**: v1.7.1 质量补丁、v1.7.2 发布工程补强
 
 ---
@@ -279,14 +279,14 @@ node dist/index.js test
 
 ## 七、验收清单
 
-- [ ] README 可按 SQLite 快速开始跑通。
-- [ ] CLI `init` 默认不覆盖已有 `.env`。
-- [ ] CLI `test` 输出不泄露密码。
-- [ ] `docs/ERRORS.md` 覆盖核心错误码。
-- [ ] `connection_diagnose` 输出包含可执行建议。
-- [ ] API 文档说明常见错误和诊断入口。
-- [ ] 新增行为均有 deterministic test。
-- [ ] `npm run build`、`npm test`、`npm run lint`、`npm run typecheck` 通过。
+- [x] README 可按 SQLite 快速开始跑通。
+- [x] CLI `init` 默认不覆盖已有 `.env`。
+- [x] CLI `test` 输出不泄露密码。
+- [x] `docs/ERRORS.md` 覆盖核心错误码。
+- [x] `connection_diagnose` 输出包含可执行建议。
+- [x] API 文档说明常见错误和诊断入口。
+- [x] 新增行为均有 deterministic test。
+- [x] `npm run build`、`npm test`、`npm run lint`、`npm run typecheck` 通过。
 
 ---
 
@@ -310,3 +310,9 @@ v1.7.3 完成条件：
 3. 核心错误码和 hint 有文档、有测试。
 4. 连接诊断能输出可执行建议。
 5. `npm run build`、`npm test`、`npm run lint`、`npm run typecheck` 通过。
+
+---
+
+## 十、完成记录
+
+详见 `docs/QUALITY-v1.7.3-质量报告.md`。本轮已额外通过 `npm run format:check`、`npm run test:coverage:check`、`npm pack --dry-run` 和临时目录 SQLite quickstart 手动验收。
