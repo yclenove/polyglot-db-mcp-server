@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   auditLog,
   getRecentAuditLogs,
   filterAuditLogs,
   getAuditStats,
+  parseAuditPersistenceConfig,
 } from '../dist/core/audit.js';
 
 // Helper: clear the buffer by reading and noting size
@@ -73,6 +77,65 @@ describe('auditLog', () => {
     assert.equal(last.success, true);
     assert.equal(last.affectedRows, 1);
     assert.equal(last.executionTime, 42);
+  });
+});
+
+describe('audit persistence config', () => {
+  test('defaults to memory and supports explicit file sink', () => {
+    assert.deepEqual(parseAuditPersistenceConfig({}), { sink: 'memory' });
+    assert.deepEqual(
+      parseAuditPersistenceConfig({
+        DB_AUDIT_SINK: 'file',
+        DB_AUDIT_FILE_PATH: './audit/events.jsonl',
+      }),
+      { sink: 'file', filePath: './audit/events.jsonl', legacyEnv: false },
+    );
+  });
+
+  test('keeps MCP_AUDIT_LOG as a legacy file sink', () => {
+    assert.deepEqual(parseAuditPersistenceConfig({ MCP_AUDIT_LOG: './audit.jsonl' }), {
+      sink: 'file',
+      filePath: './audit.jsonl',
+      legacyEnv: true,
+    });
+  });
+
+  test('rejects invalid sink configuration', () => {
+    assert.throws(() => parseAuditPersistenceConfig({ DB_AUDIT_SINK: 'webhook' }), /CFG_005/);
+    assert.throws(() => parseAuditPersistenceConfig({ DB_AUDIT_SINK: 'file' }), /CFG_005/);
+  });
+
+  test('writes JSONL entries when DB_AUDIT_SINK=file', () => {
+    const original = {
+      DB_AUDIT_SINK: process.env.DB_AUDIT_SINK,
+      DB_AUDIT_FILE_PATH: process.env.DB_AUDIT_FILE_PATH,
+      MCP_AUDIT_LOG: process.env.MCP_AUDIT_LOG,
+    };
+    const dir = mkdtempSync(join(tmpdir(), 'db-mcp-audit-'));
+    const filePath = join(dir, 'audit.jsonl');
+
+    try {
+      process.env.DB_AUDIT_SINK = 'file';
+      process.env.DB_AUDIT_FILE_PATH = filePath;
+      delete process.env.MCP_AUDIT_LOG;
+
+      auditLog({ engine: 'postgres', operation: 'persist_file', success: true });
+
+      const lines = readFileSync(filePath, 'utf8').trim().split('\n');
+      const entry = JSON.parse(lines.at(-1));
+      assert.equal(entry.engine, 'postgres');
+      assert.equal(entry.operation, 'persist_file');
+      assert.equal(entry.success, true);
+      assert.ok(entry.timestamp);
+    } finally {
+      if (original.DB_AUDIT_SINK === undefined) delete process.env.DB_AUDIT_SINK;
+      else process.env.DB_AUDIT_SINK = original.DB_AUDIT_SINK;
+      if (original.DB_AUDIT_FILE_PATH === undefined) delete process.env.DB_AUDIT_FILE_PATH;
+      else process.env.DB_AUDIT_FILE_PATH = original.DB_AUDIT_FILE_PATH;
+      if (original.MCP_AUDIT_LOG === undefined) delete process.env.MCP_AUDIT_LOG;
+      else process.env.MCP_AUDIT_LOG = original.MCP_AUDIT_LOG;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

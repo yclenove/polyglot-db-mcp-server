@@ -86,6 +86,7 @@ HTTP 模式提供：
 - API key fallback 支持 `Authorization: Bearer <key>` 和 `x-api-key`，仅建议开发/过渡使用。
 - 显式 `DB_AUTH_DISABLED=true` 可关闭 HTTP 认证，仅限本地开发。
 - `DB_HTTP_ORIGINS` 非空时作为 Origin allowlist；带 Origin 且不匹配会被拒绝。
+- 可用 `DB_RBAC_POLICY_TEMPLATE=readonly-http` 快速启用内置只读模板；生产建议复制模板后改为 `DB_RBAC_POLICY_FILE`。
 
 最小 bearer/RBAC 配置示例：
 
@@ -97,6 +98,12 @@ DB_AUTH_AUDIENCE=polyglot-db-mcp-server \
 DB_AUTH_JWKS_FILE=./jwks.json \
 DB_RBAC_POLICY_FILE=./rbac-policy.json \
 node dist/index.js
+```
+
+审计持久化可通过 JSONL 文件 sink 开启：
+
+```bash
+DB_AUDIT_SINK=file DB_AUDIT_FILE_PATH=./logs/audit.jsonl node dist/index.js
 ```
 
 HTTP smoke test：
@@ -243,6 +250,12 @@ docker compose up -d
 - `audit_filter` — 按条件过滤审计日志
 - `audit_stats` — 获取审计统计信息
 - `export_audit` — 导出审计日志（JSON 格式）
+
+**认证与授权**
+
+- `auth_whoami` — 返回当前认证主体、tenant、scope 和 token roles
+- `auth_policy_validate` — 验证 RBAC policy JSON
+- `auth_policy_template` — 返回内置 RBAC policy 模板 JSON
 
 **Schema**
 

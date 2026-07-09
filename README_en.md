@@ -81,6 +81,7 @@ Security defaults:
 - API key fallback accepts `Authorization: Bearer <key>` or `x-api-key`, and is intended for development or migration only.
 - `DB_AUTH_DISABLED=true` disables HTTP auth explicitly for local development.
 - `DB_HTTP_ORIGINS` is the Origin allowlist; unmatched Origin headers are rejected.
+- Use `DB_RBAC_POLICY_TEMPLATE=readonly-http` for a built-in readonly starter policy; production deployments should copy and tighten it as `DB_RBAC_POLICY_FILE`.
 
 Minimal bearer/RBAC example:
 
@@ -92,6 +93,12 @@ DB_AUTH_AUDIENCE=polyglot-db-mcp-server \
 DB_AUTH_JWKS_FILE=./jwks.json \
 DB_RBAC_POLICY_FILE=./rbac-policy.json \
 node dist/index.js
+```
+
+Enable persistent audit JSONL output with:
+
+```bash
+DB_AUDIT_SINK=file DB_AUDIT_FILE_PATH=./logs/audit.jsonl node dist/index.js
 ```
 
 Smoke test:

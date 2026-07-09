@@ -16,9 +16,16 @@ describe('HTTP transport config', () => {
     assert.equal(config.authDisabled, false);
     assert.equal(config.authMode, 'none');
     assert.equal(config.bodyLimitBytes, 1024 * 1024);
+    assert.equal(config.rbacPolicyTemplate, undefined);
 
-    const safe = safeHttpConfig({ ...config, authMode: 'api_key', apiKey: 'secret-key' });
+    const safe = safeHttpConfig({
+      ...config,
+      authMode: 'api_key',
+      apiKey: 'secret-key',
+      rbacPolicyTemplate: 'readonly-http',
+    });
     assert.equal(safe.auth, 'api_key');
+    assert.equal(safe.rbac_policy_template, 'readonly-http');
     assert.equal(Object.values(safe).includes('secret-key'), false);
   });
 
@@ -94,5 +101,15 @@ describe('HTTP transport config', () => {
     });
     assert.equal(disabled.authDisabled, true);
     assert.equal(disabled.authMode, 'none');
+  });
+
+  test('parses RBAC policy template configuration', async () => {
+    const { parseHttpTransportConfig } = await import('../../dist/core/http-config.js');
+
+    const config = parseHttpTransportConfig({
+      DB_RBAC_POLICY_TEMPLATE: 'readonly-http',
+    });
+
+    assert.equal(config.rbacPolicyTemplate, 'readonly-http');
   });
 });

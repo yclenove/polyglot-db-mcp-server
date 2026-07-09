@@ -141,4 +141,29 @@ describe('authorization runtime audit', () => {
     assert.equal(metrics.failedCalls, 1);
     assert.equal(metrics.byErrorCode.AUTH_005, 1);
   });
+
+  test('can authorize with a built-in policy template', async () => {
+    const { createAuthorizationRuntime } = await import('../../dist/auth/authorization.js');
+    const runtime = createAuthorizationRuntime(new MockRegistry(), {
+      mode: 'bearer',
+      defaultEffect: 'deny',
+      policyTemplate: 'readonly-http',
+    });
+
+    const read = runtime.authorize(
+      'sql_query',
+      { connection_id: 'pg', limit: 100 },
+      extra('agent:template-reader'),
+    );
+    assert.equal(read.allowed, true);
+    assert.equal(read.policyVersion, 'template:readonly-http:v1');
+    assert.equal(read.conditions.maskingMode, 'strict-v2');
+
+    const write = runtime.authorize(
+      'sql_execute',
+      { connection_id: 'pg' },
+      extra('agent:template-reader'),
+    );
+    assert.equal(write.allowed, false);
+  });
 });

@@ -12,6 +12,7 @@ export const TOOL_ACTIONS = {
   audit_filter: { action: 'export' },
   audit_get_recent: { action: 'export' },
   audit_stats: { action: 'export' },
+  auth_policy_template: { action: 'diagnose' },
   auth_policy_validate: { action: 'diagnose' },
   auth_whoami: { action: 'diagnose' },
   connection_diagnose: { action: 'diagnose', connectionFields },

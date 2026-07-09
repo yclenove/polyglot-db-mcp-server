@@ -922,6 +922,14 @@ const tools = [
       { name: 'policy_json', type: 'string', required: true, description: 'RBAC policy JSON 字符串' },
     ],
   },
+  {
+    name: 'auth_policy_template',
+    category: '认证与授权',
+    description: '返回内置 RBAC policy 模板 JSON，可作为生产 policy 文件的起点。',
+    params: [
+      { name: 'name', type: 'string', required: true, description: '模板名称：readonly-http、local-admin 或 diagnostic-readonly' },
+    ],
+  },
 
   // 服务器信息
   {

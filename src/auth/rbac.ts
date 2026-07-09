@@ -33,6 +33,14 @@ export interface RbacPolicy {
   bindings: PolicyBinding[];
 }
 
+export const RBAC_POLICY_TEMPLATE_NAMES = [
+  'readonly-http',
+  'local-admin',
+  'diagnostic-readonly',
+] as const;
+
+export type RbacPolicyTemplateName = (typeof RBAC_POLICY_TEMPLATE_NAMES)[number];
+
 export interface AuthorizationRequest {
   subject: string;
   tenant?: string;
@@ -179,6 +187,101 @@ export function loadRbacPolicyFile(path: string): RbacPolicy {
   }
 }
 
+function clonePolicy(policy: RbacPolicy): RbacPolicy {
+  return {
+    version: policy.version,
+    roles: Object.fromEntries(
+      Object.entries(policy.roles).map(([role, rules]) => [
+        role,
+        rules.map((rule) => ({
+          ...rule,
+          resources: [...rule.resources],
+          actions: [...rule.actions],
+          conditions: rule.conditions
+            ? {
+                ...rule.conditions,
+                transport: rule.conditions.transport ? [...rule.conditions.transport] : undefined,
+                timeWindow: rule.conditions.timeWindow
+                  ? { ...rule.conditions.timeWindow }
+                  : undefined,
+              }
+            : undefined,
+        })),
+      ]),
+    ),
+    bindings: policy.bindings.map((binding) => ({
+      ...binding,
+      roles: [...binding.roles],
+    })),
+  };
+}
+
+const RBAC_POLICY_TEMPLATES: Record<RbacPolicyTemplateName, RbacPolicy> = {
+  'readonly-http': parseRbacPolicy({
+    version: 'template:readonly-http:v1',
+    roles: {
+      readonly_analyst: [
+        {
+          resources: ['connection:*', 'tool:*'],
+          actions: ['read', 'diagnose', 'export', 'replay'],
+          conditions: {
+            maxRows: 1000,
+            maskingMode: 'strict-v2',
+            transport: ['http'],
+          },
+        },
+      ],
+    },
+    bindings: [{ subject: '*', roles: ['readonly_analyst'] }],
+  }),
+  'local-admin': parseRbacPolicy({
+    version: 'template:local-admin:v1',
+    roles: {
+      local_admin: [
+        {
+          resources: ['*'],
+          actions: ['*'],
+          conditions: { transport: ['stdio'] },
+        },
+      ],
+    },
+    bindings: [{ subject: 'local:stdio', roles: ['local_admin'] }],
+  }),
+  'diagnostic-readonly': parseRbacPolicy({
+    version: 'template:diagnostic-readonly:v1',
+    roles: {
+      diagnostic_reader: [
+        {
+          resources: ['connection:*', 'tool:*'],
+          actions: ['diagnose', 'read'],
+          conditions: {
+            maxRows: 100,
+            maskingMode: 'strict-v2',
+            transport: ['http'],
+          },
+        },
+      ],
+    },
+    bindings: [{ subject: '*', roles: ['diagnostic_reader'] }],
+  }),
+};
+
+export function listRbacPolicyTemplates(): RbacPolicyTemplateName[] {
+  return [...RBAC_POLICY_TEMPLATE_NAMES];
+}
+
+export function loadRbacPolicyTemplate(name: string): RbacPolicy {
+  if (!RBAC_POLICY_TEMPLATE_NAMES.includes(name as RbacPolicyTemplateName)) {
+    throw new Error(
+      withErrorCode(
+        'POLICY_001',
+        `未知 RBAC policy template: ${name}，允许: ${RBAC_POLICY_TEMPLATE_NAMES.join(', ')}`,
+      ),
+    );
+  }
+  return clonePolicy(RBAC_POLICY_TEMPLATES[name as RbacPolicyTemplateName]);
+}
+
 function wildcardMatch(pattern: string, value: string): boolean {
   if (pattern === '*' || pattern === value) return true;
   if (pattern.endsWith('*')) return value.startsWith(pattern.slice(0, -1));
@@ -215,7 +318,7 @@ function currentUtcMinute(now = new Date()): number {
 }
 
 function requestedMaxRows(input: Record<string, unknown>): number | undefined {
-  for (const key of ['limit', 'page_size', 'maxRows']) {
+  for (const key of ['limit', 'page_size', 'maxRows', 'sample_size', 'count']) {
     const value = input[key];
     if (typeof value === 'number' && Number.isFinite(value)) return value;
   }

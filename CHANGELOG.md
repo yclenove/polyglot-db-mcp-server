@@ -4,6 +4,18 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.1] - 2026-07-10
+
+### 新增
+- **审计文件持久化配置**：新增 `DB_AUDIT_SINK=file` 和 `DB_AUDIT_FILE_PATH`，将审计记录追加为 JSONL 文件；旧 `MCP_AUDIT_LOG` 继续兼容。
+- **RBAC policy 模板**：新增内置 `readonly-http`、`diagnostic-readonly`、`local-admin` 模板，并支持通过 `DB_RBAC_POLICY_TEMPLATE` 启用。
+- **Policy 模板工具**：新增 `auth_policy_template`，返回内置 RBAC policy 模板 JSON，可与 `auth_policy_validate` 组成模板导出与校验闭环。
+
+### 安全
+- 内置 HTTP 模板默认拒绝写操作，并强制 `strict-v2` 脱敏和 `maxRows` 限制。
+- `local-admin` 模板只匹配 `local:stdio` 与 stdio transport，不扩大 HTTP 权限。
+- 文件审计写入失败不会阻断工具调用；明显错误的审计 sink 配置会在启动诊断阶段暴露。
+
 ## [2.2.0] - 2026-07-10
 
 ### 新增

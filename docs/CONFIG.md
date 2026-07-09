@@ -1,10 +1,10 @@
 # 配置指南
 
 **文档编号**: CONFIG
-**版本**: 2.1
+**版本**: 2.2
 **日期**: 2026-07-10
 **状态**: 当前有效
-**适用版本**: v2.1.x+
+**适用版本**: v2.2.x+
 
 ---
 
@@ -133,7 +133,22 @@ DB_MCP_DEFAULT_CONNECTION_ID=local
 | `DB_MASKING_MODE` | `off` | `off`、`loose`、`strict`、`strict-v2` |
 | `DB_MASKING_EXCLUDE_FIELDS` | 空 | 逗号分隔，字段名白名单 |
 | `DB_MASKING_EXCLUDE_CONNECTIONS` | 空 | 逗号分隔，连接 id 白名单 |
-| `MCP_AUDIT_LOG` | 空 | 审计日志文件路径；为空则只保留内存记录 |
+| `DB_AUDIT_SINK` | `memory` | `memory` 或 `file`；`file` 会写 JSONL 审计日志 |
+| `DB_AUDIT_FILE_PATH` | 空 | `DB_AUDIT_SINK=file` 时必填，审计 JSONL 文件路径 |
+| `MCP_AUDIT_LOG` | 空 | 兼容旧变量；未设置 `DB_AUDIT_SINK` 时可作为文件审计路径 |
+
+文件审计示例：
+
+```env
+DB_AUDIT_SINK=file
+DB_AUDIT_FILE_PATH=./logs/audit.jsonl
+```
+
+说明：
+
+- 审计记录仍会进入内存环形缓冲，文件 sink 是额外持久化。
+- 文件写入为 JSONL，一行一条审计记录，便于 Fluent Bit、Vector、Filebeat 等采集。
+- 文件写入失败不会阻断工具调用；明显错误的 sink 配置会在启动诊断阶段暴露。
 
 ### 5.5 Redis 和 SQL Server 专项
 
@@ -188,6 +203,7 @@ DB_MCP_DEFAULT_CONNECTION_ID=duck
 | `DB_AUTH_JWKS_URL` | 空 | 远程 JWKS URL |
 | `DB_AUTH_JWKS_FILE` | 空 | 本地 JWKS JSON 文件，适合离线测试和内网部署 |
 | `DB_RBAC_POLICY_FILE` | 空 | RBAC policy JSON 文件路径 |
+| `DB_RBAC_POLICY_TEMPLATE` | 空 | 内置 RBAC policy 模板；可选 `readonly-http`、`local-admin`、`diagnostic-readonly` |
 | `DB_RBAC_DEFAULT_EFFECT` | `deny` | 未匹配策略时 `deny` 或 `allow`；生产必须使用 `deny` |
 | `DB_HTTP_API_KEY` | 空 | API key fallback，支持 Bearer 和 `x-api-key`，仅建议开发/过渡使用 |
 | `DB_AUTH_DISABLED` | `false` | 显式关闭 HTTP 认证，仅本地开发使用 |
@@ -217,6 +233,28 @@ $env:DB_AUTH_JWKS_FILE="./jwks.json"
 $env:DB_RBAC_POLICY_FILE="./rbac-policy.json"
 node dist/index.js
 ```
+
+内置模板可用于快速起步；当 `DB_RBAC_POLICY_FILE` 和 `DB_RBAC_POLICY_TEMPLATE` 同时存在时，文件优先：
+
+```powershell
+$env:DB_MCP_TRANSPORT="http"
+$env:DB_AUTH_MODE="bearer"
+$env:DB_AUTH_ISSUER="https://idp.example.com/"
+$env:DB_AUTH_AUDIENCE="polyglot-db-mcp-server"
+$env:DB_AUTH_JWKS_FILE="./jwks.json"
+$env:DB_RBAC_POLICY_TEMPLATE="readonly-http"
+node dist/index.js
+```
+
+模板说明：
+
+| 模板 | 用途 | 边界 |
+|------|------|------|
+| `readonly-http` | HTTP 只读分析起步模板 | 允许 read/diagnose/export/replay，限制 `maxRows=1000`，强制 `strict-v2` 脱敏 |
+| `diagnostic-readonly` | 诊断和轻量读取模板 | 允许 diagnose/read，限制 `maxRows=100`，强制 `strict-v2` 脱敏 |
+| `local-admin` | 本地 stdio 管理模板 | 仅 `local:stdio` + `stdio` transport 可用，允许全部 action |
+
+也可以通过 MCP 工具 `auth_policy_template` 获取模板 JSON，再用 `auth_policy_validate` 校验后保存为自定义 policy 文件。
 
 API key fallback 仍可用于开发或迁移期：
 
@@ -285,7 +323,7 @@ HTTP endpoint：
 | 查询限制 | 调低 `DB_MAX_ROWS`，配置超时和 SQL 长度 |
 | 限流 | 设置 `DB_RATE_LIMIT_PER_SECOND` |
 | 脱敏 | 开启 `strict` 或 `strict-v2` |
-| 审计 | 设置 `MCP_AUDIT_LOG` 或后续外部审计输出 |
+| 审计 | 设置 `DB_AUDIT_SINK=file` 和 `DB_AUDIT_FILE_PATH`，由外部日志系统采集 JSONL |
 | HTTP | 默认 localhost；远程部署必须配置认证和 Origin |
 | Docker | `docker-compose.env` 仅提供本地开发默认连接；私有环境使用 `.env` 覆盖且不要提交 |
 

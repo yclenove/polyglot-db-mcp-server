@@ -29,6 +29,7 @@ async function main(): Promise<void> {
   const authorization = createAuthorizationRuntime(registry, {
     mode: transportConfig.authMode,
     policyFile: transportConfig.rbacPolicyFile,
+    policyTemplate: transportConfig.rbacPolicyTemplate,
     defaultEffect: transportConfig.rbacDefaultEffect,
   });
   const pings = await pingAll(registry);

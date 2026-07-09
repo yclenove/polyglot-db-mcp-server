@@ -1,5 +1,6 @@
-import { appendFileSync, existsSync, mkdirSync } from 'fs';
-import { dirname } from 'path';
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { withErrorCode } from './error-codes.js';
 
 export interface AuditEntry {
   timestamp: string;
@@ -16,12 +17,57 @@ export interface AuditEntry {
   [key: string]: unknown;
 }
 
+export type AuditSink = 'memory' | 'file';
+
+export interface AuditPersistenceConfig {
+  sink: AuditSink;
+  filePath?: string;
+  legacyEnv?: boolean;
+}
+
+type EnvLike = Record<string, string | undefined>;
+
 // ── 审计日志环形缓冲区 ──────────────────────────────────────────
 
 const MAX_BUFFER_SIZE = 1000;
 const auditRing = new Array<AuditEntry | undefined>(MAX_BUFFER_SIZE);
 let auditHead = 0;
 let auditCount = 0;
+
+function nonEmpty(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+export function parseAuditPersistenceConfig(env: EnvLike = process.env): AuditPersistenceConfig {
+  const legacyPath = nonEmpty(env.MCP_AUDIT_LOG);
+  const sinkRaw = nonEmpty(env.DB_AUDIT_SINK)?.toLowerCase();
+
+  if (!sinkRaw) {
+    return legacyPath
+      ? { sink: 'file', filePath: legacyPath, legacyEnv: true }
+      : { sink: 'memory' };
+  }
+
+  if (sinkRaw !== 'memory' && sinkRaw !== 'file') {
+    throw new Error(withErrorCode('CFG_005', 'DB_AUDIT_SINK 必须是 memory 或 file'));
+  }
+
+  if (sinkRaw === 'memory') {
+    return { sink: 'memory' };
+  }
+
+  const filePath = nonEmpty(env.DB_AUDIT_FILE_PATH) ?? legacyPath;
+  if (!filePath) {
+    throw new Error(withErrorCode('CFG_005', 'DB_AUDIT_SINK=file 时必须设置 DB_AUDIT_FILE_PATH'));
+  }
+
+  return {
+    sink: 'file',
+    filePath,
+    legacyEnv: !nonEmpty(env.DB_AUDIT_FILE_PATH) && legacyPath !== undefined,
+  };
+}
 
 /** O(1) 写入，满时覆盖最旧条目 */
 function ringPush(entry: AuditEntry): void {
@@ -68,13 +114,19 @@ export function auditLog(entry: Record<string, unknown>): void {
 
   ringPush(auditEntry);
 
-  // 写入文件（如果配置了）
-  const path = process.env.MCP_AUDIT_LOG;
-  if (!path) return;
+  const persistence = (() => {
+    try {
+      return parseAuditPersistenceConfig();
+    } catch {
+      return { sink: 'memory' } satisfies AuditPersistenceConfig;
+    }
+  })();
+  if (persistence.sink !== 'file' || !persistence.filePath) return;
+
   try {
-    const dir = dirname(path);
+    const dir = dirname(persistence.filePath);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    appendFileSync(path, JSON.stringify(auditEntry) + '\n', 'utf8');
+    appendFileSync(persistence.filePath, JSON.stringify(auditEntry) + '\n', 'utf8');
   } catch {
     // 审计失败不阻断主流程
   }

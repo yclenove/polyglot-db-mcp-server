@@ -1,7 +1,14 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { authContextFromInfo } from '../auth/auth-context.js';
-import { parseRbacPolicy } from '../auth/rbac.js';
+import {
+  listRbacPolicyTemplates,
+  loadRbacPolicyTemplate,
+  parseRbacPolicy,
+  RBAC_POLICY_TEMPLATE_NAMES,
+} from '../auth/rbac.js';
+
+const templateNameSchema = z.enum(RBAC_POLICY_TEMPLATE_NAMES);
 
 export function registerAuthTools(server: McpServer): void {
   server.registerTool(
@@ -50,6 +57,46 @@ export function registerAuthTools(server: McpServer): void {
                 version: policy.version,
                 roles: Object.keys(policy.roles),
                 binding_count: policy.bindings.length,
+              }),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                valid: false,
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    'auth_policy_template',
+    {
+      description: '返回内置 RBAC policy 模板 JSON，可作为生产 policy 文件的起点。',
+      inputSchema: {
+        name: templateNameSchema.describe(`模板名称：${RBAC_POLICY_TEMPLATE_NAMES.join(' / ')}`),
+      },
+    },
+    async ({ name }) => {
+      try {
+        const policy = loadRbacPolicyTemplate(name);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                name,
+                available_templates: listRbacPolicyTemplates(),
+                policy,
               }),
             },
           ],

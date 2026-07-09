@@ -16,6 +16,7 @@ import { runWithRequestPolicy } from './request-policy.js';
 import {
   authorizeWithPolicy,
   loadRbacPolicyFile,
+  loadRbacPolicyTemplate,
   type AuthorizationDecision,
   type AuthAction,
   type PolicyEffect,
@@ -29,6 +30,7 @@ const toolTracer = trace.getTracer('polyglot-db-mcp-server.tools');
 export interface AuthorizationOptions {
   mode: 'none' | 'api_key' | 'bearer';
   policyFile?: string;
+  policyTemplate?: string;
   defaultEffect: PolicyEffect;
 }
 
@@ -155,7 +157,11 @@ export function createAuthorizationRuntime(
   registry: ConnectionRegistry,
   options: AuthorizationOptions,
 ): AuthorizationRuntime {
-  const policy = options.policyFile ? loadRbacPolicyFile(options.policyFile) : undefined;
+  const policy = options.policyFile
+    ? loadRbacPolicyFile(options.policyFile)
+    : options.policyTemplate
+      ? loadRbacPolicyTemplate(options.policyTemplate)
+      : undefined;
 
   return {
     policy,

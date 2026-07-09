@@ -1,6 +1,6 @@
 # polyglot-db-mcp-server API 文档
 
-> 自动生成于 2026-07-09T19:58:01.970Z
+> 自动生成于 2026-07-09T20:24:55.578Z
 
 ## 目录
 
@@ -1333,6 +1333,18 @@ HTTP 安全默认值：
 | 参数名 | 类型 | 必填 | 说明 |
 |--------|------|------|------|
 | `policy_json` | string | 是 | RBAC policy JSON 字符串 |
+
+---
+
+### `auth_policy_template`
+
+返回内置 RBAC policy 模板 JSON，可作为生产 policy 文件的起点。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `name` | string | 是 | 模板名称：readonly-http、local-admin 或 diagnostic-readonly |
 
 ---
 

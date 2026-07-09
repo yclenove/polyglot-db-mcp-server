@@ -18,6 +18,7 @@ export interface HttpTransportConfig {
   authJwksUrl?: string;
   authJwksFile?: string;
   rbacPolicyFile?: string;
+  rbacPolicyTemplate?: string;
   rbacDefaultEffect: RbacDefaultEffect;
   bodyLimitBytes: number;
   requestTimeoutMs: number;
@@ -188,6 +189,7 @@ export function parseHttpTransportConfig(
     authJwksUrl: merged.DB_AUTH_JWKS_URL?.trim() || undefined,
     authJwksFile: merged.DB_AUTH_JWKS_FILE?.trim() || undefined,
     rbacPolicyFile: merged.DB_RBAC_POLICY_FILE?.trim() || undefined,
+    rbacPolicyTemplate: merged.DB_RBAC_POLICY_TEMPLATE?.trim() || undefined,
     rbacDefaultEffect: parseDefaultEffect(merged.DB_RBAC_DEFAULT_EFFECT),
     bodyLimitBytes: parsePositiveInt(
       'DB_HTTP_BODY_LIMIT_BYTES',
@@ -241,6 +243,7 @@ export function safeHttpConfig(config: HttpTransportConfig): Record<string, unkn
     auth_issuer: config.authIssuer,
     auth_audience: config.authAudience,
     rbac_policy: config.rbacPolicyFile ? 'configured' : 'none',
+    rbac_policy_template: config.rbacPolicyTemplate,
     rbac_default_effect: config.rbacDefaultEffect,
     body_limit_bytes: config.bodyLimitBytes,
     request_timeout_ms: config.requestTimeoutMs,
