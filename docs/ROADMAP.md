@@ -4,9 +4,9 @@
 **版本**: 1.0
 **日期**: 2026-07-09
 **规划周期**: 2026 Q3 ~ 2027 Q2
-**当前基线**: v1.7.3
+**当前基线**: v1.8.0
 **状态**: 当前有效
-**当前详细迭代**: `docs/ITER-v1.7.1-迭代计划.md`、`docs/ITER-v1.7.2-迭代计划.md`、`docs/ITER-v1.7.3-迭代计划.md`
+**当前详细迭代**: `docs/ITER-v1.7.1-迭代计划.md`、`docs/ITER-v1.7.2-迭代计划.md`、`docs/ITER-v1.7.3-迭代计划.md`、`docs/ITER-v1.8.0-迭代计划.md`
 **文档索引**: `docs/INDEX.md`
 
 ---
@@ -31,6 +31,7 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 ### 2.1 已具备能力
 
 - 支持 MySQL、PostgreSQL、SQL Server、Oracle、MongoDB、Redis、SQLite。
+- 支持 stdio 和 Streamable HTTP 双传输，HTTP 模式包含 `/mcp`、`/healthz`、`/readyz`。
 - SQL 查询在 MCP 层保留只读保护，驱动层也有 readonly 约束。
 - 已具备注入检测、数据脱敏、审计日志、查询缓存、查询回放、查询建议等安全与体验功能。
 - 已有较完整的单元测试和工具层测试，当前 `npm run build`、`npm test` 可通过。
@@ -45,7 +46,7 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 | 方言一致性 | MSSQL EXPLAIN 语法仍可能不符合驱动批处理行为 | 部分工具可用性不稳定 |
 | 安全规范 | cacheKey 序列化边界、分页数字拼接、正则 ReDoS 防护仍需收敛 | 边界安全风险 |
 | 发布体系 | 版本、文档、质量门禁、发布说明尚未形成自动化流水线 | 发布效率与一致性 |
-| 协议适配 | 当前仍以 stdio 为主，缺少 Streamable HTTP/OAuth/RBAC | 企业集成能力不足 |
+| 企业安全 | 当前已有 HTTP API key，但缺少 OAuth/RBAC/租户隔离 | 企业集成能力不足 |
 
 ---
 
@@ -82,7 +83,7 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 | `docs/QUALITY-v1.7.0-质量报告.md` | 测试缺口、RateLimiter、cacheKey、MSSQL EXPLAIN | v1.7.1 | `ITER-v1.7.1` P0/P1 任务 |
 | `docs/QUALITY-v1.7.1-质量报告.md` | v1.7.1 完成审计 | v1.7.1 | 已填写真实命令和质量结果 |
 | `docs/QUALITY-v1.7.3-质量报告.md` | v1.7.3 完成审计 | v1.7.3 | 已填写真实命令、快速开始和质量结果 |
-| `docs/QUALITY-v1.8.0-质量报告.md` | v1.8.0 完成审计模板 | v1.8.0 | HTTP 发布前填写真正命令和质量结果 |
+| `docs/QUALITY-v1.8.0-质量报告.md` | v1.8.0 完成审计 | v1.8.0 | 已填写真实命令、HTTP smoke 和质量结果 |
 | `docs/PRD-v1.7.0.md` | 后续 HTTP、OAuth、RBAC、Mongo 事务、Redis Pipeline、DuckDB | v1.8 ~ v2.1 | ROADMAP Phase 1 ~ 4 |
 | `docs/MARKET-市场分析.md` | DBHub/FreePeak 等竞品压力，引擎覆盖和企业能力 | v1.8 ~ v2.2 | 传输、企业安全、可观测 |
 | AGENTS.md | `sql_query` 必须保持 MCP 层只读保护，测试先 build 后 test | 所有版本 | 质量门禁和发布 checklist |
@@ -150,6 +151,7 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 **前置 ADR**: `docs/ADR-001-streamable-http.md`
 **前置 PRD**: `docs/PRD-v1.8.0.md`
 **实施计划**: `docs/ITER-v1.8.0-迭代计划.md`
+**状态**: 已完成。
 
 ### 6.1 功能范围
 
@@ -345,11 +347,11 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 
 ## 十五、近期建议执行顺序
 
-1. v1.7.1：先做质量补丁，不新增大功能。
-2. v1.7.2：补发布工程和配置模板。
-3. v1.7.3：优化 CLI、错误码文档和 README 快速开始。
-4. v1.8.0：新建分支做 Streamable HTTP 和部署能力。
-5. v2.0.0 前置设计：提前写认证/RBAC ADR，避免边做边改架构。
+1. v1.9.0：推进高级数据库能力，优先 Mongo 事务、Redis pipeline 和 SQL schema/diff。
+2. v2.0.0 前置设计：提前写认证/RBAC ADR，避免边做边改架构。
+3. v2.1.0：评审 DuckDB、本地文件数据源和导出边界。
+4. v2.2.0：推进 OTel/Prometheus 和策略治理。
+5. v3.0.0：在权限、审计、策略稳定后进入插件化生态。
 
 ---
 
@@ -407,9 +409,9 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 
 ## 十八、下一步
 
-建议下一步进入 **v1.8.0 传输与运维增强迭代**：
+建议下一步进入 **v1.9.0 高级数据库能力迭代**：
 
-1. 评审 `docs/ADR-001-streamable-http.md`、`docs/PRD-v1.8.0.md` 和 `docs/ITER-v1.8.0-迭代计划.md`，确认 SDK/API 细节后再实现。
+1. 为 v1.9.0 新增或评审 PRD/ITER，明确 Mongo 事务、Redis pipeline、SQL schema diff 的 P0/P1 边界。
 2. v2.0.0 开发前评审 `docs/ADR-002-oauth-rbac.md`、`docs/PRD-v2.0.0.md` 和 `docs/MIGRATION-v2.0.0.md`，确认认证授权与迁移边界。
 3. v3.0.0 开发前复核 `docs/ADR-003-plugin-architecture.md`，确认插件安全边界。
 4. 提交规划包前按 `docs/PLANNING_AUDIT.md` 运行引用和格式审计。

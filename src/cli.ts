@@ -27,7 +27,14 @@ polyglot-db-mcp-server - 多引擎数据库 MCP 服务器
   polyglot-db-mcp-server init --force       覆盖现有 .env
   polyglot-db-mcp-server init --interactive 打开旧版交互式向导
   polyglot-db-mcp-server test               测试所有配置的连接
+  polyglot-db-mcp-server --transport http   启动 Streamable HTTP 服务器
   polyglot-db-mcp-server --help             显示帮助
+
+HTTP 常用参数:
+  --transport stdio|http
+  --host 127.0.0.1
+  --port 3000
+  --endpoint /mcp
 `.trim();
 
 const INIT_USAGE = `

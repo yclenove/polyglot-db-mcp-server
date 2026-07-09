@@ -4,7 +4,7 @@
 **版本**: 1.0
 **日期**: 2026-07-09
 **目标版本**: v1.8.0
-**状态**: 草案，待评审
+**状态**: 已完成
 **主题**: Streamable HTTP 传输与运维增强
 **前置依赖**: v1.7.1、v1.7.2、v1.7.3 完成
 **关联 ADR**: `docs/ADR-001-streamable-http.md`
@@ -66,9 +66,9 @@ v1.8.0 的目标不是引入完整企业权限体系，而是在保持 stdio 兼
 
 验收：
 
-- [ ] 无参数启动行为与 v1.7.x 一致。
-- [ ] HTTP 参数启动可监听指定 host/port。
-- [ ] 非法 transport 返回清晰错误。
+- [x] 无参数启动行为与 v1.7.x 一致。
+- [x] HTTP 参数启动可监听指定 host/port。
+- [x] 非法 transport 返回清晰错误。
 
 #### F-002：Streamable HTTP MCP endpoint
 
@@ -87,9 +87,9 @@ v1.8.0 的目标不是引入完整企业权限体系，而是在保持 stdio 兼
 
 验收：
 
-- [ ] HTTP client 可完成 MCP 初始化。
-- [ ] HTTP client 可调用 `list_connections` 或 mock 工具。
-- [ ] HTTP client 调用 `sql_query` 仍受只读保护。
+- [x] HTTP client 可完成 MCP 初始化。
+- [x] HTTP client 可调用 `list_connections` 或 mock 工具。
+- [x] HTTP client 调用 `sql_query` 仍受只读保护。
 
 #### F-003：健康检查端点
 
@@ -107,8 +107,8 @@ v1.8.0 的目标不是引入完整企业权限体系，而是在保持 stdio 兼
 
 验收：
 
-- [ ] 未加载 registry 时 readyz 返回非 ready。
-- [ ] registry 加载后 readyz 返回 ready 或 degraded 并说明原因。
+- [x] 未加载 registry 时 readyz 返回非 ready。
+- [x] registry 加载后 readyz 返回 ready 或 degraded 并说明原因。
 
 #### F-004：HTTP 安全默认值
 
@@ -128,10 +128,10 @@ v1.8.0 的目标不是引入完整企业权限体系，而是在保持 stdio 兼
 
 验收：
 
-- [ ] 默认不会监听 `0.0.0.0`。
-- [ ] 非法 Origin 被拒绝。
-- [ ] 缺失或错误 API key 被拒绝，除非显式禁用。
-- [ ] 大 body 被拒绝。
+- [x] 默认不会监听 `0.0.0.0`。
+- [x] 非法 Origin 被拒绝。
+- [x] 缺失或错误 API key 被拒绝，除非显式禁用。
+- [x] 大 body 被拒绝。
 
 ### 4.2 P1 功能
 
@@ -267,22 +267,22 @@ npm pack --dry-run
 
 ## 十一、验收清单
 
-- [ ] 默认 stdio 不变。
-- [ ] HTTP 模式可启动并通过 `/healthz`。
-- [ ] POST `/mcp` 可完成 MCP 基本调用。
-- [ ] GET `/mcp` 行为明确实现或明确 405。
-- [ ] Origin/API key/body limit 有测试。
-- [ ] HTTP 模式不绕过 SQL readonly 和各工具安全检查。
-- [ ] Docker 示例可探活。
-- [ ] README/CONFIG/API/CHANGELOG 更新。
-- [ ] `npm run build`、`npm test`、`npm run lint`、`npm run typecheck`、`npm pack --dry-run` 通过。
+- [x] 默认 stdio 不变。
+- [x] HTTP 模式可启动并通过 `/healthz`。
+- [x] POST `/mcp` 可完成 MCP 基本调用。
+- [x] GET `/mcp` 行为明确实现或明确 405。
+- [x] Origin/API key/body limit 有测试。
+- [x] HTTP 模式不绕过 SQL readonly 和各工具安全检查。
+- [x] Docker 示例可探活。
+- [x] README/CONFIG/API/CHANGELOG 更新。
+- [x] `npm run build`、`npm test`、`npm run lint`、`npm run typecheck`、`npm pack --dry-run` 通过。
 
 ---
 
-## 十二、待评审问题
+## 十二、决策结果
 
-1. API key 使用 `Authorization: Bearer` 还是 `x-api-key`，或同时支持？
-2. v1.8.0 是否必须实现 GET SSE，还是先 405 并文档化？
-3. `/readyz` 是否必须 ping 默认连接，还是只验证 registry 加载？
-4. Docker 镜像是否在 v1.8.0 发布，还是只提供 docker-compose 示例？
-5. HTTP 模式是否默认要求 API key，即使绑定 localhost？
+1. API key 同时支持 `Authorization: Bearer` 和 `x-api-key`，文档推荐 Bearer。
+2. v1.8.0 先返回 405 并文档化，GET SSE 后续迭代。
+3. `/readyz` 使用启动时 ping 结果，不在每次探活实时 ping 数据库。
+4. v1.8.0 提供 Dockerfile 和 docker-compose 示例，不发布镜像。
+5. HTTP localhost 不强制 API key；非本地监听必须配置 API key，除非显式关闭认证。

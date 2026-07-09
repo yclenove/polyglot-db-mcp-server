@@ -63,22 +63,22 @@
 | `docs/ITER-v1.7.1-迭代计划.md` | 已完成 | v1.7.1 | 质量基线、安全收敛、核心测试补齐 |
 | `docs/ITER-v1.7.2-迭代计划.md` | 已完成 | v1.7.2 | 发布工程、配置模板、CI、package dry-run |
 | `docs/ITER-v1.7.3-迭代计划.md` | 已完成 | v1.7.3 | CLI、错误码、诊断建议、README 快速开始 |
-| `docs/CONFIG.md` | 当前有效 | v1.7.x+ | 环境变量、连接对象、安全配置建议 |
-| `docs/ERRORS.md` | 当前有效 | v1.7.x+ | 错误码、hint 规范、测试要求 |
+| `docs/CONFIG.md` | 当前有效 | v1.8.x+ | 环境变量、连接对象、安全配置建议 |
+| `docs/ERRORS.md` | 当前有效 | v1.8.x+ | 错误码、hint 规范、测试要求 |
 | `docs/RELEASE_CHECKLIST.md` | 当前有效草案 | v1.7.x+ | 发布前、中、后检查清单 |
-| `docs/ADR-001-streamable-http.md` | Proposed | v1.8.0 | Streamable HTTP 传输方案前置架构决策 |
-| `docs/PRD-v1.8.0.md` | 草案，待评审 | v1.8.0 | HTTP 传输和运维增强产品需求 |
-| `docs/ITER-v1.8.0-迭代计划.md` | 草案，待评审 | v1.8.0 | HTTP 传输实施任务、排期和验收 |
+| `docs/ADR-001-streamable-http.md` | Accepted | v1.8.0 | Streamable HTTP 传输方案架构决策 |
+| `docs/PRD-v1.8.0.md` | 已完成 | v1.8.0 | HTTP 传输和运维增强产品需求 |
+| `docs/ITER-v1.8.0-迭代计划.md` | 已完成 | v1.8.0 | HTTP 传输实施任务、排期和验收 |
 | `docs/ADR-002-oauth-rbac.md` | Proposed | v2.0.0 | OAuth/Bearer Token 与 RBAC 企业安全架构决策 |
 | `docs/PRD-v2.0.0.md` | 草案，待评审 | v2.0.0 | 企业安全产品需求 |
 | `docs/MIGRATION-v2.0.0.md` | 草案，待评审 | v2.0.0 | v1.x 到 v2.0 企业安全迁移路径 |
 | `docs/ADR-003-plugin-architecture.md` | Proposed | v3.0.0 | 插件化生态架构决策 |
 | `docs/PLANNING_AUDIT.md` | 当前有效 | 全规划包 | 规划完备性审计与提交前检查 |
-| `docs/API.md` | 当前有效，需持续生成/校验 | v1.7.x | MCP 工具接口说明 |
+| `docs/API.md` | 当前有效，需持续生成/校验 | v1.8.x | MCP 工具接口和传输说明 |
 | `docs/QUALITY-v1.7.1-质量报告.md` | 已完成 | v1.7.1 | v1.7.1 质量门禁和发布签核 |
 | `docs/QUALITY-v1.7.2-质量报告.md` | 已完成 | v1.7.2 | v1.7.2 CI、配置和发布工程签核 |
 | `docs/QUALITY-v1.7.3-质量报告.md` | 已完成 | v1.7.3 | v1.7.3 CLI、错误码、诊断和快速开始签核 |
-| `docs/QUALITY-v1.8.0-质量报告.md` | 模板，待迭代完成后填写 | v1.8.0 | HTTP 传输质量门禁和发布签核模板 |
+| `docs/QUALITY-v1.8.0-质量报告.md` | 已完成 | v1.8.0 | HTTP 传输质量门禁和发布签核 |
 | `docs/QUALITY-v1.7.0-质量报告.md` | 历史质量依据，需 v1.7.1 复核 | v1.7.0 | 质量债来源和修复追踪 |
 
 ---

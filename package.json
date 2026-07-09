@@ -1,6 +1,6 @@
 {
   "name": "@yclenove/polyglot-db-mcp-server",
-  "version": "1.7.3",
+  "version": "1.8.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -24,7 +24,9 @@
     "CHANGELOG.md",
     "AGENTS.md",
     "LICENSE",
-    "MIGRATION.md"
+    "MIGRATION.md",
+    "scripts/healthcheck.mjs",
+    "scripts/http-smoke.mjs"
   ],
   "scripts": {
     "build": "tsc",
@@ -35,11 +37,11 @@
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
-    "test": "node --test --test-name-pattern=. test/*.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs",
-    "test:unit": "node --test --test-name-pattern=. test/*.test.mjs test/tools/*.test.mjs",
+    "test": "node --test --test-name-pattern=. test/*.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs test/transports/*.test.mjs",
+    "test:unit": "node --test --test-name-pattern=. test/*.test.mjs test/tools/*.test.mjs test/transports/*.test.mjs",
     "test:integration": "node --test --test-name-pattern=. test/integration/*.test.mjs",
-    "test:coverage": "c8 --reporter=text --reporter=json --reporter=lcov node --test --test-name-pattern=. test/*.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs",
-    "test:coverage:check": "c8 --lines 50 --branches 50 --functions 50 node --test --test-name-pattern=. test/*.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs",
+    "test:coverage": "c8 --reporter=text --reporter=json --reporter=lcov node --test --test-name-pattern=. test/*.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs test/transports/*.test.mjs",
+    "test:coverage:check": "c8 --lines 50 --branches 50 --functions 50 node --test --test-name-pattern=. test/*.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs test/transports/*.test.mjs",
     "benchmark": "node test/benchmark/sql-guards.bench.mjs",
     "docs": "node scripts/generate-docs.mjs"
   },

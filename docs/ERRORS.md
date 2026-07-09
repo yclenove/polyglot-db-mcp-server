@@ -123,7 +123,7 @@
 | `CFG_004` | 不支持的引擎类型 | 使用支持的 engine 枚举 | false |
 | `CFG_005` | 缺少必填字段 | 检查 `id`、`engine`、`url` 或 host/database | false |
 
-### 4.7 v1.8 HTTP 前瞻错误
+### 4.7 HTTP 传输错误
 
 | Code | Message | Hint | Retryable |
 |------|---------|------|-----------|
@@ -196,10 +196,18 @@
 
 ---
 
-## 八、v1.7.3 落地清单
+## 八、落地清单
+
+### v1.7.3
 
 - [x] `src/core/error-codes.ts` 补齐本文档中的当前、HTTP 前瞻和 CLI 错误码。
 - [x] 工具层关键错误返回 `{ error, error_info: { code, message, hint } }`。
 - [x] `connection_diagnose` 使用错误码生成建议，并保留兼容的 `error` 字符串。
 - [x] README/API 指向本文档。
 - [x] 新增关键错误测试：CLI、错误码元数据、连接诊断、SQL 只读、Redis keyPrefix、Mongo NoSQL 注入。
+
+### v1.8.0
+
+- [x] HTTP transport 使用 `AUTH_003`、`HTTP_001`、`HTTP_002`、`HTTP_003`、`HTTP_004` 返回结构化错误。
+- [x] HTTP Origin、API key、body limit 和 method 405 均有 transport 测试覆盖。
+- [x] `sql_query` 通过 HTTP 调用时仍返回 `SQL_002` 拒绝写 SQL。

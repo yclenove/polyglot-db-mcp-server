@@ -18,6 +18,32 @@ import { createErrorPayload, type ErrorCode } from '../core/error-codes.js';
 
 type SqlResultRow = Record<string, unknown>;
 
+const activeTransactions = new Map<
+  string,
+  {
+    connectionId: string;
+    transaction: import('../core/types.js').SqlTransaction;
+    createdAt: number;
+  }
+>();
+let txCounter = 0;
+let transactionCleanupStarted = false;
+
+function ensureTransactionCleanup(): void {
+  if (transactionCleanupStarted) return;
+  transactionCleanupStarted = true;
+  setInterval(() => {
+    const txTimeoutMs = parseInt(process.env.DB_TRANSACTION_TIMEOUT_MS || '300000', 10);
+    const now = Date.now();
+    for (const [txId, entry] of activeTransactions) {
+      if (now - entry.createdAt > txTimeoutMs) {
+        entry.transaction.rollback().catch(() => {});
+        activeTransactions.delete(txId);
+      }
+    }
+  }, 60_000).unref();
+}
+
 function codedErrorText(
   code: ErrorCode,
   details?: Record<string, unknown>,
@@ -28,32 +54,10 @@ function codedErrorText(
 }
 
 export function registerSqlTools(server: McpServer, registry: ConnectionRegistry): void {
+  ensureTransactionCleanup();
   const limits = () => globalLimits();
   const queryCache = createQueryCacheFromEnv();
   const rateLimiter = createRateLimiterFromEnv();
-
-  // 存储活跃的事务
-  const activeTransactions = new Map<
-    string,
-    {
-      connectionId: string;
-      transaction: import('../core/types.js').SqlTransaction;
-      createdAt: number;
-    }
-  >();
-  let txCounter = 0;
-
-  // 事务超时清理（默认 5 分钟）
-  const TX_TIMEOUT_MS = parseInt(process.env.DB_TRANSACTION_TIMEOUT_MS || '300000', 10);
-  setInterval(() => {
-    const now = Date.now();
-    for (const [txId, entry] of activeTransactions) {
-      if (now - entry.createdAt > TX_TIMEOUT_MS) {
-        entry.transaction.rollback().catch(() => {});
-        activeTransactions.delete(txId);
-      }
-    }
-  }, 60_000).unref();
 
   server.registerTool(
     'sql_query',

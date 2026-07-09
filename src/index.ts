@@ -2,11 +2,13 @@
 import { config as loadEnv } from 'dotenv';
 import path from 'node:path';
 import process from 'node:process';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { closeAll, createRegistryFromEnv, logStartupDiagnostics, pingAll } from './bootstrap.js';
 import { createServer } from './server.js';
 import { logger } from './core/logger.js';
 import { runCli } from './cli.js';
+import { parseHttpTransportConfig, safeHttpConfig } from './core/http-config.js';
+import { connectStdioTransport } from './transports/stdio.js';
+import { startHttpTransport, type StartedHttpTransport } from './transports/http.js';
 
 loadEnv({ path: path.join(process.cwd(), '.env'), override: true });
 
@@ -19,6 +21,8 @@ if (cliCommands.has(process.argv[2] ?? '')) {
 
 async function main(): Promise<void> {
   logger.info('starting server');
+  const transportConfig = parseHttpTransportConfig(process.env, process.argv.slice(2));
+  logger.info('transport config', safeHttpConfig(transportConfig));
 
   const registry = await createRegistryFromEnv();
   const pings = await pingAll(registry);
@@ -41,10 +45,21 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const server = createServer(registry);
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  logger.info('stdio transport connected');
+  let mcpServer: ReturnType<typeof createServer> | undefined;
+  let httpTransport: StartedHttpTransport | undefined;
+
+  if (transportConfig.transport === 'stdio') {
+    mcpServer = createServer(registry);
+    await connectStdioTransport(mcpServer);
+    logger.info('stdio transport connected');
+  } else {
+    httpTransport = await startHttpTransport({
+      registry,
+      config: transportConfig,
+      startupPings: pings,
+    });
+    logger.info('http transport listening', { url: httpTransport.url });
+  }
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info('shutting down', { signal });
@@ -56,9 +71,14 @@ async function main(): Promise<void> {
     timer.unref();
 
     try {
-      await server.close();
+      if (httpTransport) {
+        await httpTransport.close();
+      }
+      if (mcpServer) {
+        await mcpServer.close();
+      }
     } catch (e) {
-      logger.error('server.close error', { error: e instanceof Error ? e.message : String(e) });
+      logger.error('transport close error', { error: e instanceof Error ? e.message : String(e) });
     }
     await closeAll(registry);
     process.exit(0);

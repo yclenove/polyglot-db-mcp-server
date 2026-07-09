@@ -4,7 +4,7 @@
 **版本**: 1.1
 **日期**: 2026-07-10
 **状态**: 当前有效
-**适用版本**: v1.7.x，v1.8.0 HTTP 配置为前瞻规划
+**适用版本**: v1.8.x+
 
 ---
 
@@ -150,19 +150,49 @@ DB_MCP_DEFAULT_CONNECTION_ID=local
 | `LOG_FORMAT` | `human` | `human` 或 `json` |
 | `DB_SHUTDOWN_TIMEOUT_MS` | `10000` | 优雅关闭超时 |
 
-### 5.7 v1.8.0 HTTP 前瞻配置
+### 5.7 HTTP 传输配置
 
-以下变量由 `docs/ADR-001-streamable-http.md` 和 `docs/PRD-v1.8.0.md` 规划，v1.7.x 不一定已实现。
+默认仍为 `stdio`。只有设置 `DB_MCP_TRANSPORT=http` 或 CLI `--transport http` 时才启动 Streamable HTTP。
 
-| 环境变量 | 规划默认值 | 说明 |
-|----------|------------|------|
+| 环境变量 | 默认值 | 说明 |
+|----------|--------|------|
 | `DB_MCP_TRANSPORT` | `stdio` | `stdio` 或 `http` |
 | `DB_HTTP_HOST` | `127.0.0.1` | HTTP 监听地址 |
 | `DB_HTTP_PORT` | `3000` | HTTP 监听端口 |
 | `DB_HTTP_ENDPOINT` | `/mcp` | MCP HTTP endpoint |
-| `DB_HTTP_ORIGINS` | 空 | Origin allowlist |
-| `DB_HTTP_API_KEY` | 空 | 轻量 API key |
+| `DB_HTTP_ORIGINS` | 空 | 逗号分隔 Origin allowlist；请求带 Origin 且不匹配时拒绝 |
+| `DB_HTTP_API_KEY` | 空 | 轻量 API key，支持 Bearer 和 `x-api-key` |
 | `DB_HTTP_AUTH_DISABLED` | `false` | 显式关闭 HTTP 认证，仅本地开发使用 |
+| `DB_HTTP_BODY_LIMIT_BYTES` | `1048576` | POST `/mcp` JSON body 大小限制 |
+| `DB_HTTP_REQUEST_TIMEOUT_MS` | `30000` | HTTP 请求体读取超时 |
+
+示例：
+
+```powershell
+$env:DB_MCP_TRANSPORT="http"
+$env:DB_HTTP_HOST="127.0.0.1"
+$env:DB_HTTP_PORT="3000"
+$env:DB_HTTP_AUTH_DISABLED="true"
+node dist/index.js
+```
+
+远程监听必须配置 API key，除非显式关闭认证：
+
+```powershell
+$env:DB_MCP_TRANSPORT="http"
+$env:DB_HTTP_HOST="0.0.0.0"
+$env:DB_HTTP_API_KEY="<change-me>"
+node dist/index.js
+```
+
+HTTP endpoint：
+
+| Method | Path | 说明 |
+|--------|------|------|
+| `POST` | `/mcp` | Streamable HTTP MCP endpoint |
+| `GET` | `/healthz` | 进程健康 |
+| `GET` | `/readyz` | registry 和启动 ping readiness |
+| `GET/DELETE` | `/mcp` | v1.8.0 返回 405 |
 
 ---
 
@@ -190,6 +220,7 @@ DB_MCP_DEFAULT_CONNECTION_ID=local
 | 脱敏 | 开启 `strict` 或 `strict-v2` |
 | 审计 | 设置 `MCP_AUDIT_LOG` 或后续外部审计输出 |
 | HTTP | 默认 localhost；远程部署必须配置认证和 Origin |
+| Docker | `docker-compose.env` 仅提供本地开发默认连接；私有环境使用 `.env` 覆盖且不要提交 |
 
 ---
 

@@ -50,6 +50,42 @@ polyglot-db-mcp-server test
 polyglot-db-mcp-server
 ```
 
+## Transport Modes
+
+The default transport is still `stdio`, so existing desktop MCP client configs keep working.
+
+Enable Streamable HTTP explicitly:
+
+```bash
+DB_MCP_TRANSPORT=http DB_HTTP_AUTH_DISABLED=true node dist/index.js
+```
+
+Or:
+
+```bash
+node dist/index.js --transport http --host 127.0.0.1 --port 3000
+```
+
+HTTP mode provides:
+
+- `POST /mcp`: Streamable HTTP MCP endpoint for initialize, tools/list, and tools/call.
+- `GET /healthz`: process health without pinging databases.
+- `GET /readyz`: registry and startup ping readiness.
+- `GET/DELETE /mcp`: returns 405 in v1.8.0; SSE/resumability are planned later.
+
+Security defaults:
+
+- Listens on `127.0.0.1` by default.
+- Binding to `0.0.0.0` requires `DB_HTTP_API_KEY` unless `DB_HTTP_AUTH_DISABLED=true` is explicit.
+- `DB_HTTP_ORIGINS` is the Origin allowlist; unmatched Origin headers are rejected.
+- API keys are accepted via `Authorization: Bearer <key>` or `x-api-key`.
+
+Smoke test:
+
+```bash
+node scripts/http-smoke.mjs http://127.0.0.1:3000/mcp
+```
+
 ## Multi-Connection Configuration
 
 Each entry needs a unique **`id`**, **`engine`**, and either **`url`** or (for SQL engines) **`host`**. **Redis** and **MongoDB** require **`url`**.
@@ -110,7 +146,7 @@ The **default** connection must pass a ping at startup; otherwise the process ex
 docker compose up -d
 ```
 
-See `docker-compose.yml` for default users, passwords, and published ports.
+See `docker-compose.yml` for default users, passwords, and published ports. The MCP service loads development connection defaults from `docker-compose.env`; a local `.env` is loaded after it and can override `DB_MCP_CONNECTIONS`, `DB_MCP_DEFAULT_CONNECTION_ID`, and related settings.
 
 ## Tools
 
@@ -142,6 +178,9 @@ When you **explicitly** pass `connection_id` on any tool, it must match a config
 | --- | --- |
 | `DB_MCP_CONNECTIONS` | JSON array of connections (required) |
 | `DB_MCP_DEFAULT_CONNECTION_ID` | Optional; must match an `id` in the array |
+| `DB_MCP_TRANSPORT` | `stdio` by default, or `http` |
+| `DB_HTTP_HOST`, `DB_HTTP_PORT`, `DB_HTTP_ENDPOINT` | HTTP bind host, port, and MCP endpoint |
+| `DB_HTTP_API_KEY`, `DB_HTTP_AUTH_DISABLED`, `DB_HTTP_ORIGINS` | HTTP API key, explicit auth disable flag, and Origin allowlist |
 | `DB_QUERY_TIMEOUT`, `DB_MAX_ROWS`, `DB_MAX_SQL_LENGTH`, `DB_RETRY_COUNT`, `DB_RETRY_DELAY_MS` | Global SQL limits (see `src/core/config.ts`) |
 
 ## License

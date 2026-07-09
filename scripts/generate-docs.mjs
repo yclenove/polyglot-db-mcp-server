@@ -846,7 +846,30 @@ function generateMarkdown(tools) {
   });
 
   md += '\n- [通用错误与诊断](#通用错误与诊断)\n';
+  md += '- [传输模式](#传输模式)\n';
   md += '\n---\n\n';
+
+  md += `## 传输模式
+
+默认传输仍为 \`stdio\`。设置 \`DB_MCP_TRANSPORT=http\` 或启动参数 \`--transport http\` 后启用 Streamable HTTP。
+
+| Endpoint | Method | 说明 |
+|----------|--------|------|
+| \`/mcp\` | POST | MCP Streamable HTTP JSON-RPC endpoint |
+| \`/mcp\` | GET/DELETE | v1.8.0 返回 405，SSE/resumability 后续实现 |
+| \`/healthz\` | GET | 进程健康检查 |
+| \`/readyz\` | GET | registry 和启动 ping readiness |
+
+HTTP 安全默认值：
+
+- 默认监听 \`127.0.0.1\`。
+- 监听非本地地址时必须设置 \`DB_HTTP_API_KEY\`，除非显式 \`DB_HTTP_AUTH_DISABLED=true\`。
+- API key 支持 \`Authorization: Bearer <key>\` 和 \`x-api-key\`。
+- \`DB_HTTP_ORIGINS\` 是 Origin allowlist；请求带 Origin 且不匹配时返回 \`HTTP_001\`。
+
+---
+
+`;
 
   md += `## 通用错误与诊断
 

@@ -5,7 +5,8 @@
  *
  * 检查逻辑:
  *   1. 验证 DB_MCP_CONNECTIONS 可解析
- *   2. 验证 v1.5 新增环境变量格式合法
+ *   2. 验证关键环境变量格式合法
+ *   3. HTTP 模式下请求 /readyz
  * 退出码 0 = 健康, 非 0 = 异常
  */
 
@@ -62,8 +63,8 @@ check('DB_MCP_CONNECTIONS', () => {
 // 2. DB_MASKING_MODE 校验
 check('DB_MASKING_MODE', () => {
   const val = process.env.DB_MASKING_MODE;
-  if (val && !['strict', 'loose', 'off'].includes(val)) {
-    throw new Error(`无效值 "${val}"，允许: strict, loose, off`);
+  if (val && !['strict', 'strict-v2', 'loose', 'off'].includes(val)) {
+    throw new Error(`无效值 "${val}"，允许: strict, strict-v2, loose, off`);
   }
 });
 
@@ -89,4 +90,31 @@ check('DB_SUGGEST_TIMEOUT_MS', () => {
   }
 });
 
+check('DB_MCP_TRANSPORT', () => {
+  const val = process.env.DB_MCP_TRANSPORT || 'stdio';
+  if (!['stdio', 'http'].includes(val)) {
+    throw new Error(`无效值 "${val}"，允许: stdio, http`);
+  }
+});
+
+async function checkHttpReadyz() {
+  if ((process.env.DB_MCP_TRANSPORT || 'stdio') !== 'http') return;
+  const configuredHost = process.env.DB_HTTP_HOST || '127.0.0.1';
+  const host = configuredHost === '0.0.0.0' || configuredHost === '::' ? '127.0.0.1' : configuredHost;
+  const port = process.env.DB_HTTP_PORT || '3000';
+  const url = `http://${host}:${port}/readyz`;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    console.log(`[OK] HTTP readyz ${url}`);
+  } catch (e) {
+    console.error(`[FAIL] HTTP readyz ${url}: ${e.message}`);
+    exitCode = 1;
+  }
+}
+
+await checkHttpReadyz();
 process.exit(exitCode);

@@ -55,6 +55,42 @@ polyglot-db-mcp-server test
 polyglot-db-mcp-server
 ```
 
+## 传输模式
+
+默认仍是 `stdio`，适合 Claude Desktop、Cursor 等本地 MCP 客户端，升级后不需要改现有配置。
+
+显式启用 Streamable HTTP：
+
+```bash
+DB_MCP_TRANSPORT=http DB_HTTP_AUTH_DISABLED=true node dist/index.js
+```
+
+或：
+
+```bash
+node dist/index.js --transport http --host 127.0.0.1 --port 3000
+```
+
+HTTP 模式提供：
+
+- `POST /mcp`：Streamable HTTP MCP endpoint，支持 initialize、tools/list、tools/call。
+- `GET /healthz`：进程健康，不 ping 数据库。
+- `GET /readyz`：registry 和启动 ping 状态。
+- `GET/DELETE /mcp`：v1.8.0 返回 405，SSE/resumability 后续迭代。
+
+安全默认值：
+
+- 默认监听 `127.0.0.1`。
+- 监听 `0.0.0.0` 时必须配置 `DB_HTTP_API_KEY`，除非显式 `DB_HTTP_AUTH_DISABLED=true`。
+- `DB_HTTP_ORIGINS` 非空时作为 Origin allowlist；带 Origin 且不匹配会被拒绝。
+- API key 支持 `Authorization: Bearer <key>` 和 `x-api-key`。
+
+HTTP smoke test：
+
+```bash
+node scripts/http-smoke.mjs http://127.0.0.1:3000/mcp
+```
+
 ## 多连接配置
 
 每项需要唯一 **`id`**、**`engine`**，以及 SQL 类引擎的 **`url`** 或基于 **`host`** 的字段；**Redis** 与 **MongoDB** 必须提供 **`url`**。
@@ -127,7 +163,7 @@ SQLite 支持 `file:` 前缀路径、相对路径、绝对路径和 `:memory:` �
 docker compose up -d
 ```
 
-默认账号、密码与端口见 `docker-compose.yml`。
+默认账号、密码与端口见 `docker-compose.yml`。MCP 服务默认读取 `docker-compose.env` 中的开发连接配置；本地 `.env` 会在其后加载，可覆盖 `DB_MCP_CONNECTIONS`、`DB_MCP_DEFAULT_CONNECTION_ID` 等设置。
 
 ## 工具一览
 
@@ -196,6 +232,9 @@ docker compose up -d
 | --- | --- |
 | `DB_MCP_CONNECTIONS` | 连接 JSON 数组（必填） |
 | `DB_MCP_DEFAULT_CONNECTION_ID` | 可选；须为数组中某条 `id` |
+| `DB_MCP_TRANSPORT` | `stdio`（默认）或 `http` |
+| `DB_HTTP_HOST`、`DB_HTTP_PORT`、`DB_HTTP_ENDPOINT` | HTTP 监听地址、端口和 MCP endpoint |
+| `DB_HTTP_API_KEY`、`DB_HTTP_AUTH_DISABLED`、`DB_HTTP_ORIGINS` | HTTP API key、显式关闭认证和 Origin allowlist |
 | `DB_QUERY_TIMEOUT`、`DB_MAX_ROWS`、`DB_MAX_SQL_LENGTH`、`DB_RETRY_COUNT`、`DB_RETRY_DELAY_MS` | 全局 SQL 限制（见 `src/core/config.ts`） |
 | `DB_MASKING_MODE` | 脱敏模式：`off`（默认）、`loose`、`strict`、`strict-v2` |
 | `DB_MASKING_EXCLUDE_FIELDS` | 白名单字段（逗号分隔），这些字段不脱敏 |

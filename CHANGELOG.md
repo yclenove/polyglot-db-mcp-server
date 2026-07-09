@@ -4,6 +4,24 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.8.0] - 2026-07-10
+
+### 新增
+- **Streamable HTTP 传输**：新增 `DB_MCP_TRANSPORT=http` 和 `--transport http`，支持 SDK client 通过 `POST /mcp` 完成 initialize、tools/list 和 tools/call。
+- **运维探活端点**：HTTP 模式提供 `GET /healthz` 和 `GET /readyz`，用于 Docker/Kubernetes 健康检查。
+- **HTTP 安全默认值**：默认监听 `127.0.0.1`；远程监听必须配置 `DB_HTTP_API_KEY`，除非显式 `DB_HTTP_AUTH_DISABLED=true`；支持 Origin allowlist、body limit 和 request timeout。
+- **HTTP smoke test**：新增 `scripts/http-smoke.mjs`，可验证远端 `/mcp` 是否可初始化并列出工具。
+- **Docker HTTP 示例**：新增 Dockerfile，并将 `docker-compose.yml` 的 mcp-server 示例切到 HTTP 模式和 `/readyz` 探活。
+
+### 变更
+- **Transport 架构拆分**：新增 `src/transports/stdio.ts`、`src/transports/http.ts`、`src/transports/health.ts` 和 `src/core/http-config.ts`，`src/index.ts` 负责启动编排和传输选择。
+- **测试门禁扩展**：默认 `npm test` 和 coverage 脚本纳入 `test/transports/*.test.mjs`。
+- **SQL 事务清理器共享**：事务状态提升到模块级，避免 HTTP session 多次注册 SQL 工具时重复启动清理定时器。
+
+### 安全
+- **HTTP 错误结构化**：未授权、非法 Origin、body 超限、method 不支持和 endpoint 不存在均返回稳定错误码。
+- **只读边界回归**：新增 HTTP 测试确认 `sql_query` 写 SQL 仍在 MCP 工具层返回 `SQL_002`。
+
 ## [1.7.3] - 2026-07-10
 
 ### 新增

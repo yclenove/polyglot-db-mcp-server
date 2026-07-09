@@ -3,7 +3,7 @@
 **文档编号**: ADR-001
 **版本**: 1.0
 **日期**: 2026-07-09
-**状态**: Proposed
+**状态**: Accepted
 **目标版本**: v1.8.0
 **关联文档**: `docs/ROADMAP.md`, `docs/ITER-v1.7.2-迭代计划.md`, `docs/ITER-v1.7.3-迭代计划.md`
 **参考来源**: [MCP Transports specification](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports), [MCP TypeScript SDK docs](https://ts.sdk.modelcontextprotocol.io/)
@@ -228,15 +228,15 @@ npm pack --dry-run
 
 ## 十一、验收清单
 
-- [ ] 默认 `polyglot-db-mcp-server` 仍走 stdio。
-- [ ] `--transport http` 或 `DB_MCP_TRANSPORT=http` 可启动 HTTP server。
-- [ ] `/healthz` 和 `/readyz` 可访问。
-- [ ] POST `/mcp` 可完成 initialize/listTools/callTool。
-- [ ] GET `/mcp` 行为符合实现声明：SSE 或 405。
-- [ ] Origin 校验和 API key 保护有测试。
-- [ ] HTTP 模式下 `sql_query` 只读保护仍有效。
-- [ ] README/CONFIG/API 描述 HTTP 启动和安全默认值。
-- [ ] `npm run build`、`npm test`、`npm run lint` 通过。
+- [x] 默认 `polyglot-db-mcp-server` 仍走 stdio。
+- [x] `--transport http` 或 `DB_MCP_TRANSPORT=http` 可启动 HTTP server。
+- [x] `/healthz` 和 `/readyz` 可访问。
+- [x] POST `/mcp` 可完成 initialize/listTools/callTool。
+- [x] GET `/mcp` 行为符合实现声明：v1.8.0 返回 405。
+- [x] Origin 校验和 API key 保护有测试。
+- [x] HTTP 模式下 `sql_query` 只读保护仍有效。
+- [x] README/CONFIG/API 描述 HTTP 启动和安全默认值。
+- [x] `npm run build`、`npm test`、`npm run lint` 通过。
 
 ---
 
@@ -249,3 +249,15 @@ npm pack --dry-run
 3. v1.7.3 CLI/错误体验完成。
 4. 再次核对官方 MCP specification 和 TypeScript SDK 当前版本文档。
 5. 新建 feature 分支，避免直接在 `main` 上开发大功能。
+
+---
+
+## 十三、v1.8.0 实施决策记录
+
+| 决策 | 结果 |
+|------|------|
+| GET SSE | v1.8.0 不实现，`GET /mcp` 返回 405 |
+| API key 策略 | localhost 可不配置；非本地监听必须配置 `DB_HTTP_API_KEY`，除非显式 `DB_HTTP_AUTH_DISABLED=true` |
+| API key header | 同时支持 `Authorization: Bearer <key>` 和 `x-api-key` |
+| `/readyz` | 使用启动时 ping 结果，默认连接失败时进程仍按既有模型退出 |
+| Docker | 本轮提供 Dockerfile 和 Compose HTTP 示例，不发布镜像 |

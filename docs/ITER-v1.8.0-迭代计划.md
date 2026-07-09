@@ -6,7 +6,7 @@
 **目标版本**: v1.8.0
 **迭代类型**: Minor / Transport & Operations
 **建议周期**: 10 个工作日
-**状态**: 草案，待评审
+**状态**: 已完成
 **前置依赖**: v1.7.1、v1.7.2、v1.7.3 完成
 **上游依据**: `docs/ADR-001-streamable-http.md`、`docs/PRD-v1.8.0.md`、`docs/ROADMAP.md`
 
@@ -84,9 +84,9 @@ v1.8.0 将项目从纯本地 stdio MCP server 扩展为 **stdio + Streamable HTT
 
 验收：
 
-- [ ] 无参数启动仍使用 stdio。
-- [ ] 现有工具测试全部通过。
-- [ ] `src/index.ts` transport 选择逻辑清晰。
+- [x] 无参数启动仍使用 stdio。
+- [x] 现有工具测试全部通过。
+- [x] `src/index.ts` transport 选择逻辑清晰。
 
 #### A-002：HTTP 配置解析
 
@@ -110,9 +110,9 @@ v1.8.0 将项目从纯本地 stdio MCP server 扩展为 **stdio + Streamable HTT
 
 验收：
 
-- [ ] 默认值测试覆盖。
-- [ ] 非法端口、非法 transport、非法 endpoint 抛出清晰错误。
-- [ ] API key 不进入日志。
+- [x] 默认值测试覆盖。
+- [x] 非法端口、非法 transport、非法 endpoint 抛出清晰错误。
+- [x] API key 不进入日志。
 
 ---
 
@@ -136,10 +136,10 @@ v1.8.0 将项目从纯本地 stdio MCP server 扩展为 **stdio + Streamable HTT
 
 验收：
 
-- [ ] HTTP client 可 initialize。
-- [ ] HTTP client 可 listTools。
-- [ ] HTTP client 可 callTool。
-- [ ] GET `/mcp` 行为与文档一致。
+- [x] HTTP client 可 initialize。
+- [x] HTTP client 可 listTools。
+- [x] HTTP client 可 callTool。
+- [x] GET `/mcp` 行为与文档一致。
 
 #### B-002：HTTP integration tests
 
@@ -192,7 +192,7 @@ v1.8.0 将项目从纯本地 stdio MCP server 扩展为 **stdio + Streamable HTT
 - 支持 `Authorization: Bearer <key>`。
 - 可选支持 `x-api-key`，但文档推荐 Bearer。
 - `DB_HTTP_AUTH_DISABLED=true` 才能关闭认证。
-- 默认 localhost 是否强制 API key 由 PRD 待评审项决定；实现前必须定稿。
+- 默认 localhost 不强制 API key；监听非本地地址时必须配置 API key，除非显式 `DB_HTTP_AUTH_DISABLED=true`。
 
 #### C-003：Body limit 和 request timeout
 
@@ -336,16 +336,16 @@ npm pack --dry-run
 
 ## 七、验收清单
 
-- [ ] 默认 stdio 模式不变。
-- [ ] HTTP 模式可通过 env/CLI 启动。
-- [ ] POST `/mcp` 可 initialize/listTools/callTool。
-- [ ] GET/DELETE `/mcp` 有明确实现或 405。
-- [ ] `/healthz` 和 `/readyz` 可用。
-- [ ] Origin/API key/body limit/timeout 有测试。
-- [ ] HTTP 模式不绕过 SQL/Mongo/Redis 安全边界。
-- [ ] Docker/Compose 示例可用。
-- [ ] README/CONFIG/API/ERRORS/CHANGELOG 已更新。
-- [ ] `npm run build`、`npm test`、`npm run lint`、`npm run typecheck`、`npm pack --dry-run` 通过。
+- [x] 默认 stdio 模式不变。
+- [x] HTTP 模式可通过 env/CLI 启动。
+- [x] POST `/mcp` 可 initialize/listTools/callTool。
+- [x] GET/DELETE `/mcp` 有明确实现或 405。
+- [x] `/healthz` 和 `/readyz` 可用。
+- [x] Origin/API key/body limit/timeout 有测试。
+- [x] HTTP 模式不绕过 SQL/Mongo/Redis 安全边界。
+- [x] Docker/Compose 示例可用。
+- [x] README/CONFIG/API/ERRORS/CHANGELOG 已更新。
+- [x] `npm run build`、`npm test`、`npm run lint`、`npm run typecheck`、`npm pack --dry-run` 通过。
 
 ---
 
@@ -361,13 +361,13 @@ npm pack --dry-run
 
 ---
 
-## 九、待评审决策
+## 九、决策结果
 
-1. v1.8.0 是否必须实现 GET SSE，还是 POST JSON response 足够。
-2. localhost HTTP 是否默认强制 API key。
-3. API key 是否只支持 Bearer，还是兼容 `x-api-key`。
-4. `/readyz` 是否实时 ping 默认连接，还是使用启动时状态。
-5. Docker 镜像是否在 v1.8.0 发布，还是先提供 compose 示例。
+1. v1.8.0 使用 POST JSON response；GET/DELETE `/mcp` 返回 405。
+2. localhost HTTP 不强制 API key；非本地监听必须配置 API key 或显式关闭认证。
+3. API key 同时支持 Bearer 和 `x-api-key`。
+4. `/readyz` 使用启动时 ping 状态。
+5. v1.8.0 提供 Dockerfile 与 compose 示例，不发布镜像。
 
 ---
 
@@ -382,3 +382,9 @@ v1.8.0 只有满足以下条件才视为完成：
 5. 文档和 CHANGELOG 与实现一致。
 6. 全量验证命令通过。
 7. `docs/QUALITY-v1.8.0-质量报告.md` 填写完成。
+
+---
+
+## 十一、完成记录
+
+详见 `docs/QUALITY-v1.8.0-质量报告.md`。本轮交付包括 HTTP transport、health/readiness、Origin/API key/body limit、Docker/Compose 示例、HTTP smoke test、README/CONFIG/API/ERRORS/CHANGELOG 同步和 transport 测试。
