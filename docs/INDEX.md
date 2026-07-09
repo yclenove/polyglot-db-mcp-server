@@ -41,18 +41,20 @@
 17. `docs/ITER-v2.0.1-迭代计划.md`
 18. `docs/PRD-v2.1.0.md`
 19. `docs/ITER-v2.1.0-迭代计划.md`
-20. `docs/ADR-003-plugin-architecture.md`
-21. `docs/PLANNING_AUDIT.md`
-22. `docs/QUALITY-v1.7.1-质量报告.md`
-23. `docs/QUALITY-v1.7.2-质量报告.md`
-24. `docs/QUALITY-v1.7.3-质量报告.md`
-25. `docs/QUALITY-v1.8.0-质量报告.md`
-26. `docs/QUALITY-v1.9.0-质量报告.md`
-27. `docs/QUALITY-v2.0.0-质量报告.md`
-28. `docs/QUALITY-v2.0.1-质量报告.md`
-29. `docs/QUALITY-v2.1.0-质量报告.md`
-30. `docs/QUALITY-v1.7.0-质量报告.md`
-31. `CHANGELOG.md`
+20. `docs/ITER-v2.1.1-迭代计划.md`
+21. `docs/ADR-003-plugin-architecture.md`
+22. `docs/PLANNING_AUDIT.md`
+23. `docs/QUALITY-v1.7.1-质量报告.md`
+24. `docs/QUALITY-v1.7.2-质量报告.md`
+25. `docs/QUALITY-v1.7.3-质量报告.md`
+26. `docs/QUALITY-v1.8.0-质量报告.md`
+27. `docs/QUALITY-v1.9.0-质量报告.md`
+28. `docs/QUALITY-v2.0.0-质量报告.md`
+29. `docs/QUALITY-v2.0.1-质量报告.md`
+30. `docs/QUALITY-v2.1.0-质量报告.md`
+31. `docs/QUALITY-v2.1.1-质量报告.md`
+32. `docs/QUALITY-v1.7.0-质量报告.md`
+33. `CHANGELOG.md`
 
 ### 1.3 发布负责人
 
@@ -88,6 +90,7 @@
 | `docs/ITER-v2.0.1-迭代计划.md` | 已完成 | v2.0.1 | policy `maskingMode` 请求级执行收口 |
 | `docs/PRD-v2.1.0.md` | 已完成 | v2.1.0 | DuckDB 本地只读分析产品需求 |
 | `docs/ITER-v2.1.0-迭代计划.md` | 已完成 | v2.1.0 | DuckDB driver、配置、文档和测试实施 |
+| `docs/ITER-v2.1.1-迭代计划.md` | 已完成 | v2.1.1 | 查询导出和表采样画像 |
 | `docs/ADR-003-plugin-architecture.md` | Proposed | v3.0.0 | 插件化生态架构决策 |
 | `docs/PLANNING_AUDIT.md` | 当前有效 | 全规划包 | 规划完备性审计与提交前检查 |
 | `docs/API.md` | 当前有效，需持续生成/校验 | v1.9.x | MCP 工具接口和传输说明 |
@@ -99,6 +102,7 @@
 | `docs/QUALITY-v2.0.0-质量报告.md` | 已完成 | v2.0.0 | 企业安全质量门禁和发布签核 |
 | `docs/QUALITY-v2.0.1-质量报告.md` | 已完成 | v2.0.1 | policy masking 安全收口质量门禁 |
 | `docs/QUALITY-v2.1.0-质量报告.md` | 已完成 | v2.1.0 | DuckDB 安全边界和发布门禁 |
+| `docs/QUALITY-v2.1.1-质量报告.md` | 已完成 | v2.1.1 | 查询导出和表采样画像质量门禁 |
 | `docs/QUALITY-v1.7.0-质量报告.md` | 历史质量依据，需 v1.7.1 复核 | v1.7.0 | 质量债来源和修复追踪 |
 
 ---
@@ -190,7 +194,8 @@ flowchart TD
   O --> P[ITER v2.0.1: Policy Masking 安全收口]
   P --> Q[PRD v2.1.0: DuckDB 本地分析]
   Q --> R[ITER v2.1.0: DuckDB 实施]
-  R --> S[ADR-003: 插件化架构]
+  R --> S[ITER v2.1.1: 导出与采样]
+  S --> T[ADR-003: 插件化架构]
 ```
 
 ---

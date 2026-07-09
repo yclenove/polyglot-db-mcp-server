@@ -66,7 +66,7 @@ const tools = [
   {
     name: 'sql_query',
     category: 'SQL',
-    description: '在 SQL 连接（mysql/postgres/mssql/oracle）上执行只读查询。支持分页。',
+    description: '在 SQL 连接（mysql/postgres/mssql/oracle/sqlite/duckdb）上执行只读查询。支持分页。',
     params: [
       { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
       { name: 'sql', type: 'string', required: true, description: 'SQL 查询语句' },
@@ -74,6 +74,29 @@ const tools = [
       { name: 'limit', type: 'number', required: false, description: '最大返回行数' },
       { name: 'page', type: 'number', required: false, description: '页码，从 1 开始' },
       { name: 'page_size', type: 'number', required: false, description: '每页行数，默认 20' },
+    ],
+  },
+  {
+    name: 'sql_export_query',
+    category: 'SQL',
+    description: '执行只读 SQL 并将脱敏后的结果导出为 JSON、CSV 或 Markdown，最大 10000 行。',
+    params: [
+      { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
+      { name: 'sql', type: 'string', required: true, description: 'SQL 查询语句，必须为只读' },
+      { name: 'params', type: 'array', required: false, description: '查询参数' },
+      { name: 'format', type: 'string', required: false, description: 'json、csv 或 markdown；默认 json' },
+      { name: 'limit', type: 'number', required: false, description: '最大导出行数，最大 10000' },
+    ],
+  },
+  {
+    name: 'sql_sample_table',
+    category: 'SQL',
+    description: '对 SQL 表执行只读采样，返回字段类型、空值率、唯一值数量、示例值和数值范围。',
+    params: [
+      { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
+      { name: 'table', type: 'string', required: true, description: '表名' },
+      { name: 'schema', type: 'string', required: false, description: 'Schema 名称' },
+      { name: 'sample_size', type: 'number', required: false, description: '采样行数，默认 DB_MAX_ROWS，最大 10000' },
     ],
   },
   {

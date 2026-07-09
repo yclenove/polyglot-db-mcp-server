@@ -4,6 +4,16 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.1.1] - 2026-07-10
+
+### 新增
+- **只读查询结果导出**：新增 `sql_export_query`，支持将 SQL 查询结果导出为 JSON、CSV 或 Markdown。
+- **SQL 表采样画像**：新增 `sql_sample_table`，返回字段类型、空值率、唯一值数量、示例值、字符串长度和数值范围。
+
+### 安全
+- `sql_export_query` 在执行前强制 `isReadOnlyQuery` 校验，导出前应用全局和请求级脱敏，并将导出行数限制在 10000 以内。
+- `sql_sample_table` 只接受合法表名/schema 标识符，由服务端生成只读采样 SQL，不接受任意 SQL 片段。
+
 ## [2.1.0] - 2026-07-10
 
 ### 新增

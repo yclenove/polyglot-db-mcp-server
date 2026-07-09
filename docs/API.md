@@ -1,6 +1,6 @@
 # polyglot-db-mcp-server API 文档
 
-> 自动生成于 2026-07-09T18:23:29.615Z
+> 自动生成于 2026-07-09T19:37:04.013Z
 
 ## 目录
 
@@ -150,7 +150,7 @@ HTTP 安全默认值：
 
 ### `sql_query`
 
-在 SQL 连接（mysql/postgres/mssql/oracle）上执行只读查询。支持分页。
+在 SQL 连接（mysql/postgres/mssql/oracle/sqlite/duckdb）上执行只读查询。支持分页。
 
 **参数：**
 
@@ -162,6 +162,37 @@ HTTP 安全默认值：
 | `limit` | number | 否 | 最大返回行数 |
 | `page` | number | 否 | 页码，从 1 开始 |
 | `page_size` | number | 否 | 每页行数，默认 20 |
+
+---
+
+### `sql_export_query`
+
+执行只读 SQL 并将脱敏后的结果导出为 JSON、CSV 或 Markdown，最大 10000 行。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `connection_id` | string | 否 | 连接 id；缺省为默认连接 |
+| `sql` | string | 是 | SQL 查询语句，必须为只读 |
+| `params` | array | 否 | 查询参数 |
+| `format` | string | 否 | json、csv 或 markdown；默认 json |
+| `limit` | number | 否 | 最大导出行数，最大 10000 |
+
+---
+
+### `sql_sample_table`
+
+对 SQL 表执行只读采样，返回字段类型、空值率、唯一值数量、示例值和数值范围。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `connection_id` | string | 否 | 连接 id；缺省为默认连接 |
+| `table` | string | 是 | 表名 |
+| `schema` | string | 否 | Schema 名称 |
+| `sample_size` | number | 否 | 采样行数，默认 DB_MAX_ROWS，最大 10000 |
 
 ---
 

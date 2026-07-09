@@ -133,6 +133,14 @@ describe('SQL Tools', () => {
     assert.ok(server.tools.has('sql_explain'));
   });
 
+  test('sql_export_query tool is registered', () => {
+    assert.ok(server.tools.has('sql_export_query'));
+  });
+
+  test('sql_sample_table tool is registered', () => {
+    assert.ok(server.tools.has('sql_sample_table'));
+  });
+
   test('sql_query executes readonly query', async () => {
     const tool = server.tools.get('sql_query');
     const result = await tool.handler({
@@ -178,6 +186,68 @@ describe('SQL Tools', () => {
     assert.equal(data.error_info.code, 'SQL_002');
   });
 
+  test('sql_export_query exports masked JSON rows', async () => {
+    const { runWithRequestPolicy } = await import('../../dist/auth/request-policy.js');
+    mockDriver.execute = async (_sql, _params, options) => {
+      assert.equal(options.mode, 'readonly');
+      assert.equal(options.maxRows, 2);
+      return {
+        success: true,
+        data: [{ email: 'analyst@example.com', name: 'Alice' }],
+        fields: [{ name: 'email' }, { name: 'name' }],
+        totalRows: 1,
+      };
+    };
+
+    const tool = server.tools.get('sql_export_query');
+    const result = await runWithRequestPolicy({ maskingMode: 'strict-v2' }, () =>
+      tool.handler({
+        sql: 'SELECT email, name FROM users',
+        format: 'json',
+        limit: 2,
+      }),
+    );
+
+    const data = JSON.parse(result.content[0].text);
+    const rows = JSON.parse(data.content);
+    assert.equal(data.format, 'json');
+    assert.equal(data.content_type, 'application/json');
+    assert.equal(rows[0].email, 'a***@example.com');
+    assert.equal(rows[0].name, 'Alice');
+  });
+
+  test('sql_export_query supports CSV formatting', async () => {
+    mockDriver.execute = async () => ({
+      success: true,
+      data: [{ id: 1, name: 'Alice, A' }],
+      fields: [{ name: 'id' }, { name: 'name' }],
+    });
+
+    const tool = server.tools.get('sql_export_query');
+    const result = await tool.handler({
+      sql: 'SELECT id, name FROM users',
+      format: 'csv',
+    });
+
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.format, 'csv');
+    assert.equal(data.content_type, 'text/csv');
+    assert.equal(data.content, 'id,name\n1,"Alice, A"');
+  });
+
+  test('sql_export_query rejects write SQL', async () => {
+    const tool = server.tools.get('sql_export_query');
+    const result = await tool.handler({
+      sql: 'DELETE FROM users WHERE id = 1',
+      format: 'json',
+    });
+
+    assert.equal(result.isError, true);
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.error_info.code, 'SQL_002');
+    assert.equal(mockDriver.executedSql.length, 0);
+  });
+
   test('sql_query with specific connection', async () => {
     const tool = server.tools.get('sql_query');
     const result = await tool.handler({
@@ -187,6 +257,44 @@ describe('SQL Tools', () => {
     assert.ok(result.content[0].text);
     const data = JSON.parse(result.content[0].text);
     assert.equal(data.connection_id, 'pg');
+  });
+
+  test('sql_sample_table returns lightweight column profiles', async () => {
+    mockDriver.execute = async (sql, _params, options) => {
+      assert.equal(options.mode, 'readonly');
+      assert.match(sql, /SELECT \* FROM "users" LIMIT 3/);
+      return {
+        success: true,
+        data: [
+          { id: 1, name: 'Alice', email: null },
+          { id: 2, name: '', email: 'analyst@example.com' },
+        ],
+        fields: [{ name: 'id' }, { name: 'name' }, { name: 'email' }],
+      };
+    };
+
+    const tool = server.tools.get('sql_sample_table');
+    const result = await tool.handler({ table: 'users', sample_size: 3 });
+    const data = JSON.parse(result.content[0].text);
+    const idProfile = data.columns.find((col) => col.name === 'id');
+    const nameProfile = data.columns.find((col) => col.name === 'name');
+    const emailProfile = data.columns.find((col) => col.name === 'email');
+
+    assert.equal(data.row_count, 2);
+    assert.equal(idProfile.inferred_type, 'number');
+    assert.equal(idProfile.numeric.min, 1);
+    assert.equal(idProfile.numeric.max, 2);
+    assert.equal(nameProfile.empty_string_count, 1);
+    assert.equal(emailProfile.null_count, 1);
+  });
+
+  test('sql_sample_table rejects invalid table identifiers before execution', async () => {
+    const tool = server.tools.get('sql_sample_table');
+    const result = await tool.handler({ table: 'users;DROP', sample_size: 3 });
+
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /table 不合法/);
+    assert.equal(mockDriver.executedSql.length, 0);
   });
 
   test('sql_query returns error for unknown connection', async () => {

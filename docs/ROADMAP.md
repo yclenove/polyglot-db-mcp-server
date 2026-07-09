@@ -4,9 +4,9 @@
 **版本**: 1.0
 **日期**: 2026-07-09
 **规划周期**: 2026 Q3 ~ 2027 Q2
-**当前基线**: v2.1.0
+**当前基线**: v2.1.1
 **状态**: 当前有效
-**当前详细迭代**: `docs/ITER-v1.7.1-迭代计划.md`、`docs/ITER-v1.7.2-迭代计划.md`、`docs/ITER-v1.7.3-迭代计划.md`、`docs/ITER-v1.8.0-迭代计划.md`、`docs/ITER-v1.9.0-迭代计划.md`、`docs/ITER-v2.0.0-迭代计划.md`、`docs/ITER-v2.0.1-迭代计划.md`、`docs/ITER-v2.1.0-迭代计划.md`
+**当前详细迭代**: `docs/ITER-v1.7.1-迭代计划.md`、`docs/ITER-v1.7.2-迭代计划.md`、`docs/ITER-v1.7.3-迭代计划.md`、`docs/ITER-v1.8.0-迭代计划.md`、`docs/ITER-v1.9.0-迭代计划.md`、`docs/ITER-v2.0.0-迭代计划.md`、`docs/ITER-v2.0.1-迭代计划.md`、`docs/ITER-v2.1.0-迭代计划.md`、`docs/ITER-v2.1.1-迭代计划.md`
 **文档索引**: `docs/INDEX.md`
 
 ---
@@ -75,7 +75,7 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 | Phase 1 | v1.8.0 | 2026 Q3 | 传输与运维增强 | 支持 HTTP 传输、健康端点、部署体验增强 |
 | Phase 2 | v1.9.0 | 2026 Q4 | 高级数据库能力 | Mongo 事务、Redis pipeline、SQL schema diff 已完成 |
 | Phase 3 | v2.0.0 | 2026 Q4 ~ 2027 Q1 | 企业安全 | OAuth 2.1、RBAC、租户隔离、审计增强 |
-| Phase 4 | v2.1.0 | 2027 Q1 | 分析与本地数据生态 | DuckDB 只读分析已完成，导出与采样后续推进 |
+| Phase 4 | v2.1.0 ~ v2.1.1 | 2027 Q1 | 分析与本地数据生态 | DuckDB、查询导出与采样画像已完成 |
 | Phase 5 | v2.2.0 | 2027 Q2 | 可观测与治理 | Prometheus/OTel、策略引擎、配置中心化 |
 | Phase 6 | v3.0.0 | 2027 Q2+ | 插件化生态 | 插件式驱动、第三方工具包、可扩展能力市场 |
 
@@ -93,6 +93,8 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 | `docs/PRD-v2.1.0.md` | DuckDB 本地分析产品需求 | v2.1.0 | Phase 4 P0/P1 范围 |
 | `docs/ITER-v2.1.0-迭代计划.md` | DuckDB driver、配置、文档、测试实施 | v2.1.0 | v2.1.0 执行记录 |
 | `docs/QUALITY-v2.1.0-质量报告.md` | DuckDB 安全边界和质量门禁 | v2.1.0 | v2.1.0 发布审计 |
+| `docs/ITER-v2.1.1-迭代计划.md` | 查询导出和表采样画像 | v2.1.1 | Phase 4 分析生态补强 |
+| `docs/QUALITY-v2.1.1-质量报告.md` | 导出/采样安全边界和质量门禁 | v2.1.1 | v2.1.1 发布审计 |
 | `docs/PRD-v1.7.0.md` | 后续 HTTP、OAuth、RBAC、Mongo 事务、Redis Pipeline、DuckDB | v1.8 ~ v2.1 | ROADMAP Phase 1 ~ 4 |
 | `docs/MARKET-市场分析.md` | DBHub/FreePeak 等竞品压力，引擎覆盖和企业能力 | v1.8 ~ v2.2 | 传输、企业安全、可观测 |
 | AGENTS.md | `sql_query` 必须保持 MCP 层只读保护，测试先 build 后 test | 所有版本 | 质量门禁和发布 checklist |
@@ -267,14 +269,14 @@ v1.9.0 已完成 P0 范围：SQL `schema_diff`、MongoDB 多文档事务生命�
 **主题**: 把本项目扩展到本地分析和轻量数据湖场景。
 **前置 PRD**: `docs/PRD-v2.1.0.md`
 **实施计划**: `docs/ITER-v2.1.0-迭代计划.md`
-**状态**: DuckDB P0 已完成；查询结果导出、采样分析和更完整的本地文件数据源体验进入 v2.1.x/v2.2 后续。
+**状态**: DuckDB P0、查询结果导出和表采样画像已完成；更完整的本地文件数据源体验进入 v2.2 后续。
 
 | 优先级 | 功能 | 说明 |
 |--------|------|------|
 | P0 | DuckDB 引擎 | 已完成；支持 `:memory:` 和本地数据库文件，默认只读 |
 | P1 | 文件数据源只读挂载 | 已完成基础版；通过 DuckDB `allowed_directories`/`allowed_paths` 约束 allowlist |
-| P1 | 查询结果导出 | CSV/JSON/Markdown，可配置最大行数 |
-| P2 | 采样分析 | 大表自动采样、字段类型推断、数据质量提示 |
+| P1 | 查询结果导出 | 已完成；JSON/CSV/Markdown，可配置最大行数，导出前脱敏 |
+| P2 | 采样分析 | 已完成基础版；字段类型、空值率、唯一值、示例值和数值范围 |
 
 安全边界：
 
@@ -366,9 +368,8 @@ v1.9.0 已完成 P0 范围：SQL `schema_diff`、MongoDB 多文档事务生命�
 
 ## 十五、近期建议执行顺序
 
-1. v2.1.x：补齐查询结果导出、采样分析和更细的本地文件数据源体验。
-2. v2.2.0：推进 OTel/Prometheus、审计持久化和策略治理。
-3. v3.0.0：在权限、审计、策略稳定后进入插件化生态。
+1. v2.2.0：推进 OTel/Prometheus、审计持久化和策略治理。
+2. v3.0.0：在权限、审计、策略稳定后进入插件化生态。
 
 ---
 
@@ -426,10 +427,9 @@ v1.9.0 已完成 P0 范围：SQL `schema_diff`、MongoDB 多文档事务生命�
 
 ## 十八、下一步
 
-建议下一步进入 **v2.1.x 分析生态补强与 v2.2.0 治理能力设计**：
+建议下一步进入 **v2.2.0 治理能力设计与可观测实现**：
 
-1. v2.1.x 补齐 DuckDB 查询结果导出和采样分析。
-2. v2.2.0 前评审 Prometheus/OTel、审计持久化和 policy 模板。
-3. v3.0.0 开发前复核 `docs/ADR-003-plugin-architecture.md`，确认插件安全边界。
-4. 提交规划包前按 `docs/PLANNING_AUDIT.md` 运行引用和格式审计。
-5. 每阶段完成后运行 `npm run build`、`npm test`、`npm run lint`，再提交发布补丁。
+1. v2.2.0 前评审 Prometheus/OTel、审计持久化和 policy 模板。
+2. v3.0.0 开发前复核 `docs/ADR-003-plugin-architecture.md`，确认插件安全边界。
+3. 提交规划包前按 `docs/PLANNING_AUDIT.md` 运行引用和格式审计。
+4. 每阶段完成后运行 `npm run build`、`npm test`、`npm run lint`，再提交发布补丁。

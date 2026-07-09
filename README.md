@@ -213,6 +213,8 @@ docker compose up -d
 **SQL**（MySQL / PostgreSQL / SQL Server / Oracle / SQLite / DuckDB）
 
 - `sql_query` — 仅只读查询（执行前校验），支持分页（`page`、`page_size` 参数）
+- `sql_export_query` — 只读查询结果导出为 JSON/CSV/Markdown，导出前执行脱敏并限制最大行数
+- `sql_sample_table` — 对表执行只读采样，返回字段类型、空值率、唯一值数量和示例值
 - `sql_execute` — 可写 SQL（连接 `readonly=true` 时拒绝）
 - `sql_list_tables` — 列出表（PostgreSQL 可选 `schema`）
 - `sql_describe_table` — 表结构（列、类型等）

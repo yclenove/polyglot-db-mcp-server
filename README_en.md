@@ -182,6 +182,8 @@ When you **explicitly** pass `connection_id` on any tool, it must match a config
 **SQL** (MySQL / PostgreSQL / SQL Server / Oracle / SQLite / DuckDB)
 
 - `sql_query` — read-only queries only (validated before execution)
+- `sql_export_query` — export read-only query results as JSON/CSV/Markdown after masking and row limiting
+- `sql_sample_table` — read-only table sampling with field types, null ratios, unique counts, and examples
 - `sql_execute` — write-capable SQL (blocked when connection is `readonly`)
 - `sql_list_tables` — list tables (optional `schema` for PostgreSQL)
 - `sql_describe_table` — column metadata for a table

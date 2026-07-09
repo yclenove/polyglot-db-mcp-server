@@ -15,9 +15,13 @@ import {
   listTablesSql,
 } from '../core/sql-helpers.js';
 import { createErrorPayload, type ErrorCode } from '../core/error-codes.js';
-import { withMaskedDataRows } from './result-masking.js';
+import { maskResultRows, withMaskedDataRows } from './result-masking.js';
 
 type SqlResultRow = Record<string, unknown>;
+type ExportFormat = 'json' | 'csv' | 'markdown';
+
+const MAX_EXPORT_ROWS = 10_000;
+const MAX_SAMPLE_ROWS = 10_000;
 
 const activeTransactions = new Map<
   string,
@@ -54,6 +58,227 @@ function codedErrorText(
   return JSON.stringify({ error: errorInfo.message, error_info: errorInfo });
 }
 
+function isResultRow(value: unknown): value is SqlResultRow {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeRows(data: unknown[] | undefined): SqlResultRow[] {
+  return (data ?? []).filter(isResultRow);
+}
+
+function jsonSafeReplacer(_key: string, value: unknown): unknown {
+  if (typeof value === 'bigint') return value.toString();
+  return value;
+}
+
+function stringifyCell(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'bigint') return value.toString();
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return JSON.stringify(value, jsonSafeReplacer);
+}
+
+function collectFieldNames(rows: SqlResultRow[], fields?: { name: string }[]): string[] {
+  const names = new Set<string>();
+  for (const field of fields ?? []) {
+    if (field.name) names.add(field.name);
+  }
+  for (const row of rows) {
+    for (const key of Object.keys(row)) {
+      names.add(key);
+    }
+  }
+  return [...names];
+}
+
+function formatCsv(rows: SqlResultRow[], fields: string[]): string {
+  if (fields.length === 0) return '';
+  const escapeCsv = (value: unknown): string => {
+    const text = stringifyCell(value);
+    if (!/[",\r\n]/.test(text)) return text;
+    return `"${text.replace(/"/g, '""')}"`;
+  };
+  const lines = [fields.map(escapeCsv).join(',')];
+  for (const row of rows) {
+    lines.push(fields.map((field) => escapeCsv(row[field])).join(','));
+  }
+  return lines.join('\n');
+}
+
+function formatMarkdown(rows: SqlResultRow[], fields: string[]): string {
+  if (fields.length === 0) return '';
+  const escapeMarkdown = (value: unknown): string =>
+    stringifyCell(value).replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
+  const header = `| ${fields.map(escapeMarkdown).join(' | ')} |`;
+  const separator = `| ${fields.map(() => '---').join(' | ')} |`;
+  const body = rows.map(
+    (row) => `| ${fields.map((field) => escapeMarkdown(row[field])).join(' | ')} |`,
+  );
+  return [header, separator, ...body].join('\n');
+}
+
+function formatExportContent(
+  rows: SqlResultRow[],
+  fields: string[],
+  format: ExportFormat,
+): { content: string; contentType: string } {
+  switch (format) {
+    case 'csv':
+      return { content: formatCsv(rows, fields), contentType: 'text/csv' };
+    case 'markdown':
+      return { content: formatMarkdown(rows, fields), contentType: 'text/markdown' };
+    case 'json':
+      return {
+        content: JSON.stringify(rows, jsonSafeReplacer, 2),
+        contentType: 'application/json',
+      };
+    default: {
+      const e: never = format;
+      throw new Error(`不支持的导出格式: ${e}`);
+    }
+  }
+}
+
+function quoteIdentifier(engine: SqlEngine, ident: string): string {
+  validateIdent(ident, 'identifier');
+  switch (engine) {
+    case 'mysql':
+      return `\`${ident}\``;
+    case 'postgres':
+      return `"${ident}"`;
+    case 'mssql':
+      return `[${ident}]`;
+    case 'oracle':
+    case 'sqlite':
+    case 'duckdb':
+      return ident;
+    default: {
+      const e: never = engine;
+      throw new Error(`不支持的 SQL 引擎: ${e}`);
+    }
+  }
+}
+
+function qualifiedTableName(engine: SqlEngine, table: string, schema?: string): string {
+  const quotedTable = quoteIdentifier(engine, table);
+  if (!schema) return quotedTable;
+  return `${quoteIdentifier(engine, schema)}.${quotedTable}`;
+}
+
+function sampleTableSql(
+  engine: SqlEngine,
+  table: string,
+  sampleSize: number,
+  schema?: string,
+): string {
+  const tableSql = qualifiedTableName(engine, table, schema);
+  switch (engine) {
+    case 'mssql':
+      return `SELECT TOP (${sampleSize}) * FROM ${tableSql}`;
+    case 'oracle':
+      return `SELECT * FROM ${tableSql} FETCH FIRST ${sampleSize} ROWS ONLY`;
+    case 'mysql':
+    case 'postgres':
+    case 'sqlite':
+    case 'duckdb':
+      return `SELECT * FROM ${tableSql} LIMIT ${sampleSize}`;
+    default: {
+      const e: never = engine;
+      throw new Error(`不支持的 SQL 引擎: ${e}`);
+    }
+  }
+}
+
+function valueKind(value: unknown): string {
+  if (value === null || value === undefined) return 'null';
+  if (Array.isArray(value)) return 'array';
+  if (typeof value === 'bigint') return 'number';
+  return typeof value;
+}
+
+function profileRows(rows: SqlResultRow[], fields: string[]): Record<string, unknown>[] {
+  return fields.map((field) => {
+    let nullCount = 0;
+    let emptyStringCount = 0;
+    let numericCount = 0;
+    let numericSum = 0;
+    let numericMin: number | undefined;
+    let numericMax: number | undefined;
+    let stringMinLength: number | undefined;
+    let stringMaxLength: number | undefined;
+    const typeCounts = new Map<string, number>();
+    const uniqueValues = new Set<string>();
+    const examples: string[] = [];
+
+    for (const row of rows) {
+      const value = row[field];
+      const kind = valueKind(value);
+      typeCounts.set(kind, (typeCounts.get(kind) ?? 0) + 1);
+      if (value === null || value === undefined) {
+        nullCount += 1;
+        continue;
+      }
+
+      const text = stringifyCell(value);
+      uniqueValues.add(text);
+      if (examples.length < 3 && !examples.includes(text)) {
+        examples.push(text);
+      }
+
+      if (typeof value === 'string') {
+        if (value.length === 0) emptyStringCount += 1;
+        stringMinLength =
+          stringMinLength === undefined ? value.length : Math.min(stringMinLength, value.length);
+        stringMaxLength =
+          stringMaxLength === undefined ? value.length : Math.max(stringMaxLength, value.length);
+      }
+
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        numericCount += 1;
+        numericSum += value;
+        numericMin = numericMin === undefined ? value : Math.min(numericMin, value);
+        numericMax = numericMax === undefined ? value : Math.max(numericMax, value);
+      }
+    }
+
+    const nonNullTypes = [...typeCounts.keys()].filter((type) => type !== 'null');
+    const inferredType =
+      nonNullTypes.length === 0
+        ? 'null'
+        : nonNullTypes.every((type) => type === nonNullTypes[0])
+          ? nonNullTypes[0]
+          : 'mixed';
+
+    return {
+      name: field,
+      inferred_type: inferredType,
+      null_count: nullCount,
+      null_ratio: rows.length === 0 ? 0 : nullCount / rows.length,
+      empty_string_count: emptyStringCount,
+      unique_count: uniqueValues.size,
+      sample_values: examples,
+      type_counts: Object.fromEntries(typeCounts.entries()),
+      numeric:
+        numericCount > 0
+          ? {
+              count: numericCount,
+              min: numericMin,
+              max: numericMax,
+              avg: numericSum / numericCount,
+            }
+          : undefined,
+      string:
+        stringMinLength !== undefined
+          ? {
+              min_length: stringMinLength,
+              max_length: stringMaxLength,
+            }
+          : undefined,
+    };
+  });
+}
+
 export function registerSqlTools(server: McpServer, registry: ConnectionRegistry): void {
   ensureTransactionCleanup();
   const limits = () => globalLimits();
@@ -64,7 +289,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
     'sql_query',
     {
       description:
-        '在 SQL 连接（mysql/postgres/mssql/oracle）上执行只读查询。connection_id 缺省为默认连接。MySQL 用 ? 占位；PostgreSQL 用 $1..；mssql/oracle 可用 ? 由服务端映射为命名绑定。支持分页：page（从 1 开始）和 page_size（默认 20）。',
+        '在 SQL 连接（mysql/postgres/mssql/oracle/sqlite/duckdb）上执行只读查询。connection_id 缺省为默认连接。MySQL 用 ? 占位；PostgreSQL 用 $1..；mssql/oracle 可用 ? 由服务端映射为命名绑定。支持分页：page（从 1 开始）和 page_size（默认 20）。',
       inputSchema: {
         connection_id: z.string().optional(),
         sql: z.string(),
@@ -129,7 +354,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
                 finalSql = `${sql} OFFSET ${offset} ROWS FETCH NEXT ${page_size} ROWS ONLY`;
               }
             } else {
-              // MySQL, PostgreSQL, Oracle, SQLite 使用标准 LIMIT/OFFSET
+              // MySQL, PostgreSQL, Oracle, SQLite, DuckDB 使用标准 LIMIT/OFFSET
               finalSql = `${sql} LIMIT ${page_size} OFFSET ${offset}`;
             }
           }
@@ -193,6 +418,155 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
 
         return {
           content: [{ type: 'text', text: JSON.stringify(withMaskedDataRows(result)) }],
+        };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return { content: [{ type: 'text', text: msg }], isError: true };
+      }
+    },
+  );
+
+  server.registerTool(
+    'sql_export_query',
+    {
+      description:
+        '执行只读 SQL 并将结果导出为 JSON、CSV 或 Markdown。导出前应用全局和请求级脱敏，最大 10000 行。',
+      inputSchema: {
+        connection_id: z.string().optional(),
+        sql: z.string(),
+        params: z.array(z.any()).optional(),
+        format: z.enum(['json', 'csv', 'markdown']).optional().describe('导出格式，默认 json'),
+        limit: z.number().int().min(1).max(MAX_EXPORT_ROWS).optional().describe('最大导出行数'),
+      },
+    },
+    async ({ connection_id, sql, params, format, limit }) => {
+      try {
+        const id = registry.resolveConnectionId(connection_id);
+        if (!rateLimiter.allow(id)) {
+          return {
+            content: [{ type: 'text', text: `连接「${id}」请求过于频繁，请稍后重试` }],
+            isError: true,
+          };
+        }
+
+        if (!isReadOnlyQuery(sql)) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: codedErrorText('SQL_002', { tool: 'sql_export_query' }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const driver = registry.requireSql(id);
+        const L = limits();
+        const maxRows = Math.min(limit ?? L.maxRows, MAX_EXPORT_ROWS);
+        const res = await driver.execute(sql, params ?? [], {
+          mode: 'readonly',
+          maxRows,
+          queryTimeoutMs: L.queryTimeoutMs,
+          maxSqlLength: L.maxSqlLength,
+        });
+        if (!res.success) {
+          return { content: [{ type: 'text', text: res.error ?? '导出查询失败' }], isError: true };
+        }
+
+        const rows = maskResultRows(normalizeRows(res.data));
+        const fields = collectFieldNames(rows, res.fields);
+        const exportFormat = (format ?? 'json') as ExportFormat;
+        const { content, contentType } = formatExportContent(rows, fields, exportFormat);
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                connection_id: id,
+                engine: driver.engine,
+                format: exportFormat,
+                content_type: contentType,
+                row_count: rows.length,
+                totalRows: res.totalRows ?? rows.length,
+                truncated: res.truncated ?? false,
+                fields,
+                content,
+              }),
+            },
+          ],
+        };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return { content: [{ type: 'text', text: msg }], isError: true };
+      }
+    },
+  );
+
+  server.registerTool(
+    'sql_sample_table',
+    {
+      description:
+        '对 SQL 表执行只读采样，返回字段类型、空值率、唯一值数量、示例值和数值范围等轻量画像。',
+      inputSchema: {
+        connection_id: z.string().optional(),
+        table: z.string().describe('表名'),
+        schema: z.string().optional().describe('schema 名称'),
+        sample_size: z
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_SAMPLE_ROWS)
+          .optional()
+          .describe('采样行数，默认使用 DB_MAX_ROWS，最大 10000'),
+      },
+    },
+    async ({ connection_id, table, schema, sample_size }) => {
+      try {
+        const id = registry.resolveConnectionId(connection_id);
+        if (!rateLimiter.allow(id)) {
+          return {
+            content: [{ type: 'text', text: `连接「${id}」请求过于频繁，请稍后重试` }],
+            isError: true,
+          };
+        }
+
+        validateIdent(table, 'table');
+        if (schema) validateIdent(schema, 'schema');
+
+        const driver = registry.requireSql(id);
+        const L = limits();
+        const sampleSize = Math.min(sample_size ?? L.maxRows, MAX_SAMPLE_ROWS);
+        const sql = sampleTableSql(driver.engine, table, sampleSize, schema);
+        const res = await driver.execute(sql, [], {
+          mode: 'readonly',
+          maxRows: sampleSize,
+          queryTimeoutMs: L.queryTimeoutMs,
+          maxSqlLength: L.maxSqlLength,
+        });
+        if (!res.success) {
+          return { content: [{ type: 'text', text: res.error ?? '采样失败' }], isError: true };
+        }
+
+        const rows = maskResultRows(normalizeRows(res.data));
+        const fields = collectFieldNames(rows, res.fields);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                connection_id: id,
+                engine: driver.engine,
+                table,
+                schema,
+                sample_size_requested: sampleSize,
+                row_count: rows.length,
+                truncated: res.truncated ?? false,
+                columns: profileRows(rows, fields),
+              }),
+            },
+          ],
         };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
