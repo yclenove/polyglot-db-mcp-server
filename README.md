@@ -63,7 +63,19 @@ node dist/index.js
 ]
 ```
 
-支持的 `engine`：`mysql`、`postgres`、`mssql`、`oracle`、`mongodb`、`redis`。
+支持的 `engine`：`mysql`、`postgres`、`mssql`、`oracle`、`mongodb`、`redis`、`sqlite`。
+
+**SQLite 配置示例**（文件数据库，无需额外服务）：
+
+```json
+{
+  "id": "local",
+  "engine": "sqlite",
+  "url": "file:./data/local.db"
+}
+```
+
+SQLite 支持 `file:` 前缀路径、相对路径、绝对路径和 `:memory:` 内存数据库。文件不存在时自动创建。
 
 可选字段：`readonly`、`allowlist`（Mongo 库名白名单）、Redis 的 `keyPrefix` 等。
 
@@ -81,23 +93,60 @@ docker compose up -d
 
 - `list_connections` — 列出已配置的 `connection_id`、`engine`、`readonly`
 - `test_connection` — 对指定连接 ping（缺省为默认连接）
+- `health_check` — 全面健康检查，测试所有连接的状态和延迟
+- `connection_diagnose` — 连接诊断，返回状态、延迟、服务器版本和配置建议
 
 在任意工具上若**显式传入** `connection_id`，其值必须与配置中的 `id` 一致；**错误或未配置的 id 会报错，不会静默回退到默认连接**。省略或传空/空白则使用默认连接。
 
 **SQL**（MySQL / PostgreSQL / SQL Server / Oracle）
 
-- `sql_query` — 仅只读查询（执行前校验）
+- `sql_query` — 仅只读查询（执行前校验），支持分页（`page`、`page_size` 参数）
 - `sql_execute` — 可写 SQL（连接 `readonly=true` 时拒绝）
 - `sql_list_tables` — 列出表（PostgreSQL 可选 `schema`）
 - `sql_describe_table` — 表结构（列、类型等）
+- `sql_begin_transaction` — 开始事务，返回事务 ID
+- `sql_execute_in_transaction` — 在事务中执行 SQL
+- `sql_commit` — 提交事务
+- `sql_rollback` — 回滚事务
+- `sql_batch_execute` — 批量执行多条 SQL（在同一事务中）
 
 **MongoDB**
 
 - `mongo_list_collections`、`mongo_find`、`mongo_aggregate`、`mongo_count`
+- `mongo_insert_one`、`mongo_insert_many`、`mongo_update_one`、`mongo_delete_one`
 
 **Redis**
 
 - `redis_get`、`redis_set`、`redis_del`、`redis_scan`、`redis_blocked_commands`
+- `redis_hget`、`redis_hset`、`redis_hgetall`、`redis_hdel`
+
+**审计**
+
+- `audit_get_recent` — 获取最近的审计日志
+- `audit_filter` — 按条件过滤审计日志
+- `audit_stats` — 获取审计统计信息
+- `export_audit` — 导出审计日志（JSON 格式）
+
+**Schema**
+
+- `schema_export` — 导出数据库 Schema 为 JSON 或 SQL DDL 格式
+
+**数据脱敏**
+
+- `set_masking_mode` — 设置脱敏模式（strict/strict-v2/loose/off）
+- `get_masking_config` — 获取当前脱敏配置
+- `manage_masking_rules` — 管理自定义脱敏规则（添加/删除/列出）
+
+**查询回放**
+
+- `query_history` — 查询历史记录列表
+- `query_replay` — 回放指定历史查询
+- `query_diff` — 对比两次查询结果
+
+**智能查询建议**
+
+- `query_suggest` — 获取查询优化建议
+- `query_optimize` — 分析慢查询并给出建议
 
 ## 环境变量
 
@@ -106,6 +155,32 @@ docker compose up -d
 | `DB_MCP_CONNECTIONS` | 连接 JSON 数组（必填） |
 | `DB_MCP_DEFAULT_CONNECTION_ID` | 可选；须为数组中某条 `id` |
 | `DB_QUERY_TIMEOUT`、`DB_MAX_ROWS`、`DB_MAX_SQL_LENGTH`、`DB_RETRY_COUNT`、`DB_RETRY_DELAY_MS` | 全局 SQL 限制（见 `src/core/config.ts`） |
+| `DB_MASKING_MODE` | 脱敏模式：`off`（默认）、`loose`、`strict`、`strict-v2` |
+| `DB_MASKING_EXCLUDE_FIELDS` | 白名单字段（逗号分隔），这些字段不脱敏 |
+| `DB_MASKING_EXCLUDE_CONNECTIONS` | 排除脱敏的连接 ID（逗号分隔） |
+| `DB_REPLAY_BUFFER_SIZE` | 查询历史缓冲大小，默认 50 |
+| `DB_SUGGEST_TIMEOUT_MS` | 查询建议分析超时（ms），默认 5000 |
+| `LOG_LEVEL` | 日志级别：`debug`、`info`（默认）、`warn`、`error` |
+| `LOG_FORMAT` | 日志格式：`json` 或人类可读（默认） |
+
+## 测试
+
+```bash
+# 运行所有测试
+npm test
+
+# 仅运行单元测试
+npm run test:unit
+
+# 运行集成测试（需要真实数据库）
+npm run test:integration
+
+# 代码检查
+npm run lint
+
+# 代码格式化
+npm run format
+```
 
 ## 许可证
 

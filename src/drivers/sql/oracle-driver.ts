@@ -50,6 +50,103 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
 
   const engine = 'oracle' as const;
 
+  async function beginTransaction(): Promise<import('../../core/types.js').SqlTransaction> {
+    const conn = await pool.getConnection();
+    // Oracle 自动开始事务，不需要显式 BEGIN
+
+    function bindQuestionMarks(sqlText: string, params: unknown[] | undefined): { text: string; binds: unknown[] } {
+      if (!params?.length) return { text: sqlText, binds: [] };
+      const binds = [...params];
+      let n = 0;
+      const text = sqlText.replace(/\?/g, () => {
+        n++;
+        return `:${n}`;
+      });
+      if (n !== binds.length) {
+        throw new Error('SQL 中 ? 占位符数量与 params 长度不一致');
+      }
+      return { text, binds };
+    }
+
+    async function executeInner(
+      sqlText: string,
+      params: unknown[] | undefined,
+      mode: SqlExecutionMode,
+      maxRows: number,
+      queryTimeoutMs: number,
+      maxSqlLength: number
+    ): Promise<SqlExecuteResult> {
+      const start = Date.now();
+      if (sqlText.length > maxSqlLength) {
+        return { success: false, error: `SQL 超过长度限制（${maxSqlLength}）` };
+      }
+      if (mode === 'readonly' && !isReadOnlyQuery(sqlText)) {
+        return { success: false, error: '只读模式仅允许 SELECT/WITH(SELECT) 等' };
+      }
+      if (mode === 'readwrite') {
+        const d = checkDangerousOperation(sqlText);
+        if (d) return { success: false, error: d };
+      }
+      const { text, binds } = bindQuestionMarks(sqlText, params);
+      const execOpts: Record<string, unknown> = {
+        outFormat: oracledb.OUT_FORMAT_OBJECT,
+      };
+      if (mode === 'readonly') {
+        execOpts.maxRows = Math.min(maxRows, 10_000);
+      }
+      const result = (await withTimeout(
+        conn.execute(text, binds, execOpts),
+        queryTimeoutMs
+      )) as {
+        rows?: unknown[];
+        rowsAffected?: number;
+      };
+      const executionTime = Date.now() - start;
+      if (result.rows && Array.isArray(result.rows)) {
+        const rows = result.rows as unknown[];
+        return {
+          success: true,
+          data: rows,
+          totalRows: rows.length,
+          truncated: rows.length > maxRows,
+          executionTime,
+        };
+      }
+      return {
+        success: true,
+        affectedRows: result.rowsAffected,
+        executionTime,
+      };
+    }
+
+    return {
+      async execute(sql, params, options) {
+        return executeInner(
+          sql,
+          params,
+          options.mode,
+          options.maxRows,
+          options.queryTimeoutMs,
+          options.maxSqlLength
+        );
+      },
+      async commit() {
+        try {
+          await conn.execute('COMMIT', [], {});
+        } finally {
+          await conn.close();
+        }
+      },
+      async rollback() {
+        try {
+          await conn.execute('ROLLBACK', [], {});
+        } finally {
+          await conn.close();
+        }
+      },
+    };
+  }
+
   function bindQuestionMarks(sqlText: string, params: unknown[] | undefined): { text: string; binds: unknown[] } {
     if (!params?.length) return { text: sqlText, binds: [] };
     const binds = [...params];
@@ -145,6 +242,7 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
         }
       }
     },
+    beginTransaction,
     async close() {
       await pool.close(10);
     },

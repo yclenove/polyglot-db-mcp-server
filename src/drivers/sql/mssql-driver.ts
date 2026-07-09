@@ -48,6 +48,71 @@ export async function createMssqlDriver(spec: ConnectionSpec): Promise<SqlDriver
   await pool.connect();
   const engine = 'mssql' as const;
 
+  async function beginTransaction(): Promise<import('../../core/types.js').SqlTransaction> {
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    async function executeInner(
+      sqlText: string,
+      params: unknown[] | undefined,
+      mode: SqlExecutionMode,
+      maxRows: number,
+      queryTimeoutMs: number,
+      maxSqlLength: number
+    ): Promise<SqlExecuteResult> {
+      const start = Date.now();
+      if (sqlText.length > maxSqlLength) {
+        return { success: false, error: `SQL 超过长度限制（${maxSqlLength}）` };
+      }
+      if (mode === 'readonly' && !isReadOnlyQuery(sqlText)) {
+        return { success: false, error: '只读模式仅允许 SELECT/WITH(SELECT) 等' };
+      }
+      if (mode === 'readwrite') {
+        const d = checkDangerousOperation(sqlText);
+        if (d) return { success: false, error: d };
+      }
+      const request = new sql.Request(transaction);
+      const text = bindQuestionMarks(request, sqlText, params);
+      const result = await withTimeout(request.query(text), queryTimeoutMs);
+      const executionTime = Date.now() - start;
+      if (result.recordset) {
+        const rows = result.recordset as unknown[];
+        const data = rows.slice(0, maxRows);
+        return {
+          success: true,
+          data,
+          totalRows: rows.length,
+          truncated: rows.length > maxRows,
+          executionTime,
+        };
+      }
+      return {
+        success: true,
+        affectedRows: result.rowsAffected?.[0],
+        executionTime,
+      };
+    }
+
+    return {
+      async execute(sql, params, options) {
+        return executeInner(
+          sql,
+          params,
+          options.mode,
+          options.maxRows,
+          options.queryTimeoutMs,
+          options.maxSqlLength
+        );
+      },
+      async commit() {
+        await transaction.commit();
+      },
+      async rollback() {
+        await transaction.rollback();
+      },
+    };
+  }
+
   return {
     engine,
     async ping() {
@@ -102,6 +167,7 @@ export async function createMssqlDriver(spec: ConnectionSpec): Promise<SqlDriver
         return { success: false, error: msg };
       }
     },
+    beginTransaction,
     async close() {
       await pool.close();
     },

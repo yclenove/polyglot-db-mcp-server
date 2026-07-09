@@ -1,6 +1,6 @@
 export const CONNECTION_ID_REGEX = /^[A-Za-z0-9_]+$/;
 
-export type SqlEngine = 'mysql' | 'postgres' | 'mssql' | 'oracle';
+export type SqlEngine = 'mysql' | 'postgres' | 'mssql' | 'oracle' | 'sqlite';
 export type Engine = SqlEngine | 'mongodb' | 'redis';
 
 export interface ConnectionSpec {
@@ -33,6 +33,21 @@ export interface SqlExecuteResult {
   fields?: { name: string; dataTypeID?: number }[];
 }
 
+export interface SqlTransaction {
+  execute(
+    sql: string,
+    params: unknown[] | undefined,
+    options: {
+      mode: SqlExecutionMode;
+      maxRows: number;
+      queryTimeoutMs: number;
+      maxSqlLength: number;
+    }
+  ): Promise<SqlExecuteResult>;
+  commit(): Promise<void>;
+  rollback(): Promise<void>;
+}
+
 export interface SqlDriver {
   readonly engine: SqlEngine;
   ping(): Promise<{ ok: boolean; error?: string }>;
@@ -46,7 +61,26 @@ export interface SqlDriver {
       maxSqlLength: number;
     }
   ): Promise<SqlExecuteResult>;
+  beginTransaction(): Promise<SqlTransaction>;
   close(): Promise<void>;
+}
+
+export interface MongoInsertResult {
+  acknowledged: boolean;
+  insertedId: unknown;
+  insertedCount: number;
+}
+
+export interface MongoUpdateResult {
+  acknowledged: boolean;
+  matchedCount: number;
+  modifiedCount: number;
+  upsertedId: unknown;
+}
+
+export interface MongoDeleteResult {
+  acknowledged: boolean;
+  deletedCount: number;
 }
 
 export interface MongoDriver {
@@ -55,6 +89,18 @@ export interface MongoDriver {
   find(collection: string, filter: Record<string, unknown>, options: { limit: number; skip?: number }): Promise<unknown[]>;
   aggregate(collection: string, pipeline: unknown[]): Promise<unknown[]>;
   count(collection: string, filter: Record<string, unknown>): Promise<number>;
+  insertOne(collection: string, document: Record<string, unknown>): Promise<MongoInsertResult>;
+  insertMany(collection: string, documents: Record<string, unknown>[]): Promise<MongoInsertResult>;
+  updateOne(collection: string, filter: Record<string, unknown>, update: Record<string, unknown>, options?: { upsert?: boolean }): Promise<MongoUpdateResult>;
+  updateMany(collection: string, filter: Record<string, unknown>, update: Record<string, unknown>): Promise<MongoUpdateResult>;
+  deleteOne(collection: string, filter: Record<string, unknown>): Promise<MongoDeleteResult>;
+  deleteMany(collection: string, filter: Record<string, unknown>): Promise<MongoDeleteResult>;
+  findOneAndUpdate(collection: string, filter: Record<string, unknown>, update: Record<string, unknown>, options?: { upsert?: boolean; returnDocument?: 'before' | 'after' }): Promise<unknown | null>;
+  findOneAndDelete(collection: string, filter: Record<string, unknown>): Promise<unknown | null>;
+  dropCollection(collection: string): Promise<boolean>;
+  renameCollection(collection: string, newName: string): Promise<string>;
+  listIndexes(collection: string): Promise<unknown[]>;
+  createIndex(collection: string, keys: Record<string, 1 | -1>, options?: { name?: string; unique?: boolean; sparse?: boolean }): Promise<string>;
   close(): Promise<void>;
 }
 
@@ -64,6 +110,33 @@ export interface RedisDriver {
   set(key: string, value: string, ttlSeconds?: number): Promise<void>;
   del(key: string): Promise<number>;
   scan(match: string, cursor: string, count: number): Promise<{ cursor: string; keys: string[] }>;
+  hget(key: string, field: string): Promise<string | null>;
+  hset(key: string, field: string, value: string): Promise<void>;
+  hgetall(key: string): Promise<Record<string, string>>;
+  hdel(key: string, field: string): Promise<number>;
+  // List 操作
+  lpush(key: string, ...values: string[]): Promise<number>;
+  rpush(key: string, ...values: string[]): Promise<number>;
+  lpop(key: string): Promise<string | null>;
+  rpop(key: string): Promise<string | null>;
+  lrange(key: string, start: number, stop: number): Promise<string[]>;
+  llen(key: string): Promise<number>;
+  // Set 操作
+  sadd(key: string, ...members: string[]): Promise<number>;
+  smembers(key: string): Promise<string[]>;
+  srem(key: string, ...members: string[]): Promise<number>;
+  scard(key: string): Promise<number>;
+  sismember(key: string, member: string): Promise<number>;
+  // Sorted Set 操作
+  zadd(key: string, score: number, member: string): Promise<number>;
+  zrange(key: string, start: number, stop: number, withScores?: boolean): Promise<string[]>;
+  zrem(key: string, ...members: string[]): Promise<number>;
+  zcard(key: string): Promise<number>;
+  zscore(key: string, member: string): Promise<string | null>;
+  // 键管理
+  type(key: string): Promise<string>;
+  expire(key: string, seconds: number): Promise<number>;
+  ttl(key: string): Promise<number>;
   close(): Promise<void>;
 }
 
@@ -72,7 +145,7 @@ export type RuntimeHandle =
   | { id: string; spec: ConnectionSpec; kind: 'mongo'; driver: MongoDriver }
   | { id: string; spec: ConnectionSpec; kind: 'redis'; driver: RedisDriver };
 
-export const SQL_ENGINES: ReadonlySet<Engine> = new Set(['mysql', 'postgres', 'mssql', 'oracle']);
+export const SQL_ENGINES: ReadonlySet<Engine> = new Set(['mysql', 'postgres', 'mssql', 'oracle', 'sqlite']);
 
 export function isSqlEngine(engine: Engine): engine is SqlEngine {
   return SQL_ENGINES.has(engine);

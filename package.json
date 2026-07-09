@@ -1,11 +1,20 @@
 {
   "name": "@yclenove/polyglot-db-mcp-server",
-  "version": "0.1.0",
+  "version": "1.7.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "bin": {
     "polyglot-db-mcp-server": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   },
   "files": [
     "dist",
@@ -21,7 +30,17 @@
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --test-name-pattern=. test/registry.test.mjs test/sql-guards.test.mjs test/redis-guards.test.mjs"
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "test": "node --test --test-name-pattern=. test/registry.test.mjs test/sql-guards.test.mjs test/redis-guards.test.mjs test/config.test.mjs test/audit.test.mjs test/logger.test.mjs test/schema.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs",
+    "test:unit": "node --test --test-name-pattern=. test/*.test.mjs test/tools/*.test.mjs",
+    "test:integration": "node --test --test-name-pattern=. test/integration/*.test.mjs",
+    "test:coverage": "c8 --reporter=text --reporter=json --reporter=lcov node --test --test-name-pattern=. test/registry.test.mjs test/sql-guards.test.mjs test/redis-guards.test.mjs test/config.test.mjs test/audit.test.mjs test/logger.test.mjs test/schema.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs",
+    "test:coverage:check": "c8 --lines 50 --branches 50 --functions 50 node --test --test-name-pattern=. test/registry.test.mjs test/sql-guards.test.mjs test/redis-guards.test.mjs test/config.test.mjs test/audit.test.mjs test/logger.test.mjs test/schema.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs",
+    "benchmark": "node test/benchmark/sql-guards.bench.mjs",
+    "docs": "node scripts/generate-docs.mjs"
   },
   "keywords": [
     "mcp",
@@ -36,9 +55,10 @@
   ],
   "author": "yclenove",
   "license": "MIT",
-  "description": "Multi-engine database MCP server (MySQL, PostgreSQL, SQL Server, Oracle, MongoDB, Redis)",
+  "description": "Multi-engine database MCP server (MySQL, PostgreSQL, SQL Server, Oracle, MongoDB, Redis, SQLite)",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "better-sqlite3": "^12.9.0",
     "dotenv": "^16.4.7",
     "ioredis": "^5.4.1",
     "mongodb": "^6.12.0",
@@ -51,9 +71,16 @@
     "oracledb": "^6.7.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/mssql": "^9.1.5",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.20.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "c8": "^11.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.2.0",
     "typescript": "^5.9.3"
   }
 }

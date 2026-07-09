@@ -1,0 +1,9 @@
+{
+  "all": true,
+  "src": ["src"],
+  "exclude": ["test/**", "node_modules/**", "**/*.d.ts"],
+  "reporter": ["text", "json", "lcov"],
+  "reports-dir": "coverage",
+  "clean": true,
+  "include": ["dist/**/*.js"]
+}

@@ -25,6 +25,77 @@ export async function createPostgresDriver(spec: ConnectionSpec): Promise<SqlDri
   });
   const engine = 'postgres' as const;
 
+  async function beginTransaction(): Promise<import('../../core/types.js').SqlTransaction> {
+    const client = await pool.connect();
+    await client.query('BEGIN');
+
+    async function executeInner(
+      sql: string,
+      params: unknown[] | undefined,
+      mode: SqlExecutionMode,
+      maxRows: number,
+      queryTimeoutMs: number,
+      maxSqlLength: number
+    ): Promise<SqlExecuteResult> {
+      const start = Date.now();
+      if (sql.length > maxSqlLength) {
+        return { success: false, error: `SQL 超过长度限制（${maxSqlLength}）` };
+      }
+      if (mode === 'readonly' && !isReadOnlyQuery(sql)) {
+        return { success: false, error: '只读模式仅允许 SELECT/SHOW/DESCRIBE/EXPLAIN/WITH(SELECT)' };
+      }
+      if (mode === 'readwrite') {
+        const d = checkDangerousOperation(sql);
+        if (d) return { success: false, error: d };
+      }
+      const res: QueryResult = await withTimeout(client.query(sql, params ?? []), queryTimeoutMs);
+      const executionTime = Date.now() - start;
+      if (res.rows && res.rows.length > 0) {
+        const data = res.rows.slice(0, maxRows) as unknown[];
+        return {
+          success: true,
+          data,
+          totalRows: res.rows.length,
+          truncated: res.rows.length > maxRows,
+          fields: res.fields?.map((f: FieldDef) => ({ name: f.name, dataTypeID: f.dataTypeID })),
+          executionTime,
+        };
+      }
+      return {
+        success: true,
+        affectedRows: res.rowCount ?? undefined,
+        executionTime,
+      };
+    }
+
+    return {
+      async execute(sql, params, options) {
+        return executeInner(
+          sql,
+          params,
+          options.mode,
+          options.maxRows,
+          options.queryTimeoutMs,
+          options.maxSqlLength
+        );
+      },
+      async commit() {
+        try {
+          await client.query('COMMIT');
+        } finally {
+          client.release();
+        }
+      },
+      async rollback() {
+        try {
+          await client.query('ROLLBACK');
+        } finally {
+          client.release();
+        }
+      },
+    };
+  }
+
   async function executeInner(
     sql: string,
     params: unknown[] | undefined,
@@ -114,6 +185,7 @@ export async function createPostgresDriver(spec: ConnectionSpec): Promise<SqlDri
         options.maxSqlLength
       );
     },
+    beginTransaction,
     async close() {
       await pool.end();
     },

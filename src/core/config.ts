@@ -1,7 +1,7 @@
 import type { ConnectionSpec, Engine } from './types.js';
 import { CONNECTION_ID_REGEX } from './types.js';
 
-const ENGINES = new Set<Engine>(['mysql', 'postgres', 'mssql', 'oracle', 'mongodb', 'redis']);
+const ENGINES = new Set<Engine>(['mysql', 'postgres', 'mssql', 'oracle', 'sqlite', 'mongodb', 'redis']);
 
 function assertEngine(v: string): Engine {
   if (!ENGINES.has(v as Engine)) {
@@ -70,8 +70,15 @@ export function parseConnectionSpecs(raw?: string): ConnectionSpec[] {
       if (!url) {
         throw new Error(`连接「${id}」：${engine} 必须提供 url`);
       }
+    } else if (engine === 'sqlite') {
+      // SQLite 不需要 host，仅需 url 或 database，缺省为 :memory:
     } else if (!url && !host) {
       throw new Error(`连接「${id}」：SQL 类引擎需提供 url 或 host`);
+    }
+
+    // 端口范围校验
+    if (port !== undefined && (!Number.isFinite(port) || port < 1 || port > 65535)) {
+      throw new Error(`连接「${id}」：端口 ${port} 不在有效范围 1-65535`);
     }
 
     out.push({
@@ -107,5 +114,27 @@ export function globalLimits() {
     maxSqlLength: parseInt(process.env.DB_MAX_SQL_LENGTH || '102400', 10),
     retryCount: parseInt(process.env.DB_RETRY_COUNT || '2', 10),
     retryDelayMs: parseInt(process.env.DB_RETRY_DELAY_MS || '200', 10),
+  };
+}
+
+export function maskingLimits() {
+  return {
+    mode: (process.env.DB_MASKING_MODE ?? 'off') as 'off' | 'loose' | 'strict',
+    excludeFields: (process.env.DB_MASKING_EXCLUDE_FIELDS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  };
+}
+
+export function replayLimits() {
+  return {
+    bufferSize: parseInt(process.env.DB_REPLAY_BUFFER_SIZE || '50', 10),
+  };
+}
+
+export function suggestLimits() {
+  return {
+    timeoutMs: parseInt(process.env.DB_SUGGEST_TIMEOUT_MS || '5000', 10),
   };
 }

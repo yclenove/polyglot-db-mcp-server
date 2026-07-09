@@ -39,6 +39,81 @@ export async function createMysqlDriver(spec: ConnectionSpec): Promise<SqlDriver
   const pool: Pool = mysql.createPool(poolConfig(spec));
   const engine = 'mysql' as const;
 
+  async function beginTransaction(): Promise<import('../../core/types.js').SqlTransaction> {
+    const conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    async function executeInner(
+      sql: string,
+      params: unknown[] | undefined,
+      mode: SqlExecutionMode,
+      maxRows: number,
+      queryTimeoutMs: number,
+      maxSqlLength: number
+    ): Promise<SqlExecuteResult> {
+      const start = Date.now();
+      if (sql.length > maxSqlLength) {
+        return { success: false, error: `SQL 超过长度限制（${maxSqlLength}）` };
+      }
+      if (mode === 'readonly' && !isReadOnlyQuery(sql)) {
+        return { success: false, error: '只读模式仅允许 SELECT/SHOW/DESCRIBE/EXPLAIN' };
+      }
+      if (mode === 'readwrite') {
+        const d = checkDangerousOperation(sql);
+        if (d) return { success: false, error: d };
+      }
+      const [rows] = await withTimeout(
+        conn.execute(sql, (params ?? []) as never) as Promise<[unknown, unknown]>,
+        queryTimeoutMs
+      );
+      const executionTime = Date.now() - start;
+      if (Array.isArray(rows)) {
+        const data = (rows as RowDataPacket[]).slice(0, maxRows);
+        return {
+          success: true,
+          data,
+          totalRows: (rows as RowDataPacket[]).length,
+          truncated: (rows as RowDataPacket[]).length > maxRows,
+          executionTime,
+        };
+      }
+      const header = rows as ResultSetHeader;
+      return {
+        success: true,
+        affectedRows: header.affectedRows,
+        insertId: header.insertId,
+        executionTime,
+      };
+    }
+
+    return {
+      async execute(sql, params, options) {
+        return executeInner(
+          sql,
+          params,
+          options.mode,
+          options.maxRows,
+          options.queryTimeoutMs,
+          options.maxSqlLength
+        );
+      },
+      async commit() {
+        try {
+          await conn.commit();
+        } finally {
+          conn.release();
+        }
+      },
+      async rollback() {
+        try {
+          await conn.rollback();
+        } finally {
+          conn.release();
+        }
+      },
+    };
+  }
+
   async function executeInner(
     sql: string,
     params: unknown[] | undefined,
@@ -132,6 +207,7 @@ export async function createMysqlDriver(spec: ConnectionSpec): Promise<SqlDriver
         options.maxSqlLength
       );
     },
+    beginTransaction,
     async close() {
       await pool.end();
     },

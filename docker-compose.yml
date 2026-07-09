@@ -1,4 +1,32 @@
 services:
+  mcp-server:
+    build: .
+    image: polyglot-db-mcp-server:latest
+    env_file: .env
+    environment:
+      # v1.5 新增
+      DB_MASKING_MODE: ${DB_MASKING_MODE:-off}
+      DB_MASKING_EXCLUDE_FIELDS: ${DB_MASKING_EXCLUDE_FIELDS:-}
+      DB_REPLAY_BUFFER_SIZE: ${DB_REPLAY_BUFFER_SIZE:-50}
+      DB_SUGGEST_TIMEOUT_MS: ${DB_SUGGEST_TIMEOUT_MS:-3000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+    stdin_open: true
+    healthcheck:
+      test: ["CMD", "node", "scripts/healthcheck.mjs"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -52,3 +80,33 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: Y
+      MSSQL_SA_PASSWORD: DevPass123!
+      MSSQL_PID: Developer
+    ports:
+      - "1433:1433"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'DevPass123!' -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  oracle:
+    image: gvenzl/oracle-xe:21-slim
+    environment:
+      ORACLE_PASSWORD: devpass
+      APP_USER: dev
+      APP_USER_PASSWORD: devpass
+    ports:
+      - "1521:1521"
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s

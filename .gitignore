@@ -20,3 +20,7 @@ npm-debug.log*
 
 # TypeScript
 *.tsbuildinfo
+
+# Coverage reports
+coverage/
+*.lcov

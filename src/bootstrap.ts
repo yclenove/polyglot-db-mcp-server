@@ -2,10 +2,12 @@ import type { ConnectionSpec, RuntimeHandle } from './core/types.js';
 import { closeRuntime, pingRuntime } from './core/handle-runtime.js';
 import { ConnectionRegistry } from './core/registry.js';
 import { getDefaultConnectionId, parseConnectionSpecs } from './core/config.js';
+import { logger } from './core/logger.js';
 import { createMysqlDriver } from './drivers/sql/mysql-driver.js';
 import { createPostgresDriver } from './drivers/sql/postgres-driver.js';
 import { createMssqlDriver } from './drivers/sql/mssql-driver.js';
 import { createOracleDriver } from './drivers/sql/oracle-driver.js';
+import { createSqliteDriver } from './drivers/sql/sqlite-driver.js';
 import { createMongoDriver } from './drivers/mongo/mongo-driver.js';
 import { createRedisDriver } from './drivers/redis/redis-driver.js';
 
@@ -19,6 +21,8 @@ async function createHandle(spec: ConnectionSpec): Promise<RuntimeHandle> {
       return { id: spec.id, spec, kind: 'sql', driver: await createMssqlDriver(spec) };
     case 'oracle':
       return { id: spec.id, spec, kind: 'sql', driver: await createOracleDriver(spec) };
+    case 'sqlite':
+      return { id: spec.id, spec, kind: 'sql', driver: await createSqliteDriver(spec) };
     case 'mongodb':
       return { id: spec.id, spec, kind: 'mongo', driver: await createMongoDriver(spec) };
     case 'redis':
@@ -37,17 +41,54 @@ export async function createRegistryFromEnv(): Promise<ConnectionRegistry> {
   return new ConnectionRegistry(specs, defaultId, handles);
 }
 
-export async function pingAll(registry: ConnectionRegistry): Promise<{ id: string; ok: boolean; error?: string }[]> {
+export async function pingAll(registry: ConnectionRegistry): Promise<{ id: string; ok: boolean; latencyMs: number; error?: string }[]> {
   return Promise.all(
     registry.listMeta().map(async (m) => {
       const h = registry.get(m.id);
       if (!h) {
-        return { id: m.id, ok: false, error: '内部错误：缺少连接句柄' };
+        return { id: m.id, ok: false, latencyMs: 0, error: '内部错误：缺少连接句柄' };
       }
+      const start = Date.now();
       const r = await pingRuntime(h);
-      return { id: m.id, ok: r.ok, error: r.error };
+      return { id: m.id, ok: r.ok, latencyMs: Date.now() - start, error: r.error };
     })
   );
+}
+
+/** 输出启动诊断摘要 */
+export function logStartupDiagnostics(
+  registry: ConnectionRegistry,
+  pings: { id: string; ok: boolean; latencyMs: number; error?: string }[]
+): void {
+  const specs = registry.getSpecs();
+  const defaultId = registry.getDefaultId();
+
+  const summary = {
+    total_connections: specs.length,
+    default_connection: defaultId,
+    engines: {} as Record<string, number>,
+    config: {
+      query_timeout_ms: parseInt(process.env.DB_QUERY_TIMEOUT || '30000', 10),
+      max_rows: parseInt(process.env.DB_MAX_ROWS || '100', 10),
+      log_level: process.env.LOG_LEVEL || 'info',
+      log_format: process.env.LOG_FORMAT || 'human',
+    },
+  };
+
+  for (const spec of specs) {
+    summary.engines[spec.engine] = (summary.engines[spec.engine] ?? 0) + 1;
+  }
+
+  logger.info('startup diagnostics', summary);
+
+  for (const p of pings) {
+    const level = p.ok ? 'info' : 'warn';
+    logger[level](`connection ${p.id}`, {
+      status: p.ok ? 'ok' : 'failed',
+      latency_ms: p.latencyMs,
+      error: p.error,
+    });
+  }
 }
 
 export async function closeAll(registry: ConnectionRegistry): Promise<void> {
