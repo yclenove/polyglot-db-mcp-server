@@ -61,7 +61,15 @@ export class QueryCache {
     return this.cache.size;
   }
 
-  getStats(): { enabled: boolean; maxSize: number; ttlMs: number; size: number; hits: number; misses: number; hitRate: number } {
+  getStats(): {
+    enabled: boolean;
+    maxSize: number;
+    ttlMs: number;
+    size: number;
+    hits: number;
+    misses: number;
+    hitRate: number;
+  } {
     const total = this.hits + this.misses;
     return {
       enabled: this.maxSize > 0,

@@ -27,7 +27,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -55,7 +55,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -81,7 +81,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -119,7 +119,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -137,7 +137,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           },
         ],
       };
-    }
+    },
   );
 
   server.registerTool(
@@ -164,7 +164,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -192,7 +192,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -218,7 +218,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -245,7 +245,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   // ── List 操作 ──────────────────────────────────────────
@@ -274,7 +274,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -301,7 +301,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -327,7 +327,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -353,13 +353,14 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
     'redis_lrange',
     {
-      description: '返回 Redis List 中指定范围的元素。start 和 stop 为索引（0 开始，-1 表示最后一个）。',
+      description:
+        '返回 Redis List 中指定范围的元素。start 和 stop 为索引（0 开始，-1 表示最后一个）。',
       inputSchema: {
         connection_id: z.string().optional(),
         key: z.string(),
@@ -381,7 +382,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -407,7 +408,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   // ── Set 操作 ──────────────────────────────────────────
@@ -436,7 +437,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -462,7 +463,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -489,7 +490,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -515,7 +516,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -534,7 +535,9 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
         const r = registry.requireRedis(id);
         const n = await r.sismember(key, member);
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, isMember: n === 1 }) }],
+          content: [
+            { type: 'text', text: JSON.stringify({ connection_id: id, isMember: n === 1 }) },
+          ],
         };
       } catch (e) {
         return {
@@ -542,7 +545,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   // ── Sorted Set 操作 ──────────────────────────────────
@@ -572,13 +575,14 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
     'redis_zrange',
     {
-      description: '返回 Redis Sorted Set 中指定范围的成员。start 和 stop 为索引。可选 withScores 返回分数。',
+      description:
+        '返回 Redis Sorted Set 中指定范围的成员。start 和 stop 为索引。可选 withScores 返回分数。',
       inputSchema: {
         connection_id: z.string().optional(),
         key: z.string(),
@@ -601,7 +605,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -628,7 +632,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -654,7 +658,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -681,7 +685,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   // ── 键信息 ──────────────────────────────────────────
@@ -689,7 +693,8 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
   server.registerTool(
     'redis_type',
     {
-      description: '返回 Redis 键的数据类型（string/hash/list/set/zset/stream/none）。使用原生 TYPE 命令，单次网络往返。',
+      description:
+        '返回 Redis 键的数据类型（string/hash/list/set/zset/stream/none）。使用原生 TYPE 命令，单次网络往返。',
       inputSchema: {
         connection_id: z.string().optional(),
         key: z.string(),
@@ -709,7 +714,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   // ── 键管理 ──────────────────────────────────────────
@@ -738,7 +743,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -764,6 +769,6 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 }

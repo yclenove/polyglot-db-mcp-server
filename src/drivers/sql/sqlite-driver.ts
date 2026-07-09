@@ -2,7 +2,12 @@ import Database from 'better-sqlite3';
 import { resolve, dirname, isAbsolute } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import type { ConnectionSpec } from '../../core/types.js';
-import type { SqlDriver, SqlExecuteResult, SqlExecutionMode, SqlTransaction } from '../../core/types.js';
+import type {
+  SqlDriver,
+  SqlExecuteResult,
+  SqlExecutionMode,
+  SqlTransaction,
+} from '../../core/types.js';
 import { checkDangerousOperation, isReadOnlyQuery } from '../../core/sql-guards.js';
 import { auditLog } from '../../core/audit.js';
 
@@ -65,16 +70,14 @@ function ensureParentDir(filePath: string): void {
 /**
  * 将 better-sqlite3 的 Statement.run() 结果适配为 SqlExecuteResult。
  */
-function adaptRunResult(
-  info: Database.RunResult,
-  executionTime: number
-): SqlExecuteResult {
+function adaptRunResult(info: Database.RunResult, executionTime: number): SqlExecuteResult {
   return {
     success: true,
     affectedRows: Number(info.changes),
-    insertId: typeof info.lastInsertRowid === 'bigint'
-      ? info.lastInsertRowid
-      : Number(info.lastInsertRowid),
+    insertId:
+      typeof info.lastInsertRowid === 'bigint'
+        ? info.lastInsertRowid
+        : Number(info.lastInsertRowid),
     executionTime,
   };
 }
@@ -85,7 +88,7 @@ function adaptRunResult(
 function adaptRowsResult(
   rows: unknown[],
   maxRows: number,
-  executionTime: number
+  executionTime: number,
 ): SqlExecuteResult {
   const truncated = rows.length > maxRows;
   return {
@@ -108,7 +111,7 @@ function executeOne(
   mode: SqlExecutionMode,
   maxRows: number,
   maxSqlLength: number,
-  engine: 'sqlite'
+  engine: 'sqlite',
 ): SqlExecuteResult {
   if (sql.length > maxSqlLength) {
     return { success: false, error: `SQL 超过长度限制（${maxSqlLength}）` };
@@ -172,7 +175,7 @@ export async function createSqliteDriver(spec: ConnectionSpec): Promise<SqlDrive
     mode: SqlExecutionMode,
     maxRows: number,
     _queryTimeoutMs: number,
-    maxSqlLength: number
+    maxSqlLength: number,
   ): SqlExecuteResult {
     // better-sqlite3 不支持查询超时，忽略 queryTimeoutMs
     return executeOne(db, sql, params ?? [], mode, maxRows, maxSqlLength, engine);
@@ -193,7 +196,7 @@ export async function createSqliteDriver(spec: ConnectionSpec): Promise<SqlDrive
           options.mode,
           options.maxRows,
           options.queryTimeoutMs,
-          options.maxSqlLength
+          options.maxSqlLength,
         );
       },
       async commit(): Promise<void> {
@@ -234,7 +237,7 @@ export async function createSqliteDriver(spec: ConnectionSpec): Promise<SqlDrive
         effectiveMode,
         options.maxRows,
         options.queryTimeoutMs,
-        options.maxSqlLength
+        options.maxSqlLength,
       );
     },
 

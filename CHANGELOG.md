@@ -4,6 +4,20 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.7.2] - 2026-07-10
+
+### 新增
+- **发布工程门禁**：CI 新增 `npm pack --dry-run`，按仓库约定先 build 再 test，确保测试导入的是最新 `dist/`。
+- **配置模板入库**：新增可提交的 `.env.example`，默认 SQLite 本地配置，并提供 MySQL、PostgreSQL、MSSQL、Oracle、MongoDB、Redis、SQLite 多引擎占位符示例。
+
+### 修复
+- **GitHub CI 格式检查失败**：对 `src/**/*.ts` 执行 Prettier 机械格式化，使 `npm run format:check` 在 CI 中通过。
+- **`.env.example` 被忽略**：调整 `.gitignore`，继续排除真实 `.env` 和 `.env.*`，但允许安全模板 `.env.example` 入库。
+
+### 变更
+- **npm 包产物**：`package.json` 的 `files` 显式包含 `.env.example`，方便安装包用户获得配置模板。
+- **发布文档同步**：更新发布检查清单、配置指南和文档索引中的 v1.7.2 状态。
+
 ## [1.7.1] - 2026-07-09
 
 ### 新增

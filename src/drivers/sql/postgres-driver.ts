@@ -35,14 +35,17 @@ export async function createPostgresDriver(spec: ConnectionSpec): Promise<SqlDri
       mode: SqlExecutionMode,
       maxRows: number,
       queryTimeoutMs: number,
-      maxSqlLength: number
+      maxSqlLength: number,
     ): Promise<SqlExecuteResult> {
       const start = Date.now();
       if (sql.length > maxSqlLength) {
         return { success: false, error: `SQL 超过长度限制（${maxSqlLength}）` };
       }
       if (mode === 'readonly' && !isReadOnlyQuery(sql)) {
-        return { success: false, error: '只读模式仅允许 SELECT/SHOW/DESCRIBE/EXPLAIN/WITH(SELECT)' };
+        return {
+          success: false,
+          error: '只读模式仅允许 SELECT/SHOW/DESCRIBE/EXPLAIN/WITH(SELECT)',
+        };
       }
       if (mode === 'readwrite') {
         const d = checkDangerousOperation(sql);
@@ -76,7 +79,7 @@ export async function createPostgresDriver(spec: ConnectionSpec): Promise<SqlDri
           options.mode,
           options.maxRows,
           options.queryTimeoutMs,
-          options.maxSqlLength
+          options.maxSqlLength,
         );
       },
       async commit() {
@@ -102,7 +105,7 @@ export async function createPostgresDriver(spec: ConnectionSpec): Promise<SqlDri
     mode: SqlExecutionMode,
     maxRows: number,
     queryTimeoutMs: number,
-    maxSqlLength: number
+    maxSqlLength: number,
   ): Promise<SqlExecuteResult> {
     const start = Date.now();
     if (sql.length > maxSqlLength) {
@@ -143,7 +146,7 @@ export async function createPostgresDriver(spec: ConnectionSpec): Promise<SqlDri
     mode: SqlExecutionMode,
     maxRows: number,
     queryTimeoutMs: number,
-    maxSqlLength: number
+    maxSqlLength: number,
   ): Promise<SqlExecuteResult> {
     const retryCount = parseInt(process.env.DB_RETRY_COUNT || '2', 10);
     const retryDelayMs = parseInt(process.env.DB_RETRY_DELAY_MS || '200', 10);
@@ -182,7 +185,7 @@ export async function createPostgresDriver(spec: ConnectionSpec): Promise<SqlDri
         options.mode,
         options.maxRows,
         options.queryTimeoutMs,
-        options.maxSqlLength
+        options.maxSqlLength,
       );
     },
     beginTransaction,

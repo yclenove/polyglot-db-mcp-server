@@ -41,7 +41,9 @@ export async function createRegistryFromEnv(): Promise<ConnectionRegistry> {
   return new ConnectionRegistry(specs, defaultId, handles);
 }
 
-export async function pingAll(registry: ConnectionRegistry): Promise<{ id: string; ok: boolean; latencyMs: number; error?: string }[]> {
+export async function pingAll(
+  registry: ConnectionRegistry,
+): Promise<{ id: string; ok: boolean; latencyMs: number; error?: string }[]> {
   return Promise.all(
     registry.listMeta().map(async (m) => {
       const h = registry.get(m.id);
@@ -51,14 +53,14 @@ export async function pingAll(registry: ConnectionRegistry): Promise<{ id: strin
       const start = Date.now();
       const r = await pingRuntime(h);
       return { id: m.id, ok: r.ok, latencyMs: Date.now() - start, error: r.error };
-    })
+    }),
   );
 }
 
 /** 输出启动诊断摘要 */
 export function logStartupDiagnostics(
   registry: ConnectionRegistry,
-  pings: { id: string; ok: boolean; latencyMs: number; error?: string }[]
+  pings: { id: string; ok: boolean; latencyMs: number; error?: string }[],
 ): void {
   const specs = registry.getSpecs();
   const defaultId = registry.getDefaultId();
@@ -97,14 +99,14 @@ export async function closeAll(registry: ConnectionRegistry): Promise<void> {
       const h = registry.get(s.id);
       if (!h) return;
       await closeRuntime(h);
-    })
+    }),
   );
   const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
   if (rejected.length > 0) {
     console.error(
       '[polyglot-db-mcp]',
       'closeAll: 部分连接关闭失败',
-      rejected.map((r) => (r.reason instanceof Error ? r.reason.message : String(r.reason)))
+      rejected.map((r) => (r.reason instanceof Error ? r.reason.message : String(r.reason))),
     );
   }
 }

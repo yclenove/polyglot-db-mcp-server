@@ -84,7 +84,9 @@ async function main(): Promise<void> {
       await closeAll(registry);
       process.exit(0); // 让进程管理器重启
     } catch (e) {
-      logger.error('configuration reload failed', { error: e instanceof Error ? e.message : String(e) });
+      logger.error('configuration reload failed', {
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   });
 
@@ -97,6 +99,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => {
-  logger.error('fatal error', { error: e instanceof Error ? e.stack ?? e.message : String(e) });
+  logger.error('fatal error', { error: e instanceof Error ? (e.stack ?? e.message) : String(e) });
   process.exit(1);
 });

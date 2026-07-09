@@ -12,6 +12,8 @@
 
 polyglot-db-mcp-server 通过环境变量配置。启动时会从当前工作目录加载 `.env`，并解析 `DB_MCP_CONNECTIONS` 构建连接注册表。
 
+仓库提供 `.env.example` 作为安全模板。复制它到 `.env` 后再修改；`.env` 和 `.env.*` 默认被 Git 忽略，`.env.example` 只允许出现本地开发值或占位符。
+
 配置设计原则：
 
 1. **单一连接入口**：所有数据库连接放在 `DB_MCP_CONNECTIONS` JSON 数组中。
@@ -49,7 +51,7 @@ LOG_FORMAT=human
 > 以下示例只使用开发占位符，不可直接作为生产凭证。
 
 ```env
-DB_MCP_CONNECTIONS=[{"id":"pg","engine":"postgres","url":"postgres://dev:devpass@127.0.0.1:5432/devdb","readonly":true},{"id":"mysql","engine":"mysql","host":"127.0.0.1","port":3306,"user":"dev","password":"devpass","database":"devdb","readonly":true},{"id":"redis","engine":"redis","url":"redis://:redispass@127.0.0.1:6379/0","readonly":false,"keyPrefix":"app:"},{"id":"mongo","engine":"mongodb","url":"mongodb://dev:devpass@127.0.0.1:27017/?authSource=admin","database":"devdb","readonly":true,"allowlist":["users","orders"]},{"id":"local","engine":"sqlite","url":"file:./data/local.db","readonly":false}]
+DB_MCP_CONNECTIONS=[{"id":"pg","engine":"postgres","url":"postgres://<pg_user>:<pg_password>@127.0.0.1:5432/<pg_database>","readonly":true},{"id":"mysql","engine":"mysql","host":"127.0.0.1","port":3306,"user":"<mysql_user>","password":"<mysql_password>","database":"<mysql_database>","readonly":true},{"id":"redis","engine":"redis","url":"redis://:<redis_password>@127.0.0.1:6379/0","readonly":false,"keyPrefix":"app:"},{"id":"mongo","engine":"mongodb","url":"mongodb://<mongo_user>:<mongo_password>@127.0.0.1:27017/?authSource=admin","database":"<mongo_database>","readonly":true,"allowlist":["users","orders"]},{"id":"local","engine":"sqlite","url":"file:./data/local.db","readonly":false}]
 DB_MCP_DEFAULT_CONNECTION_ID=local
 ```
 

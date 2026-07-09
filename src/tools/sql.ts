@@ -6,7 +6,14 @@ import { isReadOnlyQuery } from '../core/sql-guards.js';
 import type { SqlEngine } from '../core/types.js';
 import { createQueryCacheFromEnv, cacheKey as makeCacheKey } from '../core/query-cache.js';
 import { createRateLimiterFromEnv } from '../core/rate-limiter.js';
-import { IDENT, validateIdent, describeTableSql, explainQuerySql, listIndexesSql, listTablesSql } from '../core/sql-helpers.js';
+import {
+  IDENT,
+  validateIdent,
+  describeTableSql,
+  explainQuerySql,
+  listIndexesSql,
+  listTablesSql,
+} from '../core/sql-helpers.js';
 
 type SqlResultRow = Record<string, unknown>;
 
@@ -16,7 +23,14 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
   const rateLimiter = createRateLimiterFromEnv();
 
   // 存储活跃的事务
-  const activeTransactions = new Map<string, { connectionId: string; transaction: import('../core/types.js').SqlTransaction; createdAt: number }>();
+  const activeTransactions = new Map<
+    string,
+    {
+      connectionId: string;
+      transaction: import('../core/types.js').SqlTransaction;
+      createdAt: number;
+    }
+  >();
   let txCounter = 0;
 
   // 事务超时清理（默认 5 分钟）
@@ -40,7 +54,13 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         connection_id: z.string().optional(),
         sql: z.string(),
         params: z.array(z.any()).optional(),
-        limit: z.number().int().min(1).max(10_000).optional().describe('最大返回行数，优先级高于分页'),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(10_000)
+          .optional()
+          .describe('最大返回行数，优先级高于分页'),
         page: z.number().int().min(1).optional().describe('页码，从 1 开始'),
         page_size: z.number().int().min(1).max(1000).optional().describe('每页行数，默认 20'),
       },
@@ -51,7 +71,10 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
 
         // 速率限制
         if (!rateLimiter.allow(id)) {
-          return { content: [{ type: 'text', text: `连接「${id}」请求过于频繁，请稍后重试` }], isError: true };
+          return {
+            content: [{ type: 'text', text: `连接「${id}」请求过于频繁，请稍后重试` }],
+            isError: true,
+          };
         }
 
         const driver = registry.requireSql(id);
@@ -125,13 +148,15 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
           totalRows,
           truncated: res.truncated,
           fields: res.fields,
-          pagination: page ? {
-            page: currentPage,
-            page_size: currentPageSize,
-            total_pages: totalPages,
-            has_next: currentPage < totalPages,
-            has_prev: currentPage > 1,
-          } : undefined,
+          pagination: page
+            ? {
+                page: currentPage,
+                page_size: currentPageSize,
+                total_pages: totalPages,
+                has_next: currentPage < totalPages,
+                has_prev: currentPage > 1,
+              }
+            : undefined,
         };
 
         // 写入缓存（仅无分页的简单查询）
@@ -146,7 +171,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -166,17 +191,26 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
 
         // 速率限制
         if (!rateLimiter.allow(id)) {
-          return { content: [{ type: 'text', text: `连接「${id}」请求过于频繁，请稍后重试` }], isError: true };
+          return {
+            content: [{ type: 'text', text: `连接「${id}」请求过于频繁，请稍后重试` }],
+            isError: true,
+          };
         }
 
         const h = registry.require(id);
         if (h.kind !== 'sql') {
           const hint = `当前连接类型: ${h.kind}，请使用对应的 ${h.kind} 工具`;
-          return { content: [{ type: 'text', text: JSON.stringify({ error: '非 SQL 连接', hint }) }], isError: true };
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: '非 SQL 连接', hint }) }],
+            isError: true,
+          };
         }
         if (h.spec.readonly) {
           const hint = '如需写入，请将连接配置中的 readonly 设为 false';
-          return { content: [{ type: 'text', text: JSON.stringify({ error: '该连接为只读', hint }) }], isError: true };
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: '该连接为只读', hint }) }],
+            isError: true,
+          };
         }
         const L = limits();
         const res = await h.driver.execute(sql, params ?? [], {
@@ -205,7 +239,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -239,7 +273,9 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
               text: JSON.stringify({
                 connection_id: id,
                 engine: driver.engine,
-                tables: ((res.data ?? []) as SqlResultRow[]).map((row) => row.name ?? row.NAME ?? row.table_name),
+                tables: ((res.data ?? []) as SqlResultRow[]).map(
+                  (row) => row.name ?? row.NAME ?? row.table_name,
+                ),
               }),
             },
           ],
@@ -248,7 +284,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -292,7 +328,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -327,7 +363,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -344,7 +380,10 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
       try {
         const entry = activeTransactions.get(transaction_id);
         if (!entry) {
-          return { content: [{ type: 'text', text: `事务 ${transaction_id} 不存在或已结束` }], isError: true };
+          return {
+            content: [{ type: 'text', text: `事务 ${transaction_id} 不存在或已结束` }],
+            isError: true,
+          };
         }
         const L = limits();
         const res = await entry.transaction.execute(sql, params ?? [], {
@@ -374,7 +413,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -389,7 +428,10 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
       try {
         const entry = activeTransactions.get(transaction_id);
         if (!entry) {
-          return { content: [{ type: 'text', text: `事务 ${transaction_id} 不存在或已结束` }], isError: true };
+          return {
+            content: [{ type: 'text', text: `事务 ${transaction_id} 不存在或已结束` }],
+            isError: true,
+          };
         }
         await entry.transaction.commit();
         activeTransactions.delete(transaction_id);
@@ -408,7 +450,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -423,7 +465,10 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
       try {
         const entry = activeTransactions.get(transaction_id);
         if (!entry) {
-          return { content: [{ type: 'text', text: `事务 ${transaction_id} 不存在或已结束` }], isError: true };
+          return {
+            content: [{ type: 'text', text: `事务 ${transaction_id} 不存在或已结束` }],
+            isError: true,
+          };
         }
         await entry.transaction.rollback();
         activeTransactions.delete(transaction_id);
@@ -442,7 +487,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -456,7 +501,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
           z.object({
             sql: z.string(),
             params: z.array(z.any()).optional(),
-          })
+          }),
         ),
       },
     },
@@ -472,7 +517,12 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         }
         const L = limits();
         const tx = await h.driver.beginTransaction();
-        const results: Array<{ sql: string; success: boolean; affectedRows?: number; error?: string }> = [];
+        const results: Array<{
+          sql: string;
+          success: boolean;
+          affectedRows?: number;
+          error?: string;
+        }> = [];
         try {
           for (const stmt of statements) {
             const res = await tx.execute(stmt.sql, stmt.params ?? [], {
@@ -539,7 +589,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   // ── sql_explain ─────────────────────────────────────────
@@ -596,7 +646,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   // ── 存储过程 ──────────────────────────────────────────
@@ -671,7 +721,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   // ── 视图 ──────────────────────────────────────────
@@ -702,7 +752,11 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
     }
   }
 
-  function describeViewSql(engine: SqlEngine, view: string, schema?: string): { sql: string; params?: unknown[] } {
+  function describeViewSql(
+    engine: SqlEngine,
+    view: string,
+    schema?: string,
+  ): { sql: string; params?: unknown[] } {
     validateIdent(view, 'view');
     switch (engine) {
       case 'mysql':
@@ -775,7 +829,9 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
               text: JSON.stringify({
                 connection_id: id,
                 engine: driver.engine,
-                views: ((res.data ?? []) as SqlResultRow[]).map((row) => row.name ?? row.NAME ?? row.view_name),
+                views: ((res.data ?? []) as SqlResultRow[]).map(
+                  (row) => row.name ?? row.NAME ?? row.view_name,
+                ),
               }),
             },
           ],
@@ -784,7 +840,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -828,18 +884,29 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   // ── 类型生成 ──────────────────────────────────────────
 
   function sqlTypeToTs(dataType: string): string {
     const t = dataType.toLowerCase();
-    if (t.includes('int') || t.includes('serial') || t.includes('numeric') || t.includes('decimal') || t.includes('float') || t.includes('double') || t.includes('real') || t.includes('number')) return 'number';
+    if (
+      t.includes('int') ||
+      t.includes('serial') ||
+      t.includes('numeric') ||
+      t.includes('decimal') ||
+      t.includes('float') ||
+      t.includes('double') ||
+      t.includes('real') ||
+      t.includes('number')
+    )
+      return 'number';
     if (t.includes('bool')) return 'boolean';
     if (t.includes('json') || t.includes('jsonb')) return 'Record<string, unknown>';
     if (t.includes('date') || t.includes('time') || t.includes('timestamp')) return 'string';
-    if (t.includes('text') || t.includes('char') || t.includes('varchar') || t.includes('clob')) return 'string';
+    if (t.includes('text') || t.includes('char') || t.includes('varchar') || t.includes('clob'))
+      return 'string';
     if (t.includes('blob') || t.includes('bytea') || t.includes('binary')) return 'Buffer';
     return 'unknown';
   }
@@ -871,7 +938,9 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         }
 
         const columns = (res.data ?? []) as SqlResultRow[];
-        const interfaceName = table.charAt(0).toUpperCase() + table.slice(1).replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+        const interfaceName =
+          table.charAt(0).toUpperCase() +
+          table.slice(1).replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 
         const fields = columns.map((row) => {
           const colName = row.column_name ?? row.COLUMN_NAME ?? Object.values(row)[0];
@@ -884,13 +953,18 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const code = `export interface ${interfaceName} {\n${fields.join('\n')}\n}`;
 
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, table, interfaceName, code }) }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ connection_id: id, table, interfaceName, code }),
+            },
+          ],
         };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   // ── 查询缓存统计 ──────────────────────────────────────────
@@ -898,7 +972,8 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
   server.registerTool(
     'sql_cache_stats',
     {
-      description: '返回查询缓存的统计信息（大小、配置、命中率）。通过 DB_QUERY_CACHE_SIZE 启用缓存。',
+      description:
+        '返回查询缓存的统计信息（大小、配置、命中率）。通过 DB_QUERY_CACHE_SIZE 启用缓存。',
       inputSchema: {},
     },
     async () => {
@@ -910,29 +985,36 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
           },
         ],
       };
-    }
+    },
   );
 
   // ── 索引 ──────────────────────────────────────────
 
-  function createIndexSql(engine: SqlEngine, table: string, columns: string[], unique?: boolean, indexName?: string): string {
+  function createIndexSql(
+    engine: SqlEngine,
+    table: string,
+    columns: string[],
+    unique?: boolean,
+    indexName?: string,
+  ): string {
     validateIdent(table, 'table');
     for (const col of columns) {
       validateIdent(col, 'column');
     }
     const uniqueStr = unique ? 'UNIQUE' : '';
-    const idxName = indexName && IDENT.test(indexName) ? indexName : `idx_${table}_${columns.join('_')}`;
+    const idxName =
+      indexName && IDENT.test(indexName) ? indexName : `idx_${table}_${columns.join('_')}`;
     switch (engine) {
       case 'mysql': {
-        const colStr = columns.map(c => `\`${c}\``).join(', ');
+        const colStr = columns.map((c) => `\`${c}\``).join(', ');
         return `CREATE ${uniqueStr} INDEX \`${idxName}\` ON \`${table}\` (${colStr})`;
       }
       case 'postgres': {
-        const colStr = columns.map(c => `"${c}"`).join(', ');
+        const colStr = columns.map((c) => `"${c}"`).join(', ');
         return `CREATE ${uniqueStr} INDEX "${idxName}" ON "${table}" (${colStr})`;
       }
       case 'mssql': {
-        const colStr = columns.map(c => `[${c}]`).join(', ');
+        const colStr = columns.map((c) => `[${c}]`).join(', ');
         return `CREATE ${uniqueStr} INDEX [${idxName}] ON [${table}] (${colStr})`;
       }
       case 'oracle': {
@@ -991,7 +1073,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -1043,6 +1125,6 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 }

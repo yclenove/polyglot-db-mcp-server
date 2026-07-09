@@ -1,6 +1,6 @@
 {
   "name": "@yclenove/polyglot-db-mcp-server",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -20,6 +20,7 @@
     "dist",
     "README.md",
     "README_en.md",
+    ".env.example",
     "CHANGELOG.md",
     "AGENTS.md",
     "LICENSE",

@@ -1,7 +1,15 @@
 import type { ConnectionSpec, Engine } from './types.js';
 import { CONNECTION_ID_REGEX } from './types.js';
 
-const ENGINES = new Set<Engine>(['mysql', 'postgres', 'mssql', 'oracle', 'sqlite', 'mongodb', 'redis']);
+const ENGINES = new Set<Engine>([
+  'mysql',
+  'postgres',
+  'mssql',
+  'oracle',
+  'sqlite',
+  'mongodb',
+  'redis',
+]);
 
 function assertEngine(v: string): Engine {
   if (!ENGINES.has(v as Engine)) {
@@ -16,7 +24,9 @@ function assertEngine(v: string): Engine {
 export function parseConnectionSpecs(raw?: string): ConnectionSpec[] {
   const src = raw ?? process.env.DB_MCP_CONNECTIONS;
   if (src === undefined || String(src).trim() === '') {
-    throw new Error('必须设置 DB_MCP_CONNECTIONS（JSON 数组），每项含 id、engine 与 url 或 host 等');
+    throw new Error(
+      '必须设置 DB_MCP_CONNECTIONS（JSON 数组），每项含 id、engine 与 url 或 host 等',
+    );
   }
   let arr: unknown[];
   try {

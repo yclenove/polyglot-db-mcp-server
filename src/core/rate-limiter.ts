@@ -4,7 +4,10 @@
  */
 
 export class RateLimiter {
-  private readonly buckets = new Map<string, { tokens: number; lastRefill: number; lastUsed: number }>();
+  private readonly buckets = new Map<
+    string,
+    { tokens: number; lastRefill: number; lastUsed: number }
+  >();
   private readonly maxPerSecond: number;
   private readonly idleTtlMs: number;
   private readonly now: () => number;
@@ -12,7 +15,7 @@ export class RateLimiter {
 
   constructor(
     maxPerSecond: number = 0,
-    options: { idleTtlMs?: number; cleanupIntervalMs?: number; now?: () => number } = {}
+    options: { idleTtlMs?: number; cleanupIntervalMs?: number; now?: () => number } = {},
   ) {
     this.maxPerSecond = maxPerSecond;
     this.idleTtlMs = options.idleTtlMs ?? 300_000;

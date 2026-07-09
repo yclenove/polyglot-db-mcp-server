@@ -171,7 +171,8 @@ export function registerSchemaTools(server: McpServer, registry: ConnectionRegis
                 })
                 .join(',\n');
               const pk = table.columns.filter((c) => c.primaryKey);
-              const pkClause = pk.length > 0 ? `,\n  PRIMARY KEY (${pk.map((c) => c.name).join(', ')})` : '';
+              const pkClause =
+                pk.length > 0 ? `,\n  PRIMARY KEY (${pk.map((c) => c.name).join(', ')})` : '';
               return `CREATE TABLE ${table.name} (\n${cols}${pkClause}\n);`;
             })
             .join('\n\n');
@@ -199,7 +200,7 @@ export function registerSchemaTools(server: McpServer, registry: ConnectionRegis
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 }
 

@@ -16,7 +16,11 @@ function inferSqlType(val: unknown) {
 }
 
 /** 将 `?` 依次替换为 @p0,@p1… 并绑定参数（勿在字符串字面量中使用裸 `?`） */
-function bindQuestionMarks(request: sql.Request, rawSql: string, params: unknown[] | undefined): string {
+function bindQuestionMarks(
+  request: sql.Request,
+  rawSql: string,
+  params: unknown[] | undefined,
+): string {
   if (!params?.length) return rawSql;
   let i = 0;
   return rawSql.replace(/\?/g, () => {
@@ -58,7 +62,7 @@ export async function createMssqlDriver(spec: ConnectionSpec): Promise<SqlDriver
       mode: SqlExecutionMode,
       maxRows: number,
       queryTimeoutMs: number,
-      maxSqlLength: number
+      maxSqlLength: number,
     ): Promise<SqlExecuteResult> {
       const start = Date.now();
       if (sqlText.length > maxSqlLength) {
@@ -101,7 +105,7 @@ export async function createMssqlDriver(spec: ConnectionSpec): Promise<SqlDriver
           options.mode,
           options.maxRows,
           options.queryTimeoutMs,
-          options.maxSqlLength
+          options.maxSqlLength,
         );
       },
       async commit() {
@@ -138,10 +142,7 @@ export async function createMssqlDriver(spec: ConnectionSpec): Promise<SqlDriver
       try {
         const request = pool.request();
         const text = bindQuestionMarks(request, sqlText, params);
-        const result = await withTimeout(
-          request.query(text),
-          options.queryTimeoutMs
-        );
+        const result = await withTimeout(request.query(text), options.queryTimeoutMs);
         const executionTime = Date.now() - start;
         if (result.recordset) {
           const rows = result.recordset as unknown[];

@@ -11,7 +11,7 @@ export function validateIdent(name: string, field: string): void {
 export function describeTableSql(
   engine: SqlEngine,
   table: string,
-  schema?: string
+  schema?: string,
 ): { sql: string; params?: unknown[] } {
   validateIdent(table, 'table');
   switch (engine) {
@@ -57,7 +57,7 @@ export function describeTableSql(
 export function listIndexesSql(
   engine: SqlEngine,
   table: string,
-  schema?: string
+  schema?: string,
 ): { sql: string; params?: unknown[] } {
   validateIdent(table, 'table');
   switch (engine) {
@@ -101,7 +101,10 @@ export function listIndexesSql(
   }
 }
 
-export function listTablesSql(engine: SqlEngine, schema?: string): { sql: string; params?: unknown[] } {
+export function listTablesSql(
+  engine: SqlEngine,
+  schema?: string,
+): { sql: string; params?: unknown[] } {
   switch (engine) {
     case 'mysql':
       return {

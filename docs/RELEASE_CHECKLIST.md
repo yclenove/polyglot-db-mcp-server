@@ -15,6 +15,7 @@
 3. 不发布未文档化的新环境变量、新工具或行为变更。
 4. 不发布包含真实凭证、`.env`、生产连接串或私有 token 的提交。
 5. Patch 版本只做修复和文档/工程改进；新传输、新认证、新引擎进入 minor/major。
+6. `.env.example` 可以发布，但只能包含本地开发示例或占位符。
 
 ---
 
@@ -25,7 +26,7 @@
 - [ ] 当前分支正确，优先在 feature 分支完成开发，再合入 `main`。
 - [ ] `git status --short --branch` 仅包含本次发布预期文件。
 - [ ] 没有未解释的大型二进制文件或生成产物。
-- [ ] 没有 `.env`、`.env.*`、真实证书、生产凭证。
+- [ ] 没有 `.env`、`.env.*`（`.env.example` 除外）、真实证书、生产凭证。
 - [ ] 已 `git fetch origin` 并确认本地基于最新远端。
 
 建议命令：
@@ -70,7 +71,9 @@ npm ci
 npm run build
 npm test
 npm run lint
+npm run format:check
 npm run typecheck
+npm run test:coverage:check
 npm pack --dry-run
 ```
 
@@ -89,6 +92,7 @@ npm pack --dry-run
 - [ ] `dist/`
 - [ ] `README.md`
 - [ ] `README_en.md`（如果存在并维护）
+- [ ] `.env.example`
 - [ ] `CHANGELOG.md`
 - [ ] `LICENSE`
 - [ ] `MIGRATION.md`
@@ -98,7 +102,7 @@ npm pack --dry-run
 ### 4.2 必须排除
 
 - [ ] `.env`
-- [ ] `.env.*`
+- [ ] `.env.*`（`.env.example` 除外）
 - [ ] `node_modules/`
 - [ ] `coverage/`
 - [ ] `.git/`
@@ -236,6 +240,8 @@ npx polyglot-db-mcp-server test
 | test | ☐ 通过 / ☐ 不通过 | |
 | lint | ☐ 通过 / ☐ 不通过 | |
 | typecheck | ☐ 通过 / ☐ 不通过 | |
+| format:check | ☐ 通过 / ☐ 不通过 | |
+| coverage check | ☐ 通过 / ☐ 不通过 | |
 | pack dry-run | ☐ 通过 / ☐ 不通过 | |
 | secrets scan | ☐ 通过 / ☐ 不通过 | |
 | CHANGELOG | ☐ 通过 / ☐ 不通过 | |

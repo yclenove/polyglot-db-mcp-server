@@ -81,11 +81,19 @@ export function registerMaskingTools(server: McpServer): void {
   server.registerTool(
     'set_masking_mode',
     {
-      description: '设置数据脱敏模式。off=关闭，loose=仅脱敏匹配值模式的字段，strict=脱敏所有匹配字段名的字段，strict-v2=字段名+值双重匹配才脱敏。',
+      description:
+        '设置数据脱敏模式。off=关闭，loose=仅脱敏匹配值模式的字段，strict=脱敏所有匹配字段名的字段，strict-v2=字段名+值双重匹配才脱敏。',
       inputSchema: {
-        mode: z.enum(['off', 'loose', 'strict', 'strict-v2']).describe('脱敏模式：off=关闭，loose=值匹配脱敏，strict=字段名匹配脱敏，strict-v2=字段名+值双重匹配脱敏'),
+        mode: z
+          .enum(['off', 'loose', 'strict', 'strict-v2'])
+          .describe(
+            '脱敏模式：off=关闭，loose=值匹配脱敏，strict=字段名匹配脱敏，strict-v2=字段名+值双重匹配脱敏',
+          ),
         enabled: z.boolean().optional().describe('是否启用脱敏（默认根据 mode 自动判断）'),
-        excludeFields: z.array(z.string()).optional().describe('白名单字段列表，这些字段不参与脱敏'),
+        excludeFields: z
+          .array(z.string())
+          .optional()
+          .describe('白名单字段列表，这些字段不参与脱敏'),
         excludeConnections: z.array(z.string()).optional().describe('排除的连接 ID 列表'),
       },
     },
@@ -115,7 +123,7 @@ export function registerMaskingTools(server: McpServer): void {
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -149,13 +157,14 @@ export function registerMaskingTools(server: McpServer): void {
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
     'manage_masking_rules',
     {
-      description: '管理自定义脱敏规则。支持 add（添加）、remove（移除）、list（列出所有规则）操作。',
+      description:
+        '管理自定义脱敏规则。支持 add（添加）、remove（移除）、list（列出所有规则）操作。',
       inputSchema: {
         action: z.enum(['add', 'remove', 'list']).describe('操作类型'),
         name: z.string().optional().describe('规则名称（add/remove 时必填）'),
@@ -176,7 +185,12 @@ export function registerMaskingTools(server: McpServer): void {
         if (action === 'add') {
           if (!name || !fieldPattern || !valuePattern || !replacement) {
             return {
-              content: [{ type: 'text', text: 'add 操作需要 name、fieldPattern、valuePattern、replacement 四个参数' }],
+              content: [
+                {
+                  type: 'text',
+                  text: 'add 操作需要 name、fieldPattern、valuePattern、replacement 四个参数',
+                },
+              ],
               isError: true,
             };
           }
@@ -199,7 +213,16 @@ export function registerMaskingTools(server: McpServer): void {
           }
           addCustomMaskingRule({ name, fieldPattern, valuePattern, replacement });
           return {
-            content: [{ type: 'text', text: JSON.stringify({ success: true, message: `规则 "${name}" 已添加`, totalRules: listMaskingRules().length }) }],
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  success: true,
+                  message: `规则 "${name}" 已添加`,
+                  totalRules: listMaskingRules().length,
+                }),
+              },
+            ],
           };
         }
 
@@ -218,7 +241,16 @@ export function registerMaskingTools(server: McpServer): void {
             };
           }
           return {
-            content: [{ type: 'text', text: JSON.stringify({ success: true, message: `规则 "${name}" 已移除`, totalRules: listMaskingRules().length }) }],
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  success: true,
+                  message: `规则 "${name}" 已移除`,
+                  totalRules: listMaskingRules().length,
+                }),
+              },
+            ],
           };
         }
 
@@ -230,6 +262,6 @@ export function registerMaskingTools(server: McpServer): void {
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 }

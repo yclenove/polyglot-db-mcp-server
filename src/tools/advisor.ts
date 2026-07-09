@@ -4,11 +4,7 @@ import type { ConnectionRegistry } from '../core/registry.js';
 import type { SqlDriver } from '../core/types.js';
 import { globalLimits } from '../core/config.js';
 import { isReadOnlyQuery } from '../core/sql-guards.js';
-import {
-  analyzeQuery,
-  generateAnalysis,
-  type TableInfo,
-} from '../core/query-suggest.js';
+import { analyzeQuery, generateAnalysis, type TableInfo } from '../core/query-suggest.js';
 import { describeTableSql, explainQuerySql, listIndexesSql } from '../core/sql-helpers.js';
 
 type SqlResultRow = Record<string, unknown>;
@@ -34,7 +30,7 @@ function extractReferencedTables(sql: string): string[] {
 async function fetchTableInfo(
   driver: SqlDriver,
   tableName: string,
-  L: ReturnType<typeof globalLimits>
+  L: ReturnType<typeof globalLimits>,
 ): Promise<TableInfo> {
   // 获取列信息
   const { sql: colSql, params: colParams } = describeTableSql(driver.engine, tableName);
@@ -61,7 +57,7 @@ async function fetchTableInfo(
   });
 
   const indexesMap = new Map<string, string[]>();
-  for (const row of ((idxRes.data ?? []) as SqlResultRow[])) {
+  for (const row of (idxRes.data ?? []) as SqlResultRow[]) {
     const idxName = String(row.name ?? row.Key_name ?? row.indexname ?? '');
     const colName = String(row.column_name ?? row.Column_name ?? '');
     if (idxName && colName) {
@@ -86,7 +82,8 @@ export function registerAdvisorTools(server: McpServer, registry: ConnectionRegi
   server.registerTool(
     'query_suggest',
     {
-      description: '对 SQL 进行静态分析，返回优化建议（SELECT * 检测、全表扫描风险、索引建议、通配符检测等）。',
+      description:
+        '对 SQL 进行静态分析，返回优化建议（SELECT * 检测、全表扫描风险、索引建议、通配符检测等）。',
       inputSchema: {
         sql: z.string().describe('要分析的 SQL 查询'),
         connectionId: z.string().optional().describe('连接 ID，用于获取表结构信息以提供索引建议'),
@@ -132,7 +129,7 @@ export function registerAdvisorTools(server: McpServer, registry: ConnectionRegi
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -214,7 +211,7 @@ export function registerAdvisorTools(server: McpServer, registry: ConnectionRegi
           sql,
           tableInfo.length > 0 ? tableInfo : undefined,
           executionPlan,
-          driver.engine
+          driver.engine,
         );
 
         return {
@@ -239,6 +236,6 @@ export function registerAdvisorTools(server: McpServer, registry: ConnectionRegi
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 }

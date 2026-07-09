@@ -18,7 +18,7 @@ export class ConnectionRegistry {
   constructor(
     private readonly specs: ConnectionSpec[],
     defaultConnectionId: string,
-    handles: RuntimeHandle[]
+    handles: RuntimeHandle[],
   ) {
     this.defaultId = defaultConnectionId;
     if (!specs.some((s) => s.id === defaultConnectionId)) {
@@ -111,19 +111,36 @@ export class ConnectionRegistry {
     if (!this.byId.has(id)) return;
     let m = this.metrics.get(id);
     if (!m) {
-      m = { totalRequests: 0, successRequests: 0, failedRequests: 0, totalLatencyMs: 0, lastUsedAt: 0 };
+      m = {
+        totalRequests: 0,
+        successRequests: 0,
+        failedRequests: 0,
+        totalLatencyMs: 0,
+        lastUsedAt: 0,
+      };
       this.metrics.set(id, m);
     }
     m.totalRequests++;
     if (success) m.successRequests++;
-    else { m.failedRequests++; m.lastError = error; }
+    else {
+      m.failedRequests++;
+      m.lastError = error;
+    }
     m.totalLatencyMs += latencyMs;
     m.lastUsedAt = Date.now();
   }
 
   /** 获取连接指标 */
   getMetrics(id: string): ConnectionMetrics {
-    return this.metrics.get(id) ?? { totalRequests: 0, successRequests: 0, failedRequests: 0, totalLatencyMs: 0, lastUsedAt: 0 };
+    return (
+      this.metrics.get(id) ?? {
+        totalRequests: 0,
+        successRequests: 0,
+        failedRequests: 0,
+        totalLatencyMs: 0,
+        lastUsedAt: 0,
+      }
+    );
   }
 
   /** 获取所有连接指标 */

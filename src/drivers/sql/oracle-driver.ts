@@ -26,7 +26,7 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
     oracledb = (await import('oracledb')) as OraModule;
   } catch (e) {
     throw new Error(
-      `未安装 oracledb 可选依赖，无法创建 Oracle 连接：${e instanceof Error ? e.message : String(e)}`
+      `未安装 oracledb 可选依赖，无法创建 Oracle 连接：${e instanceof Error ? e.message : String(e)}`,
     );
   }
 
@@ -54,7 +54,10 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
     const conn = await pool.getConnection();
     // Oracle 自动开始事务，不需要显式 BEGIN
 
-    function bindQuestionMarks(sqlText: string, params: unknown[] | undefined): { text: string; binds: unknown[] } {
+    function bindQuestionMarks(
+      sqlText: string,
+      params: unknown[] | undefined,
+    ): { text: string; binds: unknown[] } {
       if (!params?.length) return { text: sqlText, binds: [] };
       const binds = [...params];
       let n = 0;
@@ -74,7 +77,7 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
       mode: SqlExecutionMode,
       maxRows: number,
       queryTimeoutMs: number,
-      maxSqlLength: number
+      maxSqlLength: number,
     ): Promise<SqlExecuteResult> {
       const start = Date.now();
       if (sqlText.length > maxSqlLength) {
@@ -94,10 +97,7 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
       if (mode === 'readonly') {
         execOpts.maxRows = Math.min(maxRows, 10_000);
       }
-      const result = (await withTimeout(
-        conn.execute(text, binds, execOpts),
-        queryTimeoutMs
-      )) as {
+      const result = (await withTimeout(conn.execute(text, binds, execOpts), queryTimeoutMs)) as {
         rows?: unknown[];
         rowsAffected?: number;
       };
@@ -127,7 +127,7 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
           options.mode,
           options.maxRows,
           options.queryTimeoutMs,
-          options.maxSqlLength
+          options.maxSqlLength,
         );
       },
       async commit() {
@@ -147,7 +147,10 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
     };
   }
 
-  function bindQuestionMarks(sqlText: string, params: unknown[] | undefined): { text: string; binds: unknown[] } {
+  function bindQuestionMarks(
+    sqlText: string,
+    params: unknown[] | undefined,
+  ): { text: string; binds: unknown[] } {
     if (!params?.length) return { text: sqlText, binds: [] };
     const binds = [...params];
     let n = 0;
@@ -205,7 +208,7 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
         }
         const result = (await withTimeout(
           conn.execute(text, binds, execOpts),
-          options.queryTimeoutMs
+          options.queryTimeoutMs,
         )) as {
           rows?: unknown[];
           rowsAffected?: number;

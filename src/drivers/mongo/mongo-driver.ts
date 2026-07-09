@@ -57,7 +57,10 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
     },
     async aggregate(collection, pipeline) {
       assertCollectionAllowed(collection);
-      const rows = await db.collection(collection).aggregate(pipeline as []).toArray();
+      const rows = await db
+        .collection(collection)
+        .aggregate(pipeline as [])
+        .toArray();
       auditLog({ engine: 'mongodb', op: 'aggregate', collection, n: rows.length });
       return rows;
     },
@@ -113,7 +116,13 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
       assertCollectionAllowed(collection);
       assertNotReadonly();
       const result = await db.collection(collection).updateMany(filter, update);
-      auditLog({ engine: 'mongodb', op: 'updateMany', collection, matched: result.matchedCount, modified: result.modifiedCount });
+      auditLog({
+        engine: 'mongodb',
+        op: 'updateMany',
+        collection,
+        matched: result.matchedCount,
+        modified: result.modifiedCount,
+      });
       return {
         acknowledged: result.acknowledged,
         matchedCount: result.matchedCount,
@@ -171,11 +180,13 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
     async createIndex(collection, keys, options) {
       assertCollectionAllowed(collection);
       assertNotReadonly();
-      const indexName = await db.collection(collection).createIndex(keys as unknown as import('mongodb').IndexSpecification, {
-        name: options?.name,
-        unique: options?.unique,
-        sparse: options?.sparse,
-      });
+      const indexName = await db
+        .collection(collection)
+        .createIndex(keys as unknown as import('mongodb').IndexSpecification, {
+          name: options?.name,
+          unique: options?.unique,
+          sparse: options?.sparse,
+        });
       auditLog({ engine: 'mongodb', op: 'createIndex', collection, indexName });
       return indexName;
     },

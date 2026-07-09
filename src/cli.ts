@@ -52,7 +52,9 @@ async function initCommand(): Promise<void> {
     const conn: Record<string, unknown> = { id, engine };
 
     if (engine === 'redis' || engine === 'mongodb') {
-      const url = await ask(`  ${engine} URL（如 ${engine === 'redis' ? 'redis://localhost:6379' : 'mongodb://localhost:27017/db'}）：`);
+      const url = await ask(
+        `  ${engine} URL（如 ${engine === 'redis' ? 'redis://localhost:6379' : 'mongodb://localhost:27017/db'}）：`,
+      );
       if (url) conn.url = url;
 
       if (engine === 'redis') {
@@ -66,7 +68,9 @@ async function initCommand(): Promise<void> {
         if (url) conn.url = url;
       } else {
         conn.host = (await ask('  主机（默认 localhost）：')) || 'localhost';
-        const portStr = await ask(`  端口（默认 ${engine === 'postgres' ? '5432' : engine === 'mysql' ? '3306' : engine === 'mssql' ? '1433' : '1521'}）：`);
+        const portStr = await ask(
+          `  端口（默认 ${engine === 'postgres' ? '5432' : engine === 'mysql' ? '3306' : engine === 'mssql' ? '1433' : '1521'}）：`,
+        );
         if (portStr) conn.port = parseInt(portStr, 10);
         conn.user = await ask('  用户名：');
         conn.password = await ask('  密码：');

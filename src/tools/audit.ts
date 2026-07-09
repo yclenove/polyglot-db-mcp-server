@@ -1,6 +1,11 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { getRecentAuditLogs, filterAuditLogs, getAuditStats, type AuditEntry } from '../core/audit.js';
+import {
+  getRecentAuditLogs,
+  filterAuditLogs,
+  getAuditStats,
+  type AuditEntry,
+} from '../core/audit.js';
 
 export function registerAuditTools(server: McpServer): void {
   server.registerTool(
@@ -21,7 +26,7 @@ export function registerAuditTools(server: McpServer): void {
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -29,7 +34,10 @@ export function registerAuditTools(server: McpServer): void {
     {
       description: '按条件过滤审计日志。',
       inputSchema: {
-        engine: z.string().optional().describe('按引擎过滤：mysql/postgres/mssql/oracle/mongodb/redis'),
+        engine: z
+          .string()
+          .optional()
+          .describe('按引擎过滤：mysql/postgres/mssql/oracle/mongodb/redis'),
         connection_id: z.string().optional().describe('按连接 ID 过滤'),
         operation: z.string().optional().describe('按操作类型过滤：query/execute/insertOne 等'),
         success: z.boolean().optional().describe('按成功/失败过滤'),
@@ -40,7 +48,15 @@ export function registerAuditTools(server: McpServer): void {
     },
     async ({ engine, connection_id, operation, success, since, until, limit }) => {
       try {
-        const logs = filterAuditLogs({ engine, connection_id, operation, success, since, until, limit });
+        const logs = filterAuditLogs({
+          engine,
+          connection_id,
+          operation,
+          success,
+          since,
+          until,
+          limit,
+        });
         return {
           content: [{ type: 'text', text: JSON.stringify({ logs, count: logs.length }) }],
         };
@@ -48,7 +64,7 @@ export function registerAuditTools(server: McpServer): void {
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -67,7 +83,7 @@ export function registerAuditTools(server: McpServer): void {
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -77,7 +93,10 @@ export function registerAuditTools(server: McpServer): void {
       inputSchema: {
         format: z.enum(['json']).optional().describe('导出格式，默认 json'),
         limit: z.number().int().min(1).max(10000).optional().describe('最大导出条数，默认 1000'),
-        since: z.string().optional().describe('起始时间（ISO 8601 时间戳），仅导出该时间之后的记录'),
+        since: z
+          .string()
+          .optional()
+          .describe('起始时间（ISO 8601 时间戳），仅导出该时间之后的记录'),
       },
     },
     async ({ format, limit, since }) => {
@@ -102,6 +121,6 @@ export function registerAuditTools(server: McpServer): void {
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 }

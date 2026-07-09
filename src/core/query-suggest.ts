@@ -78,7 +78,8 @@ function detectPrefixWildcard(sql: string): Suggestion | null {
     return {
       type: 'performance',
       severity: 'warn',
-      message: '检测到 LIKE 模式以 % 开头，无法使用索引，可能导致全表扫描。考虑使用全文索引或反转索引',
+      message:
+        '检测到 LIKE 模式以 % 开头，无法使用索引，可能导致全表扫描。考虑使用全文索引或反转索引',
     };
   }
   return null;
@@ -143,10 +144,7 @@ function detectImplicitConversion(sql: string): Suggestion | null {
 
 // ── EXPLAIN 结果分析规则 ──────────────────────────────────────
 
-function detectFullTableScan(
-  plan: Record<string, unknown>[],
-  _engine: string
-): Suggestion[] {
+function detectFullTableScan(plan: Record<string, unknown>[], _engine: string): Suggestion[] {
   const suggestions: Suggestion[] = [];
 
   for (const row of plan) {
@@ -214,7 +212,9 @@ function extractWhereColumns(sql: string): string[] {
   if (whereMatch && whereMatch[1]) {
     const whereClause = whereMatch[1];
     // 匹配 column = value, column > value 等模式
-    const colMatches = whereClause.matchAll(/\b([a-z_][a-z_0-9]*)\s*(?:=|>|<|>=|<=|<>|!=|like|in|between|is)\s/g);
+    const colMatches = whereClause.matchAll(
+      /\b([a-z_][a-z_0-9]*)\s*(?:=|>|<|>=|<=|<>|!=|like|in|between|is)\s/g,
+    );
     for (const m of colMatches) {
       const col = m[1];
       if (col && !['and', 'or', 'not', 'null', 'true', 'false'].includes(col)) {
@@ -238,10 +238,7 @@ function extractWhereColumns(sql: string): string[] {
   return [...new Set(columns)];
 }
 
-function suggestIndexes(
-  sql: string,
-  tableInfo?: TableInfo[]
-): Suggestion[] {
+function suggestIndexes(sql: string, tableInfo?: TableInfo[]): Suggestion[] {
   if (!tableInfo || tableInfo.length === 0) return [];
 
   const suggestions: Suggestion[] = [];
@@ -279,10 +276,7 @@ function suggestIndexes(
 /**
  * 分析 SQL 并生成优化建议
  */
-export function analyzeQuery(
-  sql: string,
-  tableInfo?: TableInfo[]
-): Suggestion[] {
+export function analyzeQuery(sql: string, tableInfo?: TableInfo[]): Suggestion[] {
   const timeout = getSuggestTimeoutFromEnv();
   const startTime = Date.now();
   const suggestions: Suggestion[] = [];
@@ -322,10 +316,7 @@ export function analyzeQuery(
 /**
  * 分析 EXPLAIN 结果并生成建议
  */
-export function analyzeExplainPlan(
-  plan: Record<string, unknown>[],
-  engine: string
-): Suggestion[] {
+export function analyzeExplainPlan(plan: Record<string, unknown>[], engine: string): Suggestion[] {
   const timeout = getSuggestTimeoutFromEnv();
   const startTime = Date.now();
   const suggestions: Suggestion[] = [];
@@ -353,7 +344,7 @@ export function generateAnalysis(
   sql: string,
   tableInfo?: TableInfo[],
   executionPlan?: Record<string, unknown>[],
-  engine?: string
+  engine?: string,
 ): AnalysisResult {
   const timeout = getSuggestTimeoutFromEnv();
   const startTime = Date.now();

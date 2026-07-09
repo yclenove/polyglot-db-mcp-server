@@ -12,7 +12,8 @@ export function registerReplayTools(server: McpServer, registry: ConnectionRegis
   server.registerTool(
     'query_history',
     {
-      description: '获取最近的查询历史记录。返回查询 SQL、参数摘要、执行时间和结果摘要（前5行采样）。',
+      description:
+        '获取最近的查询历史记录。返回查询 SQL、参数摘要、执行时间和结果摘要（前5行采样）。',
       inputSchema: {
         limit: z.number().int().min(1).max(200).optional().describe('返回记录数，默认 20'),
         connectionId: z.string().optional().describe('按连接 ID 过滤'),
@@ -40,13 +41,14 @@ export function registerReplayTools(server: McpServer, registry: ConnectionRegis
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
     'query_replay',
     {
-      description: '重新执行历史记录中的查询。通过 queryId 指定要回放的查询，使用原始 SQL 和参数重新执行。',
+      description:
+        '重新执行历史记录中的查询。通过 queryId 指定要回放的查询，使用原始 SQL 和参数重新执行。',
       inputSchema: {
         queryId: z.string().describe('要回放的查询 ID'),
         connectionId: z.string().optional().describe('使用指定连接执行（默认使用原查询的连接）'),
@@ -119,7 +121,7 @@ export function registerReplayTools(server: McpServer, registry: ConnectionRegis
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -142,8 +144,16 @@ export function registerReplayTools(server: McpServer, registry: ConnectionRegis
             {
               type: 'text',
               text: JSON.stringify({
-                queryA: { id: queryIdA, sql: recordA?.sql, rowCount: recordA?.resultSummary.rowCount },
-                queryB: { id: queryIdB, sql: recordB?.sql, rowCount: recordB?.resultSummary.rowCount },
+                queryA: {
+                  id: queryIdA,
+                  sql: recordA?.sql,
+                  rowCount: recordA?.resultSummary.rowCount,
+                },
+                queryB: {
+                  id: queryIdB,
+                  sql: recordB?.sql,
+                  rowCount: recordB?.resultSummary.rowCount,
+                },
                 diff,
               }),
             },
@@ -153,7 +163,7 @@ export function registerReplayTools(server: McpServer, registry: ConnectionRegis
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 }
 

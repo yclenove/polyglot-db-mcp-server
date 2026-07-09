@@ -3,7 +3,11 @@ import { z } from 'zod';
 import type { ConnectionRegistry } from '../core/registry.js';
 
 /** 分析文档结构，收集字段路径和类型 */
-function analyzeDocument(obj: Record<string, unknown>, prefix: string, fieldMap: Map<string, Set<string>>): void {
+function analyzeDocument(
+  obj: Record<string, unknown>,
+  prefix: string,
+  fieldMap: Map<string, Set<string>>,
+): void {
   for (const [key, value] of Object.entries(obj)) {
     const path = prefix ? `${prefix}.${key}` : key;
     const type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
@@ -58,7 +62,9 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         const d = registry.requireMongo(id);
         const names = await d.listCollections();
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, collections: names }) }],
+          content: [
+            { type: 'text', text: JSON.stringify({ connection_id: id, collections: names }) },
+          ],
         };
       } catch (e) {
         return {
@@ -66,7 +72,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -97,7 +103,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -128,7 +134,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -167,7 +173,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -200,7 +206,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -236,7 +242,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -271,7 +277,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -304,7 +310,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   // ── mongo_list_indexes ──────────────────────────────────
@@ -324,7 +330,9 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         const d = registry.requireMongo(id);
         const indexes = await d.listIndexes(collection);
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, collection, indexes }) }],
+          content: [
+            { type: 'text', text: JSON.stringify({ connection_id: id, collection, indexes }) },
+          ],
         };
       } catch (e) {
         return {
@@ -332,7 +340,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   // ── mongo_create_index ──────────────────────────────────
@@ -361,7 +369,9 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         }
         const indexName = await d.createIndex(collection, keys, { name, unique, sparse });
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, collection, indexName }) }],
+          content: [
+            { type: 'text', text: JSON.stringify({ connection_id: id, collection, indexName }) },
+          ],
         };
       } catch (e) {
         return {
@@ -369,7 +379,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   // ── 批量操作 ──────────────────────────────────────────
@@ -409,7 +419,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -442,7 +452,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -455,7 +465,10 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         filter_json: z.string().describe('JSON 对象字符串'),
         update_json: z.string().describe('JSON 对象字符串'),
         upsert: z.boolean().optional().describe('如果为 true，当没有匹配文档时插入新文档'),
-        returnDocument: z.enum(['before', 'after']).optional().describe('返回更新前还是更新后的文档'),
+        returnDocument: z
+          .enum(['before', 'after'])
+          .optional()
+          .describe('返回更新前还是更新后的文档'),
       },
     },
     async ({ connection_id, collection, filter_json, update_json, upsert, returnDocument }) => {
@@ -472,9 +485,14 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         if (typeof update !== 'object' || update === null || Array.isArray(update)) {
           throw new Error('update_json 须为 JSON 对象');
         }
-        const result = await d.findOneAndUpdate(collection, filter, update, { upsert, returnDocument });
+        const result = await d.findOneAndUpdate(collection, filter, update, {
+          upsert,
+          returnDocument,
+        });
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, document: result }) }],
+          content: [
+            { type: 'text', text: JSON.stringify({ connection_id: id, document: result }) },
+          ],
         };
       } catch (e) {
         return {
@@ -482,7 +500,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -507,7 +525,9 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         if (injection) throw new Error(injection);
         const result = await d.findOneAndDelete(collection, filter);
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, document: result }) }],
+          content: [
+            { type: 'text', text: JSON.stringify({ connection_id: id, document: result }) },
+          ],
         };
       } catch (e) {
         return {
@@ -515,7 +535,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   // ── Schema 分析 ──────────────────────────────────────────
@@ -523,7 +543,8 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
   server.registerTool(
     'mongo_schema_analysis',
     {
-      description: '分析集合的文档结构（采样 N 条文档，合并所有字段路径和类型）。用于快速了解集合 schema。',
+      description:
+        '分析集合的文档结构（采样 N 条文档，合并所有字段路径和类型）。用于快速了解集合 schema。',
       inputSchema: {
         connection_id: z.string().optional(),
         collection: z.string(),
@@ -549,7 +570,17 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         }));
 
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, collection, sampleSize: docs.length, fields: schema }) }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                connection_id: id,
+                collection,
+                sampleSize: docs.length,
+                fields: schema,
+              }),
+            },
+          ],
         };
       } catch (e) {
         return {
@@ -557,7 +588,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   // ── 集合管理 ──────────────────────────────────────────
@@ -585,7 +616,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -604,7 +635,9 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         const d = registry.requireMongo(id);
         const result = await d.renameCollection(collection, newName);
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, collectionName: result }) }],
+          content: [
+            { type: 'text', text: JSON.stringify({ connection_id: id, collectionName: result }) },
+          ],
         };
       } catch (e) {
         return {
@@ -612,6 +645,6 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           isError: true,
         };
       }
-    }
+    },
   );
 }

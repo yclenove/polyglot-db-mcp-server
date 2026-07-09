@@ -23,7 +23,7 @@ export function getBlockedCommands(): Set<string> {
       env
         .split(',')
         .map((s) => s.trim().toUpperCase())
-        .filter(Boolean)
+        .filter(Boolean),
     );
   }
   return new Set(DEFAULT_BLOCKED);

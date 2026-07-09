@@ -94,7 +94,10 @@ interface ConnectionDiagnoseResult {
   suggestions: string[];
 }
 
-async function diagnoseConnection(spec: ConnectionSpec, handle: RuntimeHandle): Promise<ConnectionDiagnoseResult> {
+async function diagnoseConnection(
+  spec: ConnectionSpec,
+  handle: RuntimeHandle,
+): Promise<ConnectionDiagnoseResult> {
   const suggestions = generateSuggestions(spec);
   const pingStart = Date.now();
 
@@ -178,9 +181,12 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
         };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        return { content: [{ type: 'text', text: JSON.stringify({ valid: false, error: msg }) }], isError: true };
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ valid: false, error: msg }) }],
+          isError: true,
+        };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -193,13 +199,14 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
       return {
         content: [{ type: 'text', text: JSON.stringify({ connections: registry.listMeta() }) }],
       };
-    }
+    },
   );
 
   server.registerTool(
     'test_connection',
     {
-      description: '对指定 connection_id 执行 ping（缺省使用 DB_MCP_DEFAULT_CONNECTION_ID 或第一条）',
+      description:
+        '对指定 connection_id 执行 ping（缺省使用 DB_MCP_DEFAULT_CONNECTION_ID 或第一条）',
       inputSchema: {
         connection_id: z.string().optional().describe('连接 id；缺省为默认连接'),
       },
@@ -217,7 +224,7 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: msg }], isError: true };
       }
-    }
+    },
   );
 
   server.registerTool(
@@ -282,7 +289,7 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
         ],
         isError: !allOk,
       };
-    }
+    },
   );
 
   server.registerTool(
@@ -327,7 +334,7 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
           },
         ],
       };
-    }
+    },
   );
 
   server.registerTool(
@@ -356,14 +363,18 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
       lines.push('# TYPE db_mcp_connection_requests_total counter');
       for (const spec of specs) {
         const m = registry.getMetrics(spec.id);
-        lines.push(`db_mcp_connection_requests_total{connection="${spec.id}",engine="${spec.engine}"} ${m.totalRequests}`);
+        lines.push(
+          `db_mcp_connection_requests_total{connection="${spec.id}",engine="${spec.engine}"} ${m.totalRequests}`,
+        );
       }
 
       lines.push('# HELP db_mcp_connection_requests_failed Failed requests per connection');
       lines.push('# TYPE db_mcp_connection_requests_failed counter');
       for (const spec of specs) {
         const m = registry.getMetrics(spec.id);
-        lines.push(`db_mcp_connection_requests_failed{connection="${spec.id}",engine="${spec.engine}"} ${m.failedRequests}`);
+        lines.push(
+          `db_mcp_connection_requests_failed{connection="${spec.id}",engine="${spec.engine}"} ${m.failedRequests}`,
+        );
       }
 
       lines.push('# HELP db_mcp_connection_avg_latency_ms Average latency per connection');
@@ -371,7 +382,9 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
       for (const spec of specs) {
         const m = registry.getMetrics(spec.id);
         const avg = m.totalRequests > 0 ? Math.round(m.totalLatencyMs / m.totalRequests) : 0;
-        lines.push(`db_mcp_connection_avg_latency_ms{connection="${spec.id}",engine="${spec.engine}"} ${avg}`);
+        lines.push(
+          `db_mcp_connection_avg_latency_ms{connection="${spec.id}",engine="${spec.engine}"} ${avg}`,
+        );
       }
 
       // 审计指标
@@ -390,7 +403,7 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
       return {
         content: [{ type: 'text', text: lines.join('\n') }],
       };
-    }
+    },
   );
 
   server.registerTool(
@@ -420,17 +433,20 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
               },
               connections: {
                 total: specs.length,
-                byEngine: specs.reduce((acc, s) => {
-                  acc[s.engine] = (acc[s.engine] ?? 0) + 1;
-                  return acc;
-                }, {} as Record<string, number>),
+                byEngine: specs.reduce(
+                  (acc, s) => {
+                    acc[s.engine] = (acc[s.engine] ?? 0) + 1;
+                    return acc;
+                  },
+                  {} as Record<string, number>,
+                ),
               },
               defaultConnection: registry.getDefaultId(),
             }),
           },
         ],
       };
-    }
+    },
   );
 
   server.registerTool(
@@ -450,7 +466,9 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
 
         if (connection_id && targetSpecs.length === 0) {
           return {
-            content: [{ type: 'text', text: JSON.stringify({ error: `未找到连接: ${connection_id}` }) }],
+            content: [
+              { type: 'text', text: JSON.stringify({ error: `未找到连接: ${connection_id}` }) },
+            ],
             isError: true,
           };
         }
@@ -485,6 +503,6 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
         const msg = e instanceof Error ? e.message : String(e);
         return { content: [{ type: 'text', text: JSON.stringify({ error: msg }) }], isError: true };
       }
-    }
+    },
   );
 }

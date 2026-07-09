@@ -146,7 +146,7 @@ export function parseMaskingConfigFromEnv(): MaskingConfig {
 function shouldMaskField(
   fieldName: string,
   excludeFields: string[],
-  rules: MaskingRule[]
+  rules: MaskingRule[],
 ): MaskingRule | undefined {
   const lower = fieldName.toLowerCase();
   if (excludeFields.some((ef) => ef.toLowerCase() === lower)) {
@@ -170,7 +170,7 @@ function maskValue(value: unknown, rule: MaskingRule): unknown {
 
 function applyStrictMode(
   row: Record<string, unknown>,
-  config: MaskingConfig
+  config: MaskingConfig,
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(row)) {
@@ -190,7 +190,7 @@ function applyStrictMode(
  */
 function applyStrictV2Mode(
   row: Record<string, unknown>,
-  config: MaskingConfig
+  config: MaskingConfig,
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(row)) {
@@ -207,7 +207,7 @@ function applyStrictV2Mode(
 
 function applyLooseMode(
   row: Record<string, unknown>,
-  config: MaskingConfig
+  config: MaskingConfig,
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   const excludeSet = new Set(config.excludeFields.map((f) => f.toLowerCase()));
@@ -239,7 +239,7 @@ function applyLooseMode(
  */
 export function applyMasking(
   rows: Record<string, unknown>[],
-  config: MaskingConfig
+  config: MaskingConfig,
 ): Record<string, unknown>[] {
   if (!config.enabled || config.mode === 'off' || rows.length === 0) {
     return rows;
