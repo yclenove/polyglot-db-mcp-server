@@ -250,7 +250,14 @@ HTTP endpoint：
 | `POST` | `/mcp` | Streamable HTTP MCP endpoint |
 | `GET` | `/healthz` | 进程健康 |
 | `GET` | `/readyz` | registry 和启动 ping readiness |
+| `GET` | `/metrics` | Prometheus text exposition；除显式关闭认证外需要 HTTP 认证 |
 | `GET/DELETE` | `/mcp` | v1.8.0 返回 405 |
+
+可观测性：
+
+- `prometheus_metrics` MCP 工具和 HTTP `GET /metrics` 使用同一套指标生成逻辑，包含连接请求、审计统计和工具调用聚合。
+- 工具调用会通过 OpenTelemetry API 创建 span；宿主进程注册 OTel provider 后可采集 `mcp.tool.name`、`db_mcp.connection_id`、`db_mcp.duration_ms`、`db_mcp.error_code` 等属性。
+- `/metrics` 不是健康检查端点，生产环境应继续使用 bearer/RBAC 或 API key fallback 保护。
 
 ---
 

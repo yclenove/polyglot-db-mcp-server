@@ -1,6 +1,6 @@
 # polyglot-db-mcp-server API 文档
 
-> 自动生成于 2026-07-09T19:37:04.013Z
+> 自动生成于 2026-07-09T19:58:01.970Z
 
 ## 目录
 
@@ -43,6 +43,7 @@
 | `/mcp` | GET/DELETE | v1.8.0 返回 405，SSE/resumability 后续实现 |
 | `/healthz` | GET | 进程健康检查 |
 | `/readyz` | GET | registry 和启动 ping readiness |
+| `/metrics` | GET | Prometheus text exposition；除显式关闭认证外需要 HTTP 认证 |
 
 HTTP 安全默认值：
 
@@ -142,7 +143,7 @@ HTTP 安全默认值：
 
 ### `prometheus_metrics`
 
-返回 Prometheus 文本格式指标，可用于监控系统集成。
+返回 Prometheus 文本格式指标，可用于监控系统集成；HTTP 模式也提供同内容的 GET /metrics。
 
 ---
 

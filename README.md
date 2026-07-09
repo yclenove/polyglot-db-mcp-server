@@ -76,6 +76,7 @@ HTTP 模式提供：
 - `POST /mcp`：Streamable HTTP MCP endpoint，支持 initialize、tools/list、tools/call。
 - `GET /healthz`：进程健康，不 ping 数据库。
 - `GET /readyz`：registry 和启动 ping 状态。
+- `GET /metrics`：Prometheus text exposition，包含连接、审计和工具调用指标；除显式关闭认证外需要 HTTP 认证。
 - `GET/DELETE /mcp`：v1.8.0 返回 405，SSE/resumability 后续迭代。
 
 安全默认值：

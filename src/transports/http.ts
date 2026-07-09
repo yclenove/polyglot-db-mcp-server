@@ -9,6 +9,7 @@ import type { ConnectionRegistry } from '../core/registry.js';
 import type { HttpTransportConfig } from '../core/http-config.js';
 import { createErrorPayload, maskErrorCredentials, type ErrorCode } from '../core/error-codes.js';
 import { logger } from '../core/logger.js';
+import { buildPrometheusMetrics } from '../core/observability.js';
 import { createServer as createMcpServer } from '../server.js';
 import { healthPayload, readinessPayload, type PingSummary } from './health.js';
 import { createJwtVerifier, type JwtVerifier } from '../auth/token-verifier.js';
@@ -49,6 +50,21 @@ function sendJson(
     ...headers,
   });
   res.end(JSON.stringify(payload));
+}
+
+function sendText(
+  res: ServerResponse,
+  statusCode: number,
+  body: string,
+  contentType: string,
+  headers: Record<string, string> = {},
+): void {
+  if (res.headersSent) return;
+  res.writeHead(statusCode, {
+    'content-type': contentType,
+    ...headers,
+  });
+  res.end(body);
 }
 
 function sendMcpError(
@@ -288,6 +304,22 @@ export async function startHttpTransport(options: {
       if (req.method === 'GET' && pathname === '/readyz') {
         const ready = readinessPayload(registry, startupPings);
         sendJson(res, ready.statusCode, ready.payload);
+        return;
+      }
+
+      if (pathname === '/metrics') {
+        assertOriginAllowed(req, config);
+        if (req.method === 'GET') {
+          await authenticateHttpRequest(req, config, jwtVerifier);
+          sendText(
+            res,
+            200,
+            buildPrometheusMetrics(registry),
+            'text/plain; version=0.0.4; charset=utf-8',
+          );
+          return;
+        }
+        sendMcpError(res, 405, 'HTTP_003', 'Method not allowed', { allow: 'GET' });
         return;
       }
 

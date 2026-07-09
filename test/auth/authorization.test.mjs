@@ -75,6 +75,8 @@ describe('authorization runtime audit', () => {
   test('exposes matched policy conditions during tool execution', async () => {
     const { installAuthorization } = await import('../../dist/auth/authorization.js');
     const { getRequestPolicyConditions } = await import('../../dist/auth/request-policy.js');
+    const { resetObservabilityForTests } = await import('../../dist/core/observability.js');
+    resetObservabilityForTests();
     const server = new MockMcpServer();
 
     installAuthorization(server, {
@@ -99,5 +101,44 @@ describe('authorization runtime audit', () => {
     const conditions = JSON.parse(result.content[0].text);
     assert.equal(conditions.maskingMode, 'strict-v2');
     assert.equal(getRequestPolicyConditions(), undefined);
+  });
+
+  test('records tool call observability metrics for allow and deny paths', async () => {
+    const { installAuthorization } = await import('../../dist/auth/authorization.js');
+    const { getToolCallMetrics, resetObservabilityForTests } = await import(
+      '../../dist/core/observability.js'
+    );
+    resetObservabilityForTests();
+    const server = new MockMcpServer();
+    let allow = true;
+
+    installAuthorization(server, {
+      authorize() {
+        return {
+          allowed: allow,
+          reason: allow ? 'ok' : 'blocked',
+          roles: ['readonly_analyst'],
+          action: 'read',
+          connectionId: 'pg',
+          subject: 'agent:metrics',
+          transport: 'http',
+        };
+      },
+    });
+
+    server.registerTool('probe_metrics', {}, async () => ({
+      content: [{ type: 'text', text: 'ok' }],
+    }));
+
+    await server.tools.get('probe_metrics').handler({}, extra('agent:metrics'));
+    allow = false;
+    const denied = await server.tools.get('probe_metrics').handler({}, extra('agent:metrics'));
+
+    assert.equal(denied.isError, true);
+    const metrics = getToolCallMetrics().find((metric) => metric.tool === 'probe_metrics');
+    assert.ok(metrics);
+    assert.equal(metrics.totalCalls, 2);
+    assert.equal(metrics.failedCalls, 1);
+    assert.equal(metrics.byErrorCode.AUTH_005, 1);
   });
 });

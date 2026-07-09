@@ -4,9 +4,9 @@
 **版本**: 1.0
 **日期**: 2026-07-09
 **规划周期**: 2026 Q3 ~ 2027 Q2
-**当前基线**: v2.1.1
+**当前基线**: v2.2.0
 **状态**: 当前有效
-**当前详细迭代**: `docs/ITER-v1.7.1-迭代计划.md`、`docs/ITER-v1.7.2-迭代计划.md`、`docs/ITER-v1.7.3-迭代计划.md`、`docs/ITER-v1.8.0-迭代计划.md`、`docs/ITER-v1.9.0-迭代计划.md`、`docs/ITER-v2.0.0-迭代计划.md`、`docs/ITER-v2.0.1-迭代计划.md`、`docs/ITER-v2.1.0-迭代计划.md`、`docs/ITER-v2.1.1-迭代计划.md`
+**当前详细迭代**: `docs/ITER-v1.7.1-迭代计划.md`、`docs/ITER-v1.7.2-迭代计划.md`、`docs/ITER-v1.7.3-迭代计划.md`、`docs/ITER-v1.8.0-迭代计划.md`、`docs/ITER-v1.9.0-迭代计划.md`、`docs/ITER-v2.0.0-迭代计划.md`、`docs/ITER-v2.0.1-迭代计划.md`、`docs/ITER-v2.1.0-迭代计划.md`、`docs/ITER-v2.1.1-迭代计划.md`、`docs/ITER-v2.2.0-迭代计划.md`
 **文档索引**: `docs/INDEX.md`
 
 ---
@@ -76,7 +76,7 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 | Phase 2 | v1.9.0 | 2026 Q4 | 高级数据库能力 | Mongo 事务、Redis pipeline、SQL schema diff 已完成 |
 | Phase 3 | v2.0.0 | 2026 Q4 ~ 2027 Q1 | 企业安全 | OAuth 2.1、RBAC、租户隔离、审计增强 |
 | Phase 4 | v2.1.0 ~ v2.1.1 | 2027 Q1 | 分析与本地数据生态 | DuckDB、查询导出与采样画像已完成 |
-| Phase 5 | v2.2.0 | 2027 Q2 | 可观测与治理 | Prometheus/OTel、策略引擎、配置中心化 |
+| Phase 5 | v2.2.0 | 2027 Q2 | 可观测与治理 | Prometheus/OTel 可观测基线已完成；策略治理继续进入 v2.2.x |
 | Phase 6 | v3.0.0 | 2027 Q2+ | 插件化生态 | 插件式驱动、第三方工具包、可扩展能力市场 |
 
 ### 4.1 需求追踪矩阵
@@ -95,6 +95,9 @@ polyglot-db-mcp-server 的长期目标是成为 **安全优先、企业可用、
 | `docs/QUALITY-v2.1.0-质量报告.md` | DuckDB 安全边界和质量门禁 | v2.1.0 | v2.1.0 发布审计 |
 | `docs/ITER-v2.1.1-迭代计划.md` | 查询导出和表采样画像 | v2.1.1 | Phase 4 分析生态补强 |
 | `docs/QUALITY-v2.1.1-质量报告.md` | 导出/采样安全边界和质量门禁 | v2.1.1 | v2.1.1 发布审计 |
+| `docs/PRD-v2.2.0.md` | 可观测与治理基线 | v2.2.0 | Phase 5 可观测 P0/P1 范围 |
+| `docs/ITER-v2.2.0-迭代计划.md` | `/metrics`、工具调用指标、OTel API span | v2.2.0 | v2.2.0 执行记录 |
+| `docs/QUALITY-v2.2.0-质量报告.md` | 可观测基线质量门禁 | v2.2.0 | v2.2.0 发布审计 |
 | `docs/PRD-v1.7.0.md` | 后续 HTTP、OAuth、RBAC、Mongo 事务、Redis Pipeline、DuckDB | v1.8 ~ v2.1 | ROADMAP Phase 1 ~ 4 |
 | `docs/MARKET-市场分析.md` | DBHub/FreePeak 等竞品压力，引擎覆盖和企业能力 | v1.8 ~ v2.2 | 传输、企业安全、可观测 |
 | AGENTS.md | `sql_query` 必须保持 MCP 层只读保护，测试先 build 后 test | 所有版本 | 质量门禁和发布 checklist |
@@ -289,14 +292,17 @@ v1.9.0 已完成 P0 范围：SQL `schema_diff`、MongoDB 多文档事务生命�
 ## 十、Phase 5：v2.2.0 可观测与治理
 
 **主题**: 从工具服务器升级为可治理的生产服务。
+**前置 PRD**: `docs/PRD-v2.2.0.md`
+**实施计划**: `docs/ITER-v2.2.0-迭代计划.md`
+**状态**: Prometheus/OTel 可观测基线已完成；告警 webhook、外部配置和审批式策略治理进入 v2.2.x 后续。
 
 | 优先级 | 功能 | 说明 |
 |--------|------|------|
-| P0 | OpenTelemetry tracing | 每次工具调用可追踪 connection、duration、error code |
-| P0 | Prometheus 指标完善 | 请求量、失败率、延迟、缓存命中率、连接健康 |
-| P1 | 策略引擎 | 最大行数、最大执行时间、写操作审批、脱敏强制 |
-| P1 | 告警 webhook | 连接失败、错误率升高、慢查询、频繁写操作 |
-| P2 | 配置中心化 | 支持外部配置文件 reload，后续可接入 UI |
+| P0 | OpenTelemetry tracing | 已完成 API span 接入；每次工具调用可追踪 connection、duration、error code |
+| P0 | Prometheus 指标完善 | 已完成 `/metrics` 与 `prometheus_metrics` 统一输出，覆盖连接、审计和工具调用 |
+| P1 | 策略引擎 | 已有 RBAC conditions 基线；写操作审批和更完整 policy 模板进入 v2.2.x |
+| P1 | 告警 webhook | v2.2.x 后续：连接失败、错误率升高、慢查询、频繁写操作 |
+| P2 | 配置中心化 | v2.2.x/v2.3.0 后续：外部配置文件 reload，后续可接入 UI |
 
 ---
 
@@ -368,7 +374,7 @@ v1.9.0 已完成 P0 范围：SQL `schema_diff`、MongoDB 多文档事务生命�
 
 ## 十五、近期建议执行顺序
 
-1. v2.2.0：推进 OTel/Prometheus、审计持久化和策略治理。
+1. v2.2.x：推进告警 webhook、OTel exporter 配置、审计持久化和策略模板。
 2. v3.0.0：在权限、审计、策略稳定后进入插件化生态。
 
 ---
@@ -427,9 +433,9 @@ v1.9.0 已完成 P0 范围：SQL `schema_diff`、MongoDB 多文档事务生命�
 
 ## 十八、下一步
 
-建议下一步进入 **v2.2.0 治理能力设计与可观测实现**：
+建议下一步进入 **v2.2.x 治理扩展与 v3.0.0 插件化前置复核**：
 
-1. v2.2.0 前评审 Prometheus/OTel、审计持久化和 policy 模板。
+1. v2.2.x 继续推进 OTel exporter、告警 webhook、审计持久化和 policy 模板。
 2. v3.0.0 开发前复核 `docs/ADR-003-plugin-architecture.md`，确认插件安全边界。
 3. 提交规划包前按 `docs/PLANNING_AUDIT.md` 运行引用和格式审计。
 4. 每阶段完成后运行 `npm run build`、`npm test`、`npm run lint`，再提交发布补丁。

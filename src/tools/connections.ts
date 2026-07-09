@@ -8,6 +8,7 @@ import { getVersion } from '../core/version.js';
 import { parseConnectionSpecs } from '../core/config.js';
 import type { ConnectionSpec, Engine, SqlEngine, RuntimeHandle } from '../core/types.js';
 import { isSqlEngine } from '../core/types.js';
+import { buildPrometheusMetrics, getToolCallMetrics } from '../core/observability.js';
 import {
   createErrorPayload,
   maskErrorCredentials,
@@ -466,6 +467,7 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
                 byEngine: auditStats.byEngine,
                 performance: auditStats.performance,
               },
+              tools: getToolCallMetrics(),
             }),
           },
         ],
@@ -480,64 +482,8 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
       inputSchema: {},
     },
     async () => {
-      const specs = registry.getSpecs();
-      const auditStats = getAuditStats();
-      const uptimeMs = Date.now() - serverStartTime;
-      const lines: string[] = [];
-
-      // 服务器指标
-      lines.push('# HELP db_mcp_uptime_seconds Server uptime in seconds');
-      lines.push('# TYPE db_mcp_uptime_seconds gauge');
-      lines.push(`db_mcp_uptime_seconds ${Math.floor(uptimeMs / 1000)}`);
-
-      lines.push('# HELP db_mcp_connections_total Total configured connections');
-      lines.push('# TYPE db_mcp_connections_total gauge');
-      lines.push(`db_mcp_connections_total ${specs.length}`);
-
-      // 每连接指标
-      lines.push('# HELP db_mcp_connection_requests_total Total requests per connection');
-      lines.push('# TYPE db_mcp_connection_requests_total counter');
-      for (const spec of specs) {
-        const m = registry.getMetrics(spec.id);
-        lines.push(
-          `db_mcp_connection_requests_total{connection="${spec.id}",engine="${spec.engine}"} ${m.totalRequests}`,
-        );
-      }
-
-      lines.push('# HELP db_mcp_connection_requests_failed Failed requests per connection');
-      lines.push('# TYPE db_mcp_connection_requests_failed counter');
-      for (const spec of specs) {
-        const m = registry.getMetrics(spec.id);
-        lines.push(
-          `db_mcp_connection_requests_failed{connection="${spec.id}",engine="${spec.engine}"} ${m.failedRequests}`,
-        );
-      }
-
-      lines.push('# HELP db_mcp_connection_avg_latency_ms Average latency per connection');
-      lines.push('# TYPE db_mcp_connection_avg_latency_ms gauge');
-      for (const spec of specs) {
-        const m = registry.getMetrics(spec.id);
-        const avg = m.totalRequests > 0 ? Math.round(m.totalLatencyMs / m.totalRequests) : 0;
-        lines.push(
-          `db_mcp_connection_avg_latency_ms{connection="${spec.id}",engine="${spec.engine}"} ${avg}`,
-        );
-      }
-
-      // 审计指标
-      lines.push('# HELP db_mcp_audit_total Total audit log entries');
-      lines.push('# TYPE db_mcp_audit_total gauge');
-      lines.push(`db_mcp_audit_total ${auditStats.total}`);
-
-      lines.push('# HELP db_mcp_audit_slow_queries Total slow queries');
-      lines.push('# TYPE db_mcp_audit_slow_queries gauge');
-      lines.push(`db_mcp_audit_slow_queries ${auditStats.performance.slowQueries}`);
-
-      lines.push('# HELP db_mcp_audit_p95_latency_ms P95 query latency');
-      lines.push('# TYPE db_mcp_audit_p95_latency_ms gauge');
-      lines.push(`db_mcp_audit_p95_latency_ms ${auditStats.performance.p95Ms}`);
-
       return {
-        content: [{ type: 'text', text: lines.join('\n') }],
+        content: [{ type: 'text', text: buildPrometheusMetrics(registry) }],
       };
     },
   );

@@ -71,6 +71,7 @@ HTTP mode provides:
 - `POST /mcp`: Streamable HTTP MCP endpoint for initialize, tools/list, and tools/call.
 - `GET /healthz`: process health without pinging databases.
 - `GET /readyz`: registry and startup ping readiness.
+- `GET /metrics`: Prometheus text exposition for connection, audit, and tool-call metrics; it requires HTTP auth unless auth is explicitly disabled.
 - `GET/DELETE /mcp`: returns 405 in v1.8.0; SSE/resumability are planned later.
 
 Security defaults:

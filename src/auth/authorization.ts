@@ -5,9 +5,11 @@ import type {
   ServerRequest,
   CallToolResult,
 } from '@modelcontextprotocol/sdk/types.js';
+import { SpanStatusCode, trace } from '@opentelemetry/api';
 import type { ConnectionRegistry } from '../core/registry.js';
 import { auditLog } from '../core/audit.js';
 import { createErrorPayload } from '../core/error-codes.js';
+import { recordToolCall } from '../core/observability.js';
 import { getToolActionInfo } from '../core/tool-action-map.js';
 import { authContextFromInfo, localStdioAuthInfo } from './auth-context.js';
 import { runWithRequestPolicy } from './request-policy.js';
@@ -22,6 +24,7 @@ import {
 
 type Extra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 type RawToolCallback = (first: unknown, second?: Extra) => CallToolResult | Promise<CallToolResult>;
+const toolTracer = trace.getTracer('polyglot-db-mcp-server.tools');
 
 export interface AuthorizationOptions {
   mode: 'none' | 'api_key' | 'bearer';
@@ -127,6 +130,27 @@ function denialResult(decision: AuthorizationDecision, action: AuthAction): Call
   };
 }
 
+function textContent(result: CallToolResult): string | undefined {
+  const item = result.content.find((content) => content.type === 'text');
+  return item?.type === 'text' ? item.text : undefined;
+}
+
+function extractErrorCode(result: CallToolResult): string | undefined {
+  if (!result.isError) return undefined;
+  const text = textContent(result);
+  if (!text) return undefined;
+  try {
+    const payload = JSON.parse(text) as {
+      error_info?: { code?: unknown };
+      error?: { data?: { error_info?: { code?: unknown } } };
+    };
+    const code = payload.error_info?.code ?? payload.error?.data?.error_info?.code;
+    return typeof code === 'string' && code.trim() !== '' ? code : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function createAuthorizationRuntime(
   registry: ConnectionRegistry,
   options: AuthorizationOptions,
@@ -197,14 +221,88 @@ export function installAuthorization(server: McpServer, authorization: Authoriza
   ) => {
     const rawCallback = cb as unknown as RawToolCallback;
     const wrapped: ToolCallback = async (argsOrExtra: unknown, maybeExtra?: Extra) => {
-      const hasArgs = maybeExtra !== undefined;
-      const input = hasArgs ? inputRecord(argsOrExtra) : {};
-      const extra = hasArgs ? maybeExtra : (argsOrExtra as Extra | undefined);
-      const decision = authorization.authorize(name, input, extra);
-      if (!decision.allowed) return denialResult(decision, decision.action);
-      return runWithRequestPolicy(decision.conditions, () =>
-        hasArgs ? rawCallback(argsOrExtra, maybeExtra) : rawCallback(argsOrExtra as Extra),
-      );
+      return toolTracer.startActiveSpan(`mcp.tool.${name}`, async (span) => {
+        const startedAt = Date.now();
+        const hasArgs = maybeExtra !== undefined;
+        const input = hasArgs ? inputRecord(argsOrExtra) : {};
+        const extra = hasArgs ? maybeExtra : (argsOrExtra as Extra | undefined);
+        let action = 'unknown';
+        let connectionId: string | undefined;
+        let transport: 'stdio' | 'http' = 'stdio';
+
+        try {
+          const decision = authorization.authorize(name, input, extra);
+          action = decision.action;
+          connectionId = decision.connectionId;
+          transport = decision.transport;
+
+          span.setAttribute('mcp.tool.name', name);
+          span.setAttribute('db_mcp.action', action);
+          span.setAttribute('db_mcp.transport', transport);
+          span.setAttribute('enduser.id', decision.subject);
+          if (decision.tenant) span.setAttribute('db_mcp.tenant', decision.tenant);
+          if (connectionId) span.setAttribute('db_mcp.connection_id', connectionId);
+
+          if (!decision.allowed) {
+            const result = denialResult(decision, decision.action);
+            const durationMs = Date.now() - startedAt;
+            span.setAttribute('db_mcp.duration_ms', durationMs);
+            span.setAttribute('db_mcp.error_code', 'AUTH_005');
+            span.setStatus({ code: SpanStatusCode.ERROR, message: decision.reason });
+            recordToolCall({
+              tool: name,
+              action,
+              connectionId,
+              transport,
+              success: false,
+              durationMs,
+              errorCode: 'AUTH_005',
+            });
+            return result;
+          }
+
+          const result = await runWithRequestPolicy(decision.conditions, () =>
+            hasArgs ? rawCallback(argsOrExtra, maybeExtra) : rawCallback(argsOrExtra as Extra),
+          );
+          const errorCode = extractErrorCode(result);
+          const success = result.isError !== true;
+          const durationMs = Date.now() - startedAt;
+          span.setAttribute('db_mcp.duration_ms', durationMs);
+          if (errorCode) span.setAttribute('db_mcp.error_code', errorCode);
+          if (!success) {
+            span.setStatus({ code: SpanStatusCode.ERROR, message: errorCode ?? 'tool error' });
+          }
+          recordToolCall({
+            tool: name,
+            action,
+            connectionId,
+            transport,
+            success,
+            durationMs,
+            errorCode,
+          });
+          return result;
+        } catch (error) {
+          const durationMs = Date.now() - startedAt;
+          const message = error instanceof Error ? error.message : String(error);
+          span.recordException(error instanceof Error ? error : new Error(message));
+          span.setAttribute('db_mcp.duration_ms', durationMs);
+          span.setAttribute('db_mcp.error_code', 'UNHANDLED');
+          span.setStatus({ code: SpanStatusCode.ERROR, message });
+          recordToolCall({
+            tool: name,
+            action,
+            connectionId,
+            transport,
+            success: false,
+            durationMs,
+            errorCode: 'UNHANDLED',
+          });
+          throw error;
+        } finally {
+          span.end();
+        }
+      });
     };
     return registerTool(name, config, wrapped);
   }) as McpServer['registerTool'];

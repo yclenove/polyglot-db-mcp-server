@@ -4,6 +4,17 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.0] - 2026-07-10
+
+### 新增
+- **HTTP Prometheus endpoint**：HTTP 模式新增 `GET /metrics`，输出与 `prometheus_metrics` MCP 工具一致的 Prometheus text exposition。
+- **工具调用可观测性**：统一授权 wrapper 会记录工具调用次数、失败数、耗时、最大耗时和错误码，并暴露为 `db_mcp_tool_*` 指标。
+- **OpenTelemetry API span**：每次 MCP 工具调用都会创建 `mcp.tool.<name>` span，包含 tool、action、transport、connection、tenant、duration 和 error code 属性。
+
+### 安全
+- `/metrics` 默认复用 HTTP Origin 与认证校验；只有显式关闭 HTTP 认证时才允许匿名访问。
+- 工具调用指标只记录 tool/action/connection/transport/error code 等运行时元数据，不记录 SQL、参数、token 或查询结果。
+
 ## [2.1.1] - 2026-07-10
 
 ### 新增

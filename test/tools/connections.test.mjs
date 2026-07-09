@@ -32,6 +32,15 @@ class MockRegistry {
   getSpecs() {
     return this.specs;
   }
+  getMetrics() {
+    return {
+      totalRequests: 0,
+      successRequests: 0,
+      failedRequests: 0,
+      totalLatencyMs: 0,
+      lastUsedAt: 0,
+    };
+  }
   require(id) {
     const h = this.handles.get(id);
     if (!h) throw new Error(`未知 connection_id: ${id}`);
@@ -87,6 +96,10 @@ describe('Connection Tools', () => {
 
   test('connection_stats tool is registered', () => {
     assert.ok(server.tools.has('connection_stats'));
+  });
+
+  test('prometheus_metrics tool is registered', () => {
+    assert.ok(server.tools.has('prometheus_metrics'));
   });
 
   test('list_connections returns connection metadata', async () => {
@@ -198,6 +211,14 @@ describe('Connection Tools', () => {
 
   test('server_info tool is registered', () => {
     assert.ok(server.tools.has('server_info'));
+  });
+
+  test('prometheus_metrics returns text exposition format', async () => {
+    const tool = server.tools.get('prometheus_metrics');
+    const result = await tool.handler({});
+    assert.ok(result.content[0].text);
+    assert.match(result.content[0].text, /# TYPE db_mcp_connections_total gauge/);
+    assert.match(result.content[0].text, /db_mcp_connections_total 3/);
   });
 
   test('server_info returns version and connection info', async () => {

@@ -58,7 +58,7 @@ const tools = [
   {
     name: 'prometheus_metrics',
     category: '连接管理',
-    description: '返回 Prometheus 文本格式指标，可用于监控系统集成。',
+    description: '返回 Prometheus 文本格式指标，可用于监控系统集成；HTTP 模式也提供同内容的 GET /metrics。',
     params: [],
   },
 
@@ -963,6 +963,7 @@ function generateMarkdown(tools) {
 | \`/mcp\` | GET/DELETE | v1.8.0 返回 405，SSE/resumability 后续实现 |
 | \`/healthz\` | GET | 进程健康检查 |
 | \`/readyz\` | GET | registry 和启动 ping readiness |
+| \`/metrics\` | GET | Prometheus text exposition；除显式关闭认证外需要 HTTP 认证 |
 
 HTTP 安全默认值：
 

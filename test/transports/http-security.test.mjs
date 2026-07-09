@@ -8,6 +8,18 @@ const mockRegistry = {
   listMeta() {
     return [{ id: 'local', engine: 'sqlite', readonly: false }];
   },
+  getSpecs() {
+    return [{ id: 'local', engine: 'sqlite', readonly: false }];
+  },
+  getMetrics() {
+    return {
+      totalRequests: 0,
+      successRequests: 0,
+      failedRequests: 0,
+      totalLatencyMs: 0,
+      lastUsedAt: 0,
+    };
+  },
 };
 
 const baseConfig = {
@@ -22,6 +34,19 @@ const baseConfig = {
   requestTimeoutMs: 5000,
 };
 
+const fetchBlockedPorts = new Set([
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79,
+  87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137,
+  139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532,
+  540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723,
+  2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669,
+  6697, 10080,
+]);
+
+function isFetchBlockedPort(url) {
+  return fetchBlockedPorts.has(Number(new URL(url).port));
+}
+
 describe('HTTP transport security', () => {
   let started;
 
@@ -34,11 +59,17 @@ describe('HTTP transport security', () => {
 
   async function start(config) {
     const { startHttpTransport } = await import('../../dist/transports/http.js');
-    started = await startHttpTransport({
-      registry: mockRegistry,
-      config: { ...baseConfig, ...config },
-      startupPings: [{ id: 'local', ok: true, latencyMs: 1 }],
-    });
+    for (let i = 0; i < 10; i++) {
+      started = await startHttpTransport({
+        registry: mockRegistry,
+        config: { ...baseConfig, ...config },
+        startupPings: [{ id: 'local', ok: true, latencyMs: 1 }],
+      });
+      if (!isFetchBlockedPort(started.url)) break;
+      await started.close();
+      started = undefined;
+    }
+    if (!started) throw new Error('failed to allocate a Fetch-compatible test port');
     return started;
   }
 
@@ -52,6 +83,36 @@ describe('HTTP transport security', () => {
     const ready = await fetch(server.url.replace('/mcp', '/readyz'));
     assert.equal(ready.status, 200);
     assert.equal((await ready.json()).status, 'ready');
+  });
+
+  test('metrics endpoint returns Prometheus text when auth is disabled', async () => {
+    const server = await start({});
+
+    const metrics = await fetch(server.url.replace('/mcp', '/metrics'));
+    assert.equal(metrics.status, 200);
+    assert.match(metrics.headers.get('content-type'), /^text\/plain/);
+    assert.match(await metrics.text(), /db_mcp_connections_total 1/);
+  });
+
+  test('metrics endpoint requires configured HTTP auth', async () => {
+    const server = await start({ apiKey: 'secret', authDisabled: false });
+
+    const missing = await fetch(server.url.replace('/mcp', '/metrics'));
+    assert.equal(missing.status, 401);
+
+    const ok = await fetch(server.url.replace('/mcp', '/metrics'), {
+      headers: { authorization: 'Bearer secret' },
+    });
+    assert.equal(ok.status, 200);
+    assert.match(await ok.text(), /db_mcp_uptime_seconds/);
+  });
+
+  test('metrics endpoint only allows GET', async () => {
+    const server = await start({});
+
+    const res = await fetch(server.url.replace('/mcp', '/metrics'), { method: 'POST' });
+    assert.equal(res.status, 405);
+    assert.equal(res.headers.get('allow'), 'GET');
   });
 
   test('rejects missing API key on MCP endpoint', async () => {
