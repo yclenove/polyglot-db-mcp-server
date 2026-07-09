@@ -9,6 +9,7 @@ export interface ToolActionInfo {
 const connectionFields = ['connection_id', 'connectionId'] as const;
 
 export const TOOL_ACTIONS = {
+  alert_test: { action: 'diagnose' },
   audit_filter: { action: 'export' },
   audit_get_recent: { action: 'export' },
   audit_stats: { action: 'export' },

@@ -46,21 +46,24 @@
 22. `docs/ITER-v2.2.0-迭代计划.md`
 23. `docs/PRD-v2.2.1.md`
 24. `docs/ITER-v2.2.1-迭代计划.md`
-25. `docs/ADR-003-plugin-architecture.md`
-26. `docs/PLANNING_AUDIT.md`
-27. `docs/QUALITY-v1.7.1-质量报告.md`
-28. `docs/QUALITY-v1.7.2-质量报告.md`
-29. `docs/QUALITY-v1.7.3-质量报告.md`
-30. `docs/QUALITY-v1.8.0-质量报告.md`
-31. `docs/QUALITY-v1.9.0-质量报告.md`
-32. `docs/QUALITY-v2.0.0-质量报告.md`
-33. `docs/QUALITY-v2.0.1-质量报告.md`
-34. `docs/QUALITY-v2.1.0-质量报告.md`
-35. `docs/QUALITY-v2.1.1-质量报告.md`
-36. `docs/QUALITY-v2.2.0-质量报告.md`
-37. `docs/QUALITY-v2.2.1-质量报告.md`
-38. `docs/QUALITY-v1.7.0-质量报告.md`
-39. `CHANGELOG.md`
+25. `docs/PRD-v2.2.2.md`
+26. `docs/ITER-v2.2.2-迭代计划.md`
+27. `docs/ADR-003-plugin-architecture.md`
+28. `docs/PLANNING_AUDIT.md`
+29. `docs/QUALITY-v1.7.1-质量报告.md`
+30. `docs/QUALITY-v1.7.2-质量报告.md`
+31. `docs/QUALITY-v1.7.3-质量报告.md`
+32. `docs/QUALITY-v1.8.0-质量报告.md`
+33. `docs/QUALITY-v1.9.0-质量报告.md`
+34. `docs/QUALITY-v2.0.0-质量报告.md`
+35. `docs/QUALITY-v2.0.1-质量报告.md`
+36. `docs/QUALITY-v2.1.0-质量报告.md`
+37. `docs/QUALITY-v2.1.1-质量报告.md`
+38. `docs/QUALITY-v2.2.0-质量报告.md`
+39. `docs/QUALITY-v2.2.1-质量报告.md`
+40. `docs/QUALITY-v2.2.2-质量报告.md`
+41. `docs/QUALITY-v1.7.0-质量报告.md`
+42. `CHANGELOG.md`
 
 ### 1.3 发布负责人
 
@@ -101,9 +104,11 @@
 | `docs/ITER-v2.2.0-迭代计划.md` | 已完成 | v2.2.0 | `/metrics`、工具调用指标和 OTel API span |
 | `docs/PRD-v2.2.1.md` | 已完成 | v2.2.1 | 审计持久化与策略模板产品需求 |
 | `docs/ITER-v2.2.1-迭代计划.md` | 已完成 | v2.2.1 | 文件审计 sink、RBAC 模板和模板导出工具 |
+| `docs/PRD-v2.2.2.md` | 已完成 | v2.2.2 | 告警 webhook 基线产品需求 |
+| `docs/ITER-v2.2.2-迭代计划.md` | 已完成 | v2.2.2 | 连接失败、错误率和慢调用告警 |
 | `docs/ADR-003-plugin-architecture.md` | Proposed | v3.0.0 | 插件化生态架构决策 |
 | `docs/PLANNING_AUDIT.md` | 当前有效 | 全规划包 | 规划完备性审计与提交前检查 |
-| `docs/API.md` | 当前有效，需持续生成/校验 | v1.9.x | MCP 工具接口和传输说明 |
+| `docs/API.md` | 当前有效，需持续生成/校验 | v2.2.x | MCP 工具接口和传输说明 |
 | `docs/QUALITY-v1.7.1-质量报告.md` | 已完成 | v1.7.1 | v1.7.1 质量门禁和发布签核 |
 | `docs/QUALITY-v1.7.2-质量报告.md` | 已完成 | v1.7.2 | v1.7.2 CI、配置和发布工程签核 |
 | `docs/QUALITY-v1.7.3-质量报告.md` | 已完成 | v1.7.3 | v1.7.3 CLI、错误码、诊断和快速开始签核 |
@@ -115,6 +120,7 @@
 | `docs/QUALITY-v2.1.1-质量报告.md` | 已完成 | v2.1.1 | 查询导出和表采样画像质量门禁 |
 | `docs/QUALITY-v2.2.0-质量报告.md` | 已完成 | v2.2.0 | 可观测与治理基线质量门禁 |
 | `docs/QUALITY-v2.2.1-质量报告.md` | 已完成 | v2.2.1 | 审计持久化与策略模板质量门禁 |
+| `docs/QUALITY-v2.2.2-质量报告.md` | 已完成 | v2.2.2 | 告警 webhook 质量门禁 |
 | `docs/QUALITY-v1.7.0-质量报告.md` | 历史质量依据，需 v1.7.1 复核 | v1.7.0 | 质量债来源和修复追踪 |
 
 ---
@@ -211,7 +217,9 @@ flowchart TD
   T --> U[ITER v2.2.0: Metrics 与 OTel]
   U --> V[PRD v2.2.1: 审计持久化与策略模板]
   V --> W[ITER v2.2.1: 文件审计与 RBAC 模板]
-  W --> X[ADR-003: 插件化架构]
+  W --> X[PRD v2.2.2: 告警 webhook]
+  X --> Y[ITER v2.2.2: 告警基线]
+  Y --> Z[ADR-003: 插件化架构]
 ```
 
 ---
@@ -235,5 +243,5 @@ flowchart TD
 | P1 | `docs/CONFIG.md` 与 `.env.example`、README 持续对齐 | 每次配置变更 |
 | P1 | `docs/RELEASE_CHECKLIST.md` 跟随真实发布流程持续更新 | 每次发布工程变更 |
 | P1 | `docs/ERRORS.md` 与源码 `ErrorCodes`、API 文档持续对齐 | 每次错误行为变更 |
-| P1 | v2.2.x 持续补充告警 webhook、OTel exporter、外部审计 sink 和审批式策略治理 | v2.2.x |
+| P1 | v2.2.x 持续补充 OTel exporter、外部审计 sink 和审批式策略治理 | v2.2.x |
 | P2 | `docs/ADR-003-plugin-architecture.md` 在 v2.x 后复核 | v3.0.0 启动前 |

@@ -61,6 +61,15 @@ const tools = [
     description: '返回 Prometheus 文本格式指标，可用于监控系统集成；HTTP 模式也提供同内容的 GET /metrics。',
     params: [],
   },
+  {
+    name: 'alert_test',
+    category: '连接管理',
+    description: '发送一条测试告警到已配置的 webhook，并返回脱敏后的告警配置摘要。',
+    params: [
+      { name: 'severity', type: 'string', required: false, description: '告警级别：info、warning 或 critical；默认 warning' },
+      { name: 'message', type: 'string', required: false, description: '测试告警消息' },
+    ],
+  },
 
   // SQL 工具
   {

@@ -101,6 +101,12 @@ Enable persistent audit JSONL output with:
 DB_AUDIT_SINK=file DB_AUDIT_FILE_PATH=./logs/audit.jsonl node dist/index.js
 ```
 
+Alert webhooks are explicit opt-in and cover connection failures, tool error-rate spikes, and slow tool calls:
+
+```bash
+DB_ALERT_ENABLED=true DB_ALERT_WEBHOOK_URL=https://alerts.example.com/mcp node dist/index.js
+```
+
 Smoke test:
 
 ```bash
@@ -184,6 +190,9 @@ See `docker-compose.yml` for default users, passwords, and published ports. The 
 
 - `list_connections` — list configured `connection_id`, `engine`, and `readonly`
 - `test_connection` — ping a connection (defaults to the configured default)
+- `health_check`, `connection_diagnose` — health and connection diagnostics
+- `prometheus_metrics` — Prometheus text metrics
+- `alert_test` — send a test alert and return a redacted alert configuration summary
 
 When you **explicitly** pass `connection_id` on any tool, it must match a configured `id`. Invalid ids are **rejected** and do **not** fall back to the default. Omit the parameter or pass empty/whitespace to use the default connection.
 

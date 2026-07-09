@@ -10,6 +10,7 @@ import { parseHttpTransportConfig, safeHttpConfig } from './core/http-config.js'
 import { connectStdioTransport } from './transports/stdio.js';
 import { startHttpTransport, type StartedHttpTransport } from './transports/http.js';
 import { createAuthorizationRuntime } from './auth/authorization.js';
+import { publishConnectionPingAlerts } from './core/alerts.js';
 
 loadEnv({ path: path.join(process.cwd(), '.env'), override: true });
 
@@ -35,6 +36,7 @@ async function main(): Promise<void> {
   const pings = await pingAll(registry);
   logStartupDiagnostics(registry, pings);
   const defaultId = registry.getDefaultId();
+  await publishConnectionPingAlerts(pings, defaultId);
 
   for (const p of pings) {
     if (!p.ok && p.id !== defaultId) {
@@ -99,6 +101,7 @@ async function main(): Promise<void> {
       const newRegistry = await createRegistryFromEnv();
       const newPings = await pingAll(newRegistry);
       logStartupDiagnostics(newRegistry, newPings);
+      await publishConnectionPingAlerts(newPings, newRegistry.getDefaultId());
       const newDefaultPing = newPings.find((p) => p.id === newRegistry.getDefaultId());
       if (!newDefaultPing?.ok) {
         logger.error('reload failed: default connection ping failed, keeping old config');

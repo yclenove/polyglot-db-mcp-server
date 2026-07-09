@@ -150,7 +150,47 @@ DB_AUDIT_FILE_PATH=./logs/audit.jsonl
 - 文件写入为 JSONL，一行一条审计记录，便于 Fluent Bit、Vector、Filebeat 等采集。
 - 文件写入失败不会阻断工具调用；明显错误的 sink 配置会在启动诊断阶段暴露。
 
-### 5.5 Redis 和 SQL Server 专项
+### 5.5 告警 webhook
+
+告警默认关闭，必须显式设置 `DB_ALERT_ENABLED=true` 才会发送 webhook，避免共享 shell 或 CI 环境中的 URL 残留触发真实外部调用。
+
+| 环境变量 | 默认值 | 说明 |
+|----------|--------|------|
+| `DB_ALERT_ENABLED` | `false` | 是否启用 webhook 告警 |
+| `DB_ALERT_WEBHOOK_URL` | 空 | webhook HTTP(S) URL；启用时必填 |
+| `DB_ALERT_WEBHOOK_SECRET` | 空 | 可选共享密钥，通过 `x-db-mcp-alert-secret` header 发送，不进入安全配置摘要 |
+| `DB_ALERT_MIN_SEVERITY` | `warning` | 最低发送级别：`info`、`warning`、`critical` |
+| `DB_ALERT_TIMEOUT_MS` | `3000` | webhook 请求超时 |
+| `DB_ALERT_COOLDOWN_MS` | `60000` | 同类告警冷却窗口；`0` 表示不冷却 |
+| `DB_ALERT_TOOL_ERROR_RATE_MIN_CALLS` | `5` | 工具错误率告警的最小样本数 |
+| `DB_ALERT_TOOL_ERROR_RATE_THRESHOLD` | `50` | 工具错误率阈值百分比，1-100 |
+| `DB_ALERT_SLOW_TOOL_MS` | `DB_SLOW_QUERY_MS` | 慢工具调用阈值；`0` 表示关闭慢调用告警 |
+
+示例：
+
+```env
+DB_ALERT_ENABLED=true
+DB_ALERT_WEBHOOK_URL=https://alerts.example.com/polyglot-db-mcp
+DB_ALERT_WEBHOOK_SECRET=replace-me
+DB_ALERT_MIN_SEVERITY=warning
+```
+
+当前内置告警：
+
+| 类型 | 触发条件 | 默认级别 |
+|------|----------|----------|
+| `connection_failure` | 启动或 SIGHUP 重新加载后的连接 ping 失败 | 默认连接 `critical`，非默认连接 `warning` |
+| `tool_error_rate` | 单个 tool/action/transport/connection 的累计错误率超过阈值 | `warning`，错误率 >= 90% 时 `critical` |
+| `slow_tool_call` | 工具调用耗时超过 `DB_ALERT_SLOW_TOOL_MS` | `warning` |
+| `test` | 调用 MCP 工具 `alert_test` | 调用参数决定，默认 `warning` |
+
+说明：
+
+- webhook payload 只包含 tool/action/transport/connection/error code/duration 等运维字段，不包含 SQL、查询参数或 token。
+- webhook 发送失败只记录 warning，不阻断工具调用；`alert_test` 可用于部署后验证配置。
+- `DB_ALERT_WEBHOOK_SECRET` 仅放在请求 header 中，`safeAlertConfig` 和启动诊断不会输出密钥。
+
+### 5.6 Redis 和 SQL Server 专项
 
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
@@ -295,6 +335,7 @@ HTTP endpoint：
 
 - `prometheus_metrics` MCP 工具和 HTTP `GET /metrics` 使用同一套指标生成逻辑，包含连接请求、审计统计和工具调用聚合。
 - 工具调用会通过 OpenTelemetry API 创建 span；宿主进程注册 OTel provider 后可采集 `mcp.tool.name`、`db_mcp.connection_id`、`db_mcp.duration_ms`、`db_mcp.error_code` 等属性。
+- `alert_test` 可发送一条测试告警；真实告警覆盖连接失败、工具错误率升高和慢工具调用。
 - `/metrics` 不是健康检查端点，生产环境应继续使用 bearer/RBAC 或 API key fallback 保护。
 
 ---
@@ -324,6 +365,7 @@ HTTP endpoint：
 | 限流 | 设置 `DB_RATE_LIMIT_PER_SECOND` |
 | 脱敏 | 开启 `strict` 或 `strict-v2` |
 | 审计 | 设置 `DB_AUDIT_SINK=file` 和 `DB_AUDIT_FILE_PATH`，由外部日志系统采集 JSONL |
+| 告警 | 设置 `DB_ALERT_ENABLED=true` 和 webhook URL；密钥使用 `DB_ALERT_WEBHOOK_SECRET` |
 | HTTP | 默认 localhost；远程部署必须配置认证和 Origin |
 | Docker | `docker-compose.env` 仅提供本地开发默认连接；私有环境使用 `.env` 覆盖且不要提交 |
 

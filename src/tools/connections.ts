@@ -10,6 +10,12 @@ import type { ConnectionSpec, Engine, SqlEngine, RuntimeHandle } from '../core/t
 import { isSqlEngine } from '../core/types.js';
 import { buildPrometheusMetrics, getToolCallMetrics } from '../core/observability.js';
 import {
+  ALERT_SEVERITIES,
+  parseAlertConfig,
+  publishAlert,
+  safeAlertConfig,
+} from '../core/alerts.js';
+import {
   createErrorPayload,
   maskErrorCredentials,
   type ErrorCode,
@@ -485,6 +491,67 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
       return {
         content: [{ type: 'text', text: buildPrometheusMetrics(registry) }],
       };
+    },
+  );
+
+  server.registerTool(
+    'alert_test',
+    {
+      description: '发送一条测试告警到已配置的 webhook，并返回脱敏后的告警配置摘要。',
+      inputSchema: {
+        severity: z
+          .enum(ALERT_SEVERITIES)
+          .optional()
+          .describe('告警级别：info / warning / critical'),
+        message: z.string().optional().describe('测试告警消息'),
+      },
+    },
+    async ({ severity = 'warning', message }) => {
+      try {
+        const config = parseAlertConfig();
+        const delivered = await publishAlert(
+          {
+            kind: 'test',
+            severity,
+            title: 'Test alert',
+            message: message?.trim() || 'polyglot-db-mcp-server alert webhook test',
+            labels: {
+              tool: 'alert_test',
+            },
+            details: {
+              configured: config.enabled,
+            },
+          },
+          process.env,
+          { bypassCooldown: true },
+        );
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                delivered,
+                alerts: safeAlertConfig(config),
+              }),
+            },
+          ],
+        };
+      } catch (e) {
+        const msg = maskErrorCredentials(e instanceof Error ? e.message : String(e));
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                error: msg,
+                error_info: createErrorPayload('CFG_005', { error: msg }),
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
     },
   );
 

@@ -3,6 +3,7 @@ import { closeRuntime, pingRuntime } from './core/handle-runtime.js';
 import { ConnectionRegistry } from './core/registry.js';
 import { getDefaultConnectionId, parseConnectionSpecs } from './core/config.js';
 import { parseAuditPersistenceConfig } from './core/audit.js';
+import { parseAlertConfig, safeAlertConfig } from './core/alerts.js';
 import { logger } from './core/logger.js';
 import { createMysqlDriver } from './drivers/sql/mysql-driver.js';
 import { createPostgresDriver } from './drivers/sql/postgres-driver.js';
@@ -79,6 +80,7 @@ export function logStartupDiagnostics(
       log_level: process.env.LOG_LEVEL || 'info',
       log_format: process.env.LOG_FORMAT || 'human',
       audit_sink: parseAuditPersistenceConfig().sink,
+      alerts: safeAlertConfig(parseAlertConfig()),
     },
   };
 

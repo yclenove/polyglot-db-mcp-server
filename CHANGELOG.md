@@ -4,6 +4,18 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.2] - 2026-07-10
+
+### 新增
+- **告警 webhook 基线**：新增 `DB_ALERT_ENABLED`、`DB_ALERT_WEBHOOK_URL` 等配置，支持连接失败、工具错误率升高和慢工具调用告警。
+- **测试告警工具**：新增 `alert_test`，用于发送测试告警并返回脱敏后的告警配置摘要。
+- **告警安全摘要**：启动诊断展示告警启用状态、阈值和冷却配置，但不泄漏 webhook secret。
+
+### 安全
+- 告警默认关闭，必须显式设置 `DB_ALERT_ENABLED=true` 才会发送 webhook。
+- webhook payload 不包含 SQL、查询参数、token 或连接密码；共享密钥仅通过 `x-db-mcp-alert-secret` header 发送。
+- webhook 发送失败不会阻断工具调用。
+
 ## [2.2.1] - 2026-07-10
 
 ### 新增

@@ -1,5 +1,7 @@
 import { getAuditStats } from './audit.js';
 import type { ConnectionRegistry } from './registry.js';
+import { publishToolObservationAlerts } from './alerts.js';
+import { logger } from './logger.js';
 
 export interface ToolCallObservation {
   tool: string;
@@ -42,6 +44,7 @@ function finiteDuration(durationMs: number): number {
 
 export function recordToolCall(obs: ToolCallObservation): void {
   const durationMs = finiteDuration(obs.durationMs);
+  const observation = { ...obs, durationMs };
   const key = metricKey(obs);
   let metric = toolMetrics.get(key);
   if (!metric) {
@@ -61,13 +64,23 @@ export function recordToolCall(obs: ToolCallObservation): void {
   }
 
   metric.totalCalls++;
-  if (!obs.success) metric.failedCalls++;
+  if (!observation.success) metric.failedCalls++;
   metric.totalDurationMs += durationMs;
   metric.maxDurationMs = Math.max(metric.maxDurationMs, durationMs);
   metric.lastCalledAt = Date.now();
-  if (obs.errorCode) {
-    metric.byErrorCode[obs.errorCode] = (metric.byErrorCode[obs.errorCode] ?? 0) + 1;
+  if (observation.errorCode) {
+    metric.byErrorCode[observation.errorCode] =
+      (metric.byErrorCode[observation.errorCode] ?? 0) + 1;
   }
+
+  void publishToolObservationAlerts(observation, {
+    ...metric,
+    byErrorCode: { ...metric.byErrorCode },
+  }).catch((error) => {
+    logger.warn('tool alert evaluation failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
 }
 
 export function getToolCallMetrics(): ToolCallMetrics[] {

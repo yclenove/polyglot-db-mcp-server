@@ -106,6 +106,12 @@ node dist/index.js
 DB_AUDIT_SINK=file DB_AUDIT_FILE_PATH=./logs/audit.jsonl node dist/index.js
 ```
 
+告警 webhook 需要显式开启，可覆盖连接失败、工具错误率和慢工具调用：
+
+```bash
+DB_ALERT_ENABLED=true DB_ALERT_WEBHOOK_URL=https://alerts.example.com/mcp node dist/index.js
+```
+
 HTTP smoke test：
 
 ```bash
@@ -215,6 +221,8 @@ docker compose up -d
 - `test_connection` — 对指定连接 ping（缺省为默认连接）
 - `health_check` — 全面健康检查，测试所有连接的状态和延迟
 - `connection_diagnose` — 连接诊断，返回状态、延迟、服务器版本和配置建议
+- `prometheus_metrics` — 返回 Prometheus 文本格式指标
+- `alert_test` — 发送测试告警并返回脱敏后的告警配置摘要
 
 在任意工具上若**显式传入** `connection_id`，其值必须与配置中的 `id` 一致；**错误或未配置的 id 会报错，不会静默回退到默认连接**。省略或传空/空白则使用默认连接。
 

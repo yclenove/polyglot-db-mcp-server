@@ -1,6 +1,6 @@
 # polyglot-db-mcp-server API 文档
 
-> 自动生成于 2026-07-09T20:24:55.578Z
+> 自动生成于 2026-07-09T20:53:06.802Z
 
 ## 目录
 
@@ -144,6 +144,19 @@ HTTP 安全默认值：
 ### `prometheus_metrics`
 
 返回 Prometheus 文本格式指标，可用于监控系统集成；HTTP 模式也提供同内容的 GET /metrics。
+
+---
+
+### `alert_test`
+
+发送一条测试告警到已配置的 webhook，并返回脱敏后的告警配置摘要。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `severity` | string | 否 | 告警级别：info、warning 或 critical；默认 warning |
+| `message` | string | 否 | 测试告警消息 |
 
 ---
 

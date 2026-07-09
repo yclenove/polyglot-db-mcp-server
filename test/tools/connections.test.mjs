@@ -102,6 +102,10 @@ describe('Connection Tools', () => {
     assert.ok(server.tools.has('prometheus_metrics'));
   });
 
+  test('alert_test tool is registered', () => {
+    assert.ok(server.tools.has('alert_test'));
+  });
+
   test('list_connections returns connection metadata', async () => {
     const tool = server.tools.get('list_connections');
     const result = await tool.handler({});
@@ -219,6 +223,51 @@ describe('Connection Tools', () => {
     assert.ok(result.content[0].text);
     assert.match(result.content[0].text, /# TYPE db_mcp_connections_total gauge/);
     assert.match(result.content[0].text, /db_mcp_connections_total 3/);
+  });
+
+  test('alert_test sends a configured webhook probe without leaking secret', async () => {
+    const original = {
+      DB_ALERT_ENABLED: process.env.DB_ALERT_ENABLED,
+      DB_ALERT_WEBHOOK_URL: process.env.DB_ALERT_WEBHOOK_URL,
+      DB_ALERT_WEBHOOK_SECRET: process.env.DB_ALERT_WEBHOOK_SECRET,
+      DB_ALERT_COOLDOWN_MS: process.env.DB_ALERT_COOLDOWN_MS,
+    };
+    const calls = [];
+    const alerts = await import('../../dist/core/alerts.js');
+    alerts.resetAlertsForTests();
+    alerts.setAlertDispatchForTests(async (request) => {
+      calls.push(request);
+      return { ok: true, status: 202, statusText: 'Accepted' };
+    });
+
+    try {
+      process.env.DB_ALERT_ENABLED = 'true';
+      process.env.DB_ALERT_WEBHOOK_URL = 'https://alerts.example.test/hook';
+      process.env.DB_ALERT_WEBHOOK_SECRET = 'secret-value';
+      process.env.DB_ALERT_COOLDOWN_MS = '0';
+
+      const tool = server.tools.get('alert_test');
+      const result = await tool.handler({ message: 'probe' });
+      const data = JSON.parse(result.content[0].text);
+
+      assert.equal(data.delivered, true);
+      assert.equal(data.alerts.webhook, 'configured');
+      assert.equal(JSON.stringify(data).includes('secret-value'), false);
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].event.kind, 'test');
+      assert.equal(calls[0].event.message, 'probe');
+      assert.equal(calls[0].headers['x-db-mcp-alert-secret'], 'secret-value');
+    } finally {
+      if (original.DB_ALERT_ENABLED === undefined) delete process.env.DB_ALERT_ENABLED;
+      else process.env.DB_ALERT_ENABLED = original.DB_ALERT_ENABLED;
+      if (original.DB_ALERT_WEBHOOK_URL === undefined) delete process.env.DB_ALERT_WEBHOOK_URL;
+      else process.env.DB_ALERT_WEBHOOK_URL = original.DB_ALERT_WEBHOOK_URL;
+      if (original.DB_ALERT_WEBHOOK_SECRET === undefined) delete process.env.DB_ALERT_WEBHOOK_SECRET;
+      else process.env.DB_ALERT_WEBHOOK_SECRET = original.DB_ALERT_WEBHOOK_SECRET;
+      if (original.DB_ALERT_COOLDOWN_MS === undefined) delete process.env.DB_ALERT_COOLDOWN_MS;
+      else process.env.DB_ALERT_COOLDOWN_MS = original.DB_ALERT_COOLDOWN_MS;
+      alerts.resetAlertsForTests();
+    }
   });
 
   test('server_info returns version and connection info', async () => {
