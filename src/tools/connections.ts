@@ -15,6 +15,7 @@ import {
   publishAlert,
   safeAlertConfig,
 } from '../core/alerts.js';
+import { discoverPlugins, safePluginDiscoverySummary } from '../core/plugins.js';
 import {
   createErrorPayload,
   maskErrorCredentials,
@@ -590,6 +591,7 @@ export function registerConnectionTools(server: McpServer, registry: ConnectionR
                   {} as Record<string, number>,
                 ),
               },
+              plugins: safePluginDiscoverySummary(discoverPlugins()),
               defaultConnection: registry.getDefaultId(),
             }),
           },

@@ -3,7 +3,7 @@
 **文档编号**: ADR-003
 **版本**: 1.0
 **日期**: 2026-07-09
-**状态**: Proposed
+**状态**: Accepted
 **目标版本**: v3.0.0
 **关联文档**: `docs/ROADMAP.md`, `docs/ADR-002-oauth-rbac.md`
 

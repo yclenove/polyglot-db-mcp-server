@@ -70,6 +70,20 @@ const tools = [
       { name: 'message', type: 'string', required: false, description: '测试告警消息' },
     ],
   },
+  {
+    name: 'plugin_list',
+    category: '插件治理',
+    description: '列出通过 DB_PLUGIN_PATHS 发现并验证通过的本地插件 manifest 摘要；不会加载或执行插件入口。',
+    params: [],
+  },
+  {
+    name: 'plugin_validate_manifest',
+    category: '插件治理',
+    description: '验证插件 manifest JSON，并返回脱敏后的插件能力摘要；不会加载或执行插件入口。',
+    params: [
+      { name: 'manifest_json', type: 'string', required: true, description: '插件 plugin.json 内容' },
+    ],
+  },
 
   // SQL 工具
   {

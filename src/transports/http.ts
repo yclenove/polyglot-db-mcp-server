@@ -10,7 +10,7 @@ import type { HttpTransportConfig } from '../core/http-config.js';
 import { createErrorPayload, maskErrorCredentials, type ErrorCode } from '../core/error-codes.js';
 import { logger } from '../core/logger.js';
 import { buildPrometheusMetrics } from '../core/observability.js';
-import { createServer as createMcpServer } from '../server.js';
+import { createServerWithPlugins as createMcpServer } from '../server.js';
 import { healthPayload, readinessPayload, type PingSummary } from './health.js';
 import { createJwtVerifier, type JwtVerifier } from '../auth/token-verifier.js';
 import type { AuthorizationRuntime } from '../auth/authorization.js';
@@ -256,7 +256,7 @@ export async function startHttpTransport(options: {
       return;
     }
 
-    const mcpServer = createMcpServer(registry, { authorization });
+    const mcpServer = await createMcpServer(registry, { authorization });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       enableJsonResponse: true,

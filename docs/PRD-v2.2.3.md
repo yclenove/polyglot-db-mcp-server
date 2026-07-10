@@ -28,7 +28,7 @@ v2.2.0 已在统一授权 wrapper 中创建 OpenTelemetry API span，但需要�
 |------|------|
 | Metrics/logs OTLP exporter | 后续根据运维需求独立推进 |
 | 自动 instrumentation | 当前只导出服务显式创建的 MCP tool span |
-| 外部审计 sink | 后续 v2.2.x 独立推进 |
+| 外部审计 sink | webhook sink 已在 v2.2.4 独立推进；数据库 sink 留给后续插件化 exporter |
 | 插件式 exporter | v3.0.0 Export Plugin 范围 |
 
 ## 四、安全边界

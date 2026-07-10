@@ -112,6 +112,13 @@ describe('parseConnectionSpecs', () => {
     assert.throws(() => parseConnectionSpecs(json), /不支持的 engine/);
   });
 
+  test('parses plugin engines when explicitly allowed', () => {
+    const json = JSON.stringify([{ id: 'ch', engine: 'clickhouse', url: 'clickhouse://local' }]);
+    const specs = parseConnectionSpecs(json, { pluginEngines: ['clickhouse'] });
+    assert.equal(specs[0]?.id, 'ch');
+    assert.equal(specs[0]?.engine, 'clickhouse');
+  });
+
   test('throws on Redis without url', () => {
     const json = JSON.stringify([{ id: 'rd', engine: 'redis' }]);
     assert.throws(() => parseConnectionSpecs(json), /必须提供 url/);

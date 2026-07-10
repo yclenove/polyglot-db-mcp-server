@@ -133,8 +133,11 @@ DB_MCP_DEFAULT_CONNECTION_ID=local
 | `DB_MASKING_MODE` | `off` | `off`、`loose`、`strict`、`strict-v2` |
 | `DB_MASKING_EXCLUDE_FIELDS` | 空 | 逗号分隔，字段名白名单 |
 | `DB_MASKING_EXCLUDE_CONNECTIONS` | 空 | 逗号分隔，连接 id 白名单 |
-| `DB_AUDIT_SINK` | `memory` | `memory` 或 `file`；`file` 会写 JSONL 审计日志 |
+| `DB_AUDIT_SINK` | `memory` | `memory`、`file` 或 `webhook`；`file` 写 JSONL，`webhook` POST 审计事件 |
 | `DB_AUDIT_FILE_PATH` | 空 | `DB_AUDIT_SINK=file` 时必填，审计 JSONL 文件路径 |
+| `DB_AUDIT_WEBHOOK_URL` | 空 | `DB_AUDIT_SINK=webhook` 时必填，审计 webhook HTTP(S) URL |
+| `DB_AUDIT_WEBHOOK_SECRET` | 空 | 可选共享密钥，通过 `x-db-mcp-audit-secret` header 发送，不进入安全配置摘要 |
+| `DB_AUDIT_WEBHOOK_TIMEOUT_MS` | `3000` | 审计 webhook 请求超时 |
 | `MCP_AUDIT_LOG` | 空 | 兼容旧变量；未设置 `DB_AUDIT_SINK` 时可作为文件审计路径 |
 
 文件审计示例：
@@ -144,11 +147,20 @@ DB_AUDIT_SINK=file
 DB_AUDIT_FILE_PATH=./logs/audit.jsonl
 ```
 
+审计 webhook 示例：
+
+```env
+DB_AUDIT_SINK=webhook
+DB_AUDIT_WEBHOOK_URL=https://audit.example.com/polyglot-db-mcp
+DB_AUDIT_WEBHOOK_SECRET=replace-me
+```
+
 说明：
 
 - 审计记录仍会进入内存环形缓冲，文件 sink 是额外持久化。
 - 文件写入为 JSONL，一行一条审计记录，便于 Fluent Bit、Vector、Filebeat 等采集。
-- 文件写入失败不会阻断工具调用；明显错误的 sink 配置会在启动诊断阶段暴露。
+- 文件写入或 webhook 发送失败不会阻断工具调用；明显错误的 sink 配置会在启动诊断阶段暴露。
+- webhook payload 使用当前审计事件结构；可能包含 SQL 或 key 等审计字段，但不会包含 HTTP token 或 webhook secret。生产环境如需外发，应优先接入内网审计采集器。
 
 ### 5.5 告警 webhook
 
@@ -357,6 +369,26 @@ RBAC policy 的 `conditions.maskingMode` 可按请求强制更严格的脱敏：
 - 当 policy mode 比全局 mode 更严格时才会提升有效脱敏强度；policy 不能关闭或弱化全局脱敏。
 - v2.0.1 已对 `sql_query`、`mongo_find`、`mongo_aggregate` 的 read rows 返回路径执行请求级 policy 脱敏。
 
+写入或管理动作可通过 `conditions.approvalRequired` 要求 bearer claims 中存在审批声明：
+
+```json
+{
+  "resources": ["connection:pg"],
+  "actions": ["write", "admin"],
+  "conditions": {
+    "approvalRequired": true,
+    "approvalClaim": "change_ticket"
+  }
+}
+```
+
+说明：
+
+- 未设置 `approvalClaim` 时默认读取 `db_mcp_approval`。
+- 字符串 claim 只要求非空；对象 claim 要求 `status` 为 `approved`，并在提供 `expires_at` 时检查未过期。
+- 审批证据来自已验证 bearer token 的 claims，不从工具参数读取。
+- 授权审计只记录是否需要审批和 claim 名称，不记录审批 payload。
+
 HTTP endpoint：
 
 | Method | Path | 说明 |
@@ -366,6 +398,55 @@ HTTP endpoint：
 | `GET` | `/readyz` | registry 和启动 ping readiness |
 | `GET` | `/metrics` | Prometheus text exposition；除显式关闭认证外需要 HTTP 认证 |
 | `GET/DELETE` | `/mcp` | v1.8.0 返回 405 |
+
+## 插件发现
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DB_PLUGIN_PATHS` | 空 | 逗号分隔的本地插件目录；每个目录必须包含 `plugin.json` |
+
+插件发现默认关闭。配置后，服务会读取每个插件目录下的 manifest，并加载显式配置的本地插件入口：
+
+```powershell
+$env:DB_PLUGIN_PATHS="./plugins/clickhouse,./plugins/internal-tools"
+node dist/index.js
+```
+
+`plugin.json` 示例：
+
+```json
+{
+  "name": "@company/polyglot-clickhouse-plugin",
+  "version": "1.0.0",
+  "polyglotPluginVersion": "1",
+  "type": ["driver", "tool"],
+  "main": "./dist/index.js",
+  "driverEngines": ["clickhouse"],
+  "permissions": {
+    "connections": ["clickhouse:*"],
+    "actions": ["read", "diagnose"],
+    "network": true,
+    "filesystem": false
+  },
+  "tools": [
+    {
+      "name": "clickhouse_query",
+      "action": "read",
+      "description": "Execute readonly ClickHouse query"
+    }
+  ]
+}
+```
+
+说明：
+
+- `main` 必须是插件目录内的相对路径，不能是绝对路径、URL 或 `../` 逃逸路径。
+- `plugin_list` 返回已发现插件的安全摘要，不输出本地路径或配置内容。
+- `plugin_validate_manifest` 可在启用路径前验证 manifest JSON，且不会加载或执行插件入口。
+- Driver Plugin 通过 `createDriver` 为 `driverEngines` 中声明的 engine 创建 runtime handle。
+- Tool Plugin 通过 `registerTools` 注册工具，工具 action 来自 manifest 并进入统一授权 wrapper。
+- Policy Plugin 通过 `evaluatePolicy` 在 RBAC allow 后追加 deny 决策，不能放宽权限。
+- Export Plugin 通过 `exportEvent` 接收审计事件副本，失败不阻断主流程。
 
 可观测性：
 
@@ -400,7 +481,7 @@ HTTP endpoint：
 | 查询限制 | 调低 `DB_MAX_ROWS`，配置超时和 SQL 长度 |
 | 限流 | 设置 `DB_RATE_LIMIT_PER_SECOND` |
 | 脱敏 | 开启 `strict` 或 `strict-v2` |
-| 审计 | 设置 `DB_AUDIT_SINK=file` 和 `DB_AUDIT_FILE_PATH`，由外部日志系统采集 JSONL |
+| 审计 | 设置 `DB_AUDIT_SINK=file` 和 `DB_AUDIT_FILE_PATH`，或 `DB_AUDIT_SINK=webhook` 接入内网采集器 |
 | 告警 | 设置 `DB_ALERT_ENABLED=true` 和 webhook URL；密钥使用 `DB_ALERT_WEBHOOK_SECRET` |
 | OTel traces | 设置 `DB_OTEL_ENABLED=true` 和 collector endpoint；token 使用 `DB_OTEL_OTLP_HEADERS` |
 | HTTP | 默认 localhost；远程部署必须配置认证和 Origin |

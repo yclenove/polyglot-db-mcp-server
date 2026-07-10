@@ -9,6 +9,9 @@ import {
   filterAuditLogs,
   getAuditStats,
   parseAuditPersistenceConfig,
+  safeAuditPersistenceConfig,
+  setAuditWebhookDispatchForTests,
+  resetAuditForTests,
 } from '../dist/core/audit.js';
 
 // Helper: clear the buffer by reading and noting size
@@ -82,27 +85,57 @@ describe('auditLog', () => {
 
 describe('audit persistence config', () => {
   test('defaults to memory and supports explicit file sink', () => {
-    assert.deepEqual(parseAuditPersistenceConfig({}), { sink: 'memory' });
-    assert.deepEqual(
-      parseAuditPersistenceConfig({
-        DB_AUDIT_SINK: 'file',
-        DB_AUDIT_FILE_PATH: './audit/events.jsonl',
-      }),
-      { sink: 'file', filePath: './audit/events.jsonl', legacyEnv: false },
-    );
+    const memory = parseAuditPersistenceConfig({});
+    assert.equal(memory.sink, 'memory');
+
+    const file = parseAuditPersistenceConfig({
+      DB_AUDIT_SINK: 'file',
+      DB_AUDIT_FILE_PATH: './audit/events.jsonl',
+    });
+    assert.equal(file.sink, 'file');
+    assert.equal(file.filePath, './audit/events.jsonl');
+    assert.equal(file.legacyEnv, false);
   });
 
   test('keeps MCP_AUDIT_LOG as a legacy file sink', () => {
-    assert.deepEqual(parseAuditPersistenceConfig({ MCP_AUDIT_LOG: './audit.jsonl' }), {
-      sink: 'file',
-      filePath: './audit.jsonl',
-      legacyEnv: true,
-    });
+    const config = parseAuditPersistenceConfig({ MCP_AUDIT_LOG: './audit.jsonl' });
+    assert.equal(config.sink, 'file');
+    assert.equal(config.filePath, './audit.jsonl');
+    assert.equal(config.legacyEnv, true);
   });
 
   test('rejects invalid sink configuration', () => {
-    assert.throws(() => parseAuditPersistenceConfig({ DB_AUDIT_SINK: 'webhook' }), /CFG_005/);
+    assert.throws(() => parseAuditPersistenceConfig({ DB_AUDIT_SINK: 'database' }), /CFG_005/);
     assert.throws(() => parseAuditPersistenceConfig({ DB_AUDIT_SINK: 'file' }), /CFG_005/);
+    assert.throws(() => parseAuditPersistenceConfig({ DB_AUDIT_SINK: 'webhook' }), /CFG_005/);
+    assert.throws(
+      () =>
+        parseAuditPersistenceConfig({
+          DB_AUDIT_SINK: 'webhook',
+          DB_AUDIT_WEBHOOK_URL: 'ftp://audit.example.test/hook',
+        }),
+      /CFG_005/,
+    );
+  });
+
+  test('parses webhook sink without leaking secret in safe summary', () => {
+    const config = parseAuditPersistenceConfig({
+      DB_AUDIT_SINK: 'webhook',
+      DB_AUDIT_WEBHOOK_URL: 'https://audit.example.test/hook',
+      DB_AUDIT_WEBHOOK_SECRET: 'secret-value',
+      DB_AUDIT_WEBHOOK_TIMEOUT_MS: '1234',
+    });
+
+    assert.equal(config.sink, 'webhook');
+    assert.equal(config.webhookUrl, 'https://audit.example.test/hook');
+    assert.equal(config.webhookSecret, 'secret-value');
+    assert.equal(config.webhookTimeoutMs, 1234);
+
+    const safe = safeAuditPersistenceConfig(config);
+    assert.equal(safe.webhook, 'configured');
+    assert.equal(safe.webhook_secret, 'configured');
+    assert.equal(JSON.stringify(safe).includes('secret-value'), false);
+    assert.equal(JSON.stringify(safe).includes('audit.example.test'), false);
   });
 
   test('writes JSONL entries when DB_AUDIT_SINK=file', () => {
@@ -135,6 +168,50 @@ describe('audit persistence config', () => {
       if (original.MCP_AUDIT_LOG === undefined) delete process.env.MCP_AUDIT_LOG;
       else process.env.MCP_AUDIT_LOG = original.MCP_AUDIT_LOG;
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('sends audit entries to webhook sink without leaking secret in body', async () => {
+    const original = {
+      DB_AUDIT_SINK: process.env.DB_AUDIT_SINK,
+      DB_AUDIT_WEBHOOK_URL: process.env.DB_AUDIT_WEBHOOK_URL,
+      DB_AUDIT_WEBHOOK_SECRET: process.env.DB_AUDIT_WEBHOOK_SECRET,
+      DB_AUDIT_WEBHOOK_TIMEOUT_MS: process.env.DB_AUDIT_WEBHOOK_TIMEOUT_MS,
+    };
+    const calls = [];
+    setAuditWebhookDispatchForTests(async (request) => {
+      calls.push(request);
+      return { ok: true, status: 202, statusText: 'Accepted' };
+    });
+
+    try {
+      process.env.DB_AUDIT_SINK = 'webhook';
+      process.env.DB_AUDIT_WEBHOOK_URL = 'https://audit.example.test/hook';
+      process.env.DB_AUDIT_WEBHOOK_SECRET = 'secret-value';
+      process.env.DB_AUDIT_WEBHOOK_TIMEOUT_MS = '1000';
+
+      auditLog({ engine: 'postgres', operation: 'persist_webhook', success: true });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].url, 'https://audit.example.test/hook');
+      assert.equal(calls[0].headers['x-db-mcp-audit-secret'], 'secret-value');
+      assert.equal(calls[0].timeoutMs, 1000);
+      assert.equal(calls[0].entry.engine, 'postgres');
+      assert.equal(calls[0].entry.operation, 'persist_webhook');
+      assert.equal(JSON.stringify(calls[0].entry).includes('secret-value'), false);
+    } finally {
+      if (original.DB_AUDIT_SINK === undefined) delete process.env.DB_AUDIT_SINK;
+      else process.env.DB_AUDIT_SINK = original.DB_AUDIT_SINK;
+      if (original.DB_AUDIT_WEBHOOK_URL === undefined) delete process.env.DB_AUDIT_WEBHOOK_URL;
+      else process.env.DB_AUDIT_WEBHOOK_URL = original.DB_AUDIT_WEBHOOK_URL;
+      if (original.DB_AUDIT_WEBHOOK_SECRET === undefined)
+        delete process.env.DB_AUDIT_WEBHOOK_SECRET;
+      else process.env.DB_AUDIT_WEBHOOK_SECRET = original.DB_AUDIT_WEBHOOK_SECRET;
+      if (original.DB_AUDIT_WEBHOOK_TIMEOUT_MS === undefined)
+        delete process.env.DB_AUDIT_WEBHOOK_TIMEOUT_MS;
+      else process.env.DB_AUDIT_WEBHOOK_TIMEOUT_MS = original.DB_AUDIT_WEBHOOK_TIMEOUT_MS;
+      resetAuditForTests();
     }
   });
 });

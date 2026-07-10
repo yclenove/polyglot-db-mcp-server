@@ -50,23 +50,32 @@
 26. `docs/ITER-v2.2.2-迭代计划.md`
 27. `docs/PRD-v2.2.3.md`
 28. `docs/ITER-v2.2.3-迭代计划.md`
-29. `docs/ADR-003-plugin-architecture.md`
-30. `docs/PLANNING_AUDIT.md`
-31. `docs/QUALITY-v1.7.1-质量报告.md`
-32. `docs/QUALITY-v1.7.2-质量报告.md`
-33. `docs/QUALITY-v1.7.3-质量报告.md`
-34. `docs/QUALITY-v1.8.0-质量报告.md`
-35. `docs/QUALITY-v1.9.0-质量报告.md`
-36. `docs/QUALITY-v2.0.0-质量报告.md`
-37. `docs/QUALITY-v2.0.1-质量报告.md`
-38. `docs/QUALITY-v2.1.0-质量报告.md`
-39. `docs/QUALITY-v2.1.1-质量报告.md`
-40. `docs/QUALITY-v2.2.0-质量报告.md`
-41. `docs/QUALITY-v2.2.1-质量报告.md`
-42. `docs/QUALITY-v2.2.2-质量报告.md`
-43. `docs/QUALITY-v2.2.3-质量报告.md`
-44. `docs/QUALITY-v1.7.0-质量报告.md`
-45. `CHANGELOG.md`
+29. `docs/PRD-v2.2.4.md`
+30. `docs/ITER-v2.2.4-迭代计划.md`
+31. `docs/PRD-v2.2.5.md`
+32. `docs/ITER-v2.2.5-迭代计划.md`
+33. `docs/ADR-003-plugin-architecture.md`
+34. `docs/PRD-v3.0.0.md`
+35. `docs/ITER-v3.0.0-迭代计划.md`
+36. `docs/PLANNING_AUDIT.md`
+37. `docs/QUALITY-v1.7.1-质量报告.md`
+38. `docs/QUALITY-v1.7.2-质量报告.md`
+39. `docs/QUALITY-v1.7.3-质量报告.md`
+40. `docs/QUALITY-v1.8.0-质量报告.md`
+41. `docs/QUALITY-v1.9.0-质量报告.md`
+42. `docs/QUALITY-v2.0.0-质量报告.md`
+43. `docs/QUALITY-v2.0.1-质量报告.md`
+44. `docs/QUALITY-v2.1.0-质量报告.md`
+45. `docs/QUALITY-v2.1.1-质量报告.md`
+46. `docs/QUALITY-v2.2.0-质量报告.md`
+47. `docs/QUALITY-v2.2.1-质量报告.md`
+48. `docs/QUALITY-v2.2.2-质量报告.md`
+49. `docs/QUALITY-v2.2.3-质量报告.md`
+50. `docs/QUALITY-v2.2.4-质量报告.md`
+51. `docs/QUALITY-v2.2.5-质量报告.md`
+52. `docs/QUALITY-v3.0.0-质量报告.md`
+53. `docs/QUALITY-v1.7.0-质量报告.md`
+54. `CHANGELOG.md`
 
 ### 1.3 发布负责人
 
@@ -111,9 +120,15 @@
 | `docs/ITER-v2.2.2-迭代计划.md` | 已完成 | v2.2.2 | 连接失败、错误率和慢调用告警 |
 | `docs/PRD-v2.2.3.md` | 已完成 | v2.2.3 | OpenTelemetry exporter 配置产品需求 |
 | `docs/ITER-v2.2.3-迭代计划.md` | 已完成 | v2.2.3 | OTLP HTTP/console exporter、采样和安全摘要 |
-| `docs/ADR-003-plugin-architecture.md` | Proposed | v3.0.0 | 插件化生态架构决策 |
+| `docs/PRD-v2.2.4.md` | 已完成 | v2.2.4 | 外部审计 webhook sink 产品需求 |
+| `docs/ITER-v2.2.4-迭代计划.md` | 已完成 | v2.2.4 | 审计 webhook sink、secret header 和安全摘要 |
+| `docs/PRD-v2.2.5.md` | 已完成 | v2.2.5 | 审批声明式策略门控产品需求 |
+| `docs/ITER-v2.2.5-迭代计划.md` | 已完成 | v2.2.5 | RBAC approvalRequired condition、claim 校验和审计元信息 |
+| `docs/ADR-003-plugin-architecture.md` | Accepted | v3.0.0 | 插件化生态架构决策 |
+| `docs/PRD-v3.0.0.md` | 已完成 | v3.0.0 | Manifest-first 插件化生态产品需求 |
+| `docs/ITER-v3.0.0-迭代计划.md` | 已完成 | v3.0.0 | 插件 manifest/discovery 和 driver/tool/policy/export 扩展点 |
 | `docs/PLANNING_AUDIT.md` | 当前有效 | 全规划包 | 规划完备性审计与提交前检查 |
-| `docs/API.md` | 当前有效，需持续生成/校验 | v2.2.x | MCP 工具接口和传输说明 |
+| `docs/API.md` | 当前有效，需持续生成/校验 | v3.0.0 | MCP 工具接口和传输说明 |
 | `docs/QUALITY-v1.7.1-质量报告.md` | 已完成 | v1.7.1 | v1.7.1 质量门禁和发布签核 |
 | `docs/QUALITY-v1.7.2-质量报告.md` | 已完成 | v1.7.2 | v1.7.2 CI、配置和发布工程签核 |
 | `docs/QUALITY-v1.7.3-质量报告.md` | 已完成 | v1.7.3 | v1.7.3 CLI、错误码、诊断和快速开始签核 |
@@ -127,6 +142,9 @@
 | `docs/QUALITY-v2.2.1-质量报告.md` | 已完成 | v2.2.1 | 审计持久化与策略模板质量门禁 |
 | `docs/QUALITY-v2.2.2-质量报告.md` | 已完成 | v2.2.2 | 告警 webhook 质量门禁 |
 | `docs/QUALITY-v2.2.3-质量报告.md` | 已完成 | v2.2.3 | OpenTelemetry exporter 质量门禁 |
+| `docs/QUALITY-v2.2.4-质量报告.md` | 已完成 | v2.2.4 | 外部审计 webhook sink 质量门禁 |
+| `docs/QUALITY-v2.2.5-质量报告.md` | 已完成 | v2.2.5 | 审批声明式策略门控质量门禁 |
+| `docs/QUALITY-v3.0.0-质量报告.md` | 已完成 | v3.0.0 | 插件化生态质量门禁 |
 | `docs/QUALITY-v1.7.0-质量报告.md` | 历史质量依据，需 v1.7.1 复核 | v1.7.0 | 质量债来源和修复追踪 |
 
 ---
@@ -227,7 +245,13 @@ flowchart TD
   X --> Y[ITER v2.2.2: 告警基线]
   Y --> Z[PRD v2.2.3: OTel exporter]
   Z --> AA[ITER v2.2.3: exporter 配置]
-  AA --> AB[ADR-003: 插件化架构]
+  AA --> AB[PRD v2.2.4: 审计 webhook sink]
+  AB --> AC[ITER v2.2.4: 外部审计 sink]
+  AC --> AD[PRD v2.2.5: 审批声明式策略门控]
+  AD --> AE[ITER v2.2.5: 审批门控实施]
+  AE --> AF[ADR-003: 插件化架构]
+  AF --> AG[PRD v3.0.0: 插件化生态]
+  AG --> AH[ITER v3.0.0: Manifest 与 discovery]
 ```
 
 ---
@@ -251,5 +275,5 @@ flowchart TD
 | P1 | `docs/CONFIG.md` 与 `.env.example`、README 持续对齐 | 每次配置变更 |
 | P1 | `docs/RELEASE_CHECKLIST.md` 跟随真实发布流程持续更新 | 每次发布工程变更 |
 | P1 | `docs/ERRORS.md` 与源码 `ErrorCodes`、API 文档持续对齐 | 每次错误行为变更 |
-| P1 | v2.2.x 持续补充外部审计 sink 和审批式策略治理 | v2.2.x |
-| P2 | `docs/ADR-003-plugin-architecture.md` 在 v2.x 后复核 | v3.0.0 启动前 |
+| P1 | 插件依赖隔离和 worker/process 沙箱评估 | v3.x |
+| P2 | Export Plugin metric event 扩展 | v3.x |

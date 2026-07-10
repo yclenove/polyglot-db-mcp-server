@@ -12,6 +12,8 @@ export interface PolicyConditions {
     start: string;
     end: string;
   };
+  approvalRequired?: boolean;
+  approvalClaim?: string;
 }
 
 export interface PolicyRule {
@@ -48,6 +50,7 @@ export interface AuthorizationRequest {
   resources: string[];
   input: Record<string, unknown>;
   transport: 'stdio' | 'http';
+  claims?: Record<string, unknown>;
 }
 
 export interface AuthorizationDecision {
@@ -107,6 +110,20 @@ function parseConditions(value: unknown): PolicyConditions | undefined {
       throw new Error(withErrorCode('POLICY_001', 'timeWindow.start/end 必须是 HH:mm 字符串'));
     }
     conditions.timeWindow = { start: window.start, end: window.end };
+  }
+
+  if (raw.approvalRequired !== undefined) {
+    if (typeof raw.approvalRequired !== 'boolean') {
+      throw new Error(withErrorCode('POLICY_001', 'conditions.approvalRequired 必须是布尔值'));
+    }
+    conditions.approvalRequired = raw.approvalRequired;
+  }
+
+  if (raw.approvalClaim !== undefined) {
+    if (typeof raw.approvalClaim !== 'string' || raw.approvalClaim.trim() === '') {
+      throw new Error(withErrorCode('POLICY_001', 'conditions.approvalClaim 必须是非空字符串'));
+    }
+    conditions.approvalClaim = raw.approvalClaim.trim();
   }
 
   return conditions;
@@ -325,6 +342,28 @@ function requestedMaxRows(input: Record<string, unknown>): number | undefined {
   return undefined;
 }
 
+function hasApprovalClaim(claims: Record<string, unknown> | undefined, claimName: string): boolean {
+  const value = claims?.[claimName];
+  if (typeof value === 'string') {
+    return value.trim() !== '';
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+
+  const approval = value as Record<string, unknown>;
+  if (approval.status !== 'approved') {
+    return false;
+  }
+  if (typeof approval.expires_at === 'string') {
+    const expiresAt = Date.parse(approval.expires_at);
+    if (Number.isNaN(expiresAt) || expiresAt <= Date.now()) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function conditionsAllow(
   conditions: PolicyConditions | undefined,
   request: AuthorizationRequest,
@@ -349,6 +388,13 @@ function conditionsAllow(
     const now = currentUtcMinute();
     const inside = start <= end ? now >= start && now <= end : now >= start || now <= end;
     if (!inside) return 'outside allowed time window';
+  }
+
+  if (conditions.approvalRequired) {
+    const claimName = conditions.approvalClaim ?? 'db_mcp_approval';
+    if (!hasApprovalClaim(request.claims, claimName)) {
+      return `approval claim ${claimName} is required`;
+    }
   }
 
   return null;

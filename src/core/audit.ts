@@ -1,6 +1,9 @@
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { URL } from 'node:url';
 import { withErrorCode } from './error-codes.js';
+import { logger } from './logger.js';
+import { dispatchRuntimeExportEvent } from './plugins.js';
 
 export interface AuditEntry {
   timestamp: string;
@@ -17,26 +20,70 @@ export interface AuditEntry {
   [key: string]: unknown;
 }
 
-export type AuditSink = 'memory' | 'file';
+export type AuditSink = 'memory' | 'file' | 'webhook';
 
 export interface AuditPersistenceConfig {
   sink: AuditSink;
   filePath?: string;
   legacyEnv?: boolean;
+  webhookUrl?: string;
+  webhookSecret?: string;
+  webhookTimeoutMs: number;
 }
 
 type EnvLike = Record<string, string | undefined>;
 
+export interface AuditWebhookDispatchRequest {
+  url: string;
+  entry: AuditEntry;
+  headers: Record<string, string>;
+  timeoutMs: number;
+}
+
+export interface AuditWebhookDispatchResult {
+  ok: boolean;
+  status: number;
+  statusText: string;
+}
+
+export type AuditWebhookDispatch = (
+  request: AuditWebhookDispatchRequest,
+) => Promise<AuditWebhookDispatchResult>;
+
 // ── 审计日志环形缓冲区 ──────────────────────────────────────────
 
 const MAX_BUFFER_SIZE = 1000;
+const DEFAULT_AUDIT_WEBHOOK_TIMEOUT_MS = 3000;
 const auditRing = new Array<AuditEntry | undefined>(MAX_BUFFER_SIZE);
 let auditHead = 0;
 let auditCount = 0;
+let auditWebhookDispatch: AuditWebhookDispatch = defaultAuditWebhookDispatch;
 
 function nonEmpty(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function parsePositiveInt(name: string, value: string | undefined, defaultValue: number): number {
+  const raw = nonEmpty(value);
+  if (!raw) return defaultValue;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(withErrorCode('CFG_005', `${name} 必须是正整数`));
+  }
+  return parsed;
+}
+
+function parseWebhookUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new Error('unsupported protocol');
+    }
+    return url.toString();
+  } catch {
+    throw new Error(withErrorCode('CFG_005', 'DB_AUDIT_WEBHOOK_URL 必须是 http(s) URL'));
+  }
 }
 
 export function parseAuditPersistenceConfig(env: EnvLike = process.env): AuditPersistenceConfig {
@@ -45,27 +92,65 @@ export function parseAuditPersistenceConfig(env: EnvLike = process.env): AuditPe
 
   if (!sinkRaw) {
     return legacyPath
-      ? { sink: 'file', filePath: legacyPath, legacyEnv: true }
-      : { sink: 'memory' };
+      ? {
+          sink: 'file',
+          filePath: legacyPath,
+          legacyEnv: true,
+          webhookTimeoutMs: DEFAULT_AUDIT_WEBHOOK_TIMEOUT_MS,
+        }
+      : { sink: 'memory', webhookTimeoutMs: DEFAULT_AUDIT_WEBHOOK_TIMEOUT_MS };
   }
 
-  if (sinkRaw !== 'memory' && sinkRaw !== 'file') {
-    throw new Error(withErrorCode('CFG_005', 'DB_AUDIT_SINK 必须是 memory 或 file'));
+  if (sinkRaw !== 'memory' && sinkRaw !== 'file' && sinkRaw !== 'webhook') {
+    throw new Error(withErrorCode('CFG_005', 'DB_AUDIT_SINK 必须是 memory、file 或 webhook'));
   }
 
   if (sinkRaw === 'memory') {
-    return { sink: 'memory' };
+    return { sink: 'memory', webhookTimeoutMs: DEFAULT_AUDIT_WEBHOOK_TIMEOUT_MS };
   }
 
-  const filePath = nonEmpty(env.DB_AUDIT_FILE_PATH) ?? legacyPath;
-  if (!filePath) {
-    throw new Error(withErrorCode('CFG_005', 'DB_AUDIT_SINK=file 时必须设置 DB_AUDIT_FILE_PATH'));
+  if (sinkRaw === 'file') {
+    const filePath = nonEmpty(env.DB_AUDIT_FILE_PATH) ?? legacyPath;
+    if (!filePath) {
+      throw new Error(withErrorCode('CFG_005', 'DB_AUDIT_SINK=file 时必须设置 DB_AUDIT_FILE_PATH'));
+    }
+
+    return {
+      sink: 'file',
+      filePath,
+      legacyEnv: !nonEmpty(env.DB_AUDIT_FILE_PATH) && legacyPath !== undefined,
+      webhookTimeoutMs: DEFAULT_AUDIT_WEBHOOK_TIMEOUT_MS,
+    };
   }
 
+  const webhookUrlRaw = nonEmpty(env.DB_AUDIT_WEBHOOK_URL);
+  if (!webhookUrlRaw) {
+    throw new Error(
+      withErrorCode('CFG_005', 'DB_AUDIT_SINK=webhook 时必须设置 DB_AUDIT_WEBHOOK_URL'),
+    );
+  }
   return {
-    sink: 'file',
-    filePath,
-    legacyEnv: !nonEmpty(env.DB_AUDIT_FILE_PATH) && legacyPath !== undefined,
+    sink: 'webhook',
+    webhookUrl: parseWebhookUrl(webhookUrlRaw),
+    webhookSecret: nonEmpty(env.DB_AUDIT_WEBHOOK_SECRET),
+    webhookTimeoutMs: parsePositiveInt(
+      'DB_AUDIT_WEBHOOK_TIMEOUT_MS',
+      env.DB_AUDIT_WEBHOOK_TIMEOUT_MS,
+      DEFAULT_AUDIT_WEBHOOK_TIMEOUT_MS,
+    ),
+  };
+}
+
+export function safeAuditPersistenceConfig(
+  config: AuditPersistenceConfig,
+): Record<string, unknown> {
+  return {
+    sink: config.sink,
+    file: config.filePath ? 'configured' : 'none',
+    legacy_env: config.legacyEnv === true,
+    webhook: config.webhookUrl ? 'configured' : 'none',
+    webhook_secret: config.webhookSecret ? 'configured' : 'none',
+    webhook_timeout_ms: config.webhookTimeoutMs,
   };
 }
 
@@ -113,23 +198,91 @@ export function auditLog(entry: Record<string, unknown>): void {
   } as AuditEntry;
 
   ringPush(auditEntry);
+  dispatchRuntimeExportEvent(auditEntry);
 
   const persistence = (() => {
     try {
       return parseAuditPersistenceConfig();
     } catch {
-      return { sink: 'memory' } satisfies AuditPersistenceConfig;
+      return {
+        sink: 'memory',
+        webhookTimeoutMs: DEFAULT_AUDIT_WEBHOOK_TIMEOUT_MS,
+      } satisfies AuditPersistenceConfig;
     }
   })();
-  if (persistence.sink !== 'file' || !persistence.filePath) return;
-
-  try {
-    const dir = dirname(persistence.filePath);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    appendFileSync(persistence.filePath, JSON.stringify(auditEntry) + '\n', 'utf8');
-  } catch {
-    // 审计失败不阻断主流程
+  if (persistence.sink === 'file' && persistence.filePath) {
+    try {
+      const dir = dirname(persistence.filePath);
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      appendFileSync(persistence.filePath, JSON.stringify(auditEntry) + '\n', 'utf8');
+    } catch {
+      // 审计失败不阻断主流程
+    }
+    return;
   }
+
+  if (persistence.sink === 'webhook' && persistence.webhookUrl) {
+    void dispatchAuditWebhook(auditEntry, persistence).catch((error) => {
+      logger.warn('audit webhook dispatch failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+}
+
+async function defaultAuditWebhookDispatch(
+  request: AuditWebhookDispatchRequest,
+): Promise<AuditWebhookDispatchResult> {
+  const controller = new globalThis.AbortController();
+  const timer = setTimeout(() => controller.abort(), request.timeoutMs);
+  try {
+    const response = await globalThis.fetch(request.url, {
+      method: 'POST',
+      headers: request.headers,
+      body: JSON.stringify(request.entry),
+      signal: controller.signal,
+    });
+    return {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function dispatchAuditWebhook(
+  entry: AuditEntry,
+  config: AuditPersistenceConfig,
+): Promise<void> {
+  if (!config.webhookUrl) return;
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    'user-agent': 'polyglot-db-mcp-server',
+  };
+  if (config.webhookSecret) headers['x-db-mcp-audit-secret'] = config.webhookSecret;
+
+  const result = await auditWebhookDispatch({
+    url: config.webhookUrl,
+    entry,
+    headers,
+    timeoutMs: config.webhookTimeoutMs,
+  });
+  if (!result.ok) {
+    logger.warn('audit webhook returned non-success', {
+      status: result.status,
+      status_text: result.statusText,
+    });
+  }
+}
+
+export function setAuditWebhookDispatchForTests(dispatch: AuditWebhookDispatch): void {
+  auditWebhookDispatch = dispatch;
+}
+
+export function resetAuditForTests(): void {
+  auditWebhookDispatch = defaultAuditWebhookDispatch;
 }
 
 /**

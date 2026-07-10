@@ -1,7 +1,8 @@
 export const CONNECTION_ID_REGEX = /^[A-Za-z0-9_]+$/;
 
 export type SqlEngine = 'mysql' | 'postgres' | 'mssql' | 'oracle' | 'sqlite' | 'duckdb';
-export type Engine = SqlEngine | 'mongodb' | 'redis';
+export type BuiltinEngine = SqlEngine | 'mongodb' | 'redis';
+export type Engine = BuiltinEngine | (string & {});
 
 export interface ConnectionSpec {
   id: string;
@@ -237,12 +238,18 @@ export interface RedisPipelineResult {
   error?: string;
 }
 
+export interface PluginRuntimeDriver {
+  ping(): Promise<{ ok: boolean; error?: string }>;
+  close(): Promise<void>;
+}
+
 export type RuntimeHandle =
   | { id: string; spec: ConnectionSpec; kind: 'sql'; driver: SqlDriver }
   | { id: string; spec: ConnectionSpec; kind: 'mongo'; driver: MongoDriver }
-  | { id: string; spec: ConnectionSpec; kind: 'redis'; driver: RedisDriver };
+  | { id: string; spec: ConnectionSpec; kind: 'redis'; driver: RedisDriver }
+  | { id: string; spec: ConnectionSpec; kind: 'plugin'; driver: PluginRuntimeDriver };
 
-export const SQL_ENGINES: ReadonlySet<Engine> = new Set([
+export const SQL_ENGINES: ReadonlySet<string> = new Set([
   'mysql',
   'postgres',
   'mssql',

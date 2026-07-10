@@ -1,7 +1,7 @@
-import type { ConnectionSpec, Engine } from './types.js';
+import type { BuiltinEngine, ConnectionSpec, Engine } from './types.js';
 import { CONNECTION_ID_REGEX } from './types.js';
 
-const ENGINES = new Set<Engine>([
+const ENGINES = new Set<BuiltinEngine>([
   'mysql',
   'postgres',
   'mssql',
@@ -11,19 +11,34 @@ const ENGINES = new Set<Engine>([
   'mongodb',
   'redis',
 ]);
+const PLUGIN_ENGINE_REGEX = /^[a-z][a-z0-9_-]*$/;
 
-function assertEngine(v: string): Engine {
-  if (!ENGINES.has(v as Engine)) {
-    throw new Error(`不支持的 engine: ${v}，允许: ${[...ENGINES].join(', ')}`);
+export interface ParseConnectionSpecsOptions {
+  pluginEngines?: readonly string[];
+}
+
+function assertEngine(v: string, pluginEngines: ReadonlySet<string>): Engine {
+  if (ENGINES.has(v as BuiltinEngine)) {
+    return v as BuiltinEngine;
   }
-  return v as Engine;
+  if (pluginEngines.has(v) && PLUGIN_ENGINE_REGEX.test(v)) {
+    return v;
+  }
+  const allowed = [...ENGINES, ...pluginEngines].sort();
+  throw new Error(`不支持的 engine: ${v}，允许: ${allowed.join(', ')}`);
 }
 
 /**
  * 从环境变量解析 `DB_MCP_CONNECTIONS`（JSON 数组）。
  */
-export function parseConnectionSpecs(raw?: string): ConnectionSpec[] {
+export function parseConnectionSpecs(
+  raw?: string,
+  options: ParseConnectionSpecsOptions = {},
+): ConnectionSpec[] {
   const src = raw ?? process.env.DB_MCP_CONNECTIONS;
+  const pluginEngines = new Set(
+    (options.pluginEngines ?? []).map((engine) => engine.toLowerCase()),
+  );
   if (src === undefined || String(src).trim() === '') {
     throw new Error(
       '必须设置 DB_MCP_CONNECTIONS（JSON 数组），每项含 id、engine 与 url 或 host 等',
@@ -60,7 +75,7 @@ export function parseConnectionSpecs(raw?: string): ConnectionSpec[] {
     if (typeof engineRaw !== 'string') {
       throw new Error(`连接「${id}」缺少 engine`);
     }
-    const engine = assertEngine(engineRaw.toLowerCase());
+    const engine = assertEngine(engineRaw.toLowerCase(), pluginEngines);
 
     const url = typeof o.url === 'string' && o.url.trim() !== '' ? o.url.trim() : undefined;
     const host = o.host !== undefined ? String(o.host) : undefined;

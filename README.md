@@ -87,6 +87,7 @@ HTTP 模式提供：
 - 显式 `DB_AUTH_DISABLED=true` 可关闭 HTTP 认证，仅限本地开发。
 - `DB_HTTP_ORIGINS` 非空时作为 Origin allowlist；带 Origin 且不匹配会被拒绝。
 - 可用 `DB_RBAC_POLICY_TEMPLATE=readonly-http` 快速启用内置只读模板；生产建议复制模板后改为 `DB_RBAC_POLICY_FILE`。
+- 自定义 RBAC policy 可通过 `conditions.approvalRequired=true` 要求 bearer claims 中存在审批声明，适合保护写入和管理动作。
 
 最小 bearer/RBAC 配置示例：
 
@@ -105,6 +106,20 @@ node dist/index.js
 ```bash
 DB_AUDIT_SINK=file DB_AUDIT_FILE_PATH=./logs/audit.jsonl node dist/index.js
 ```
+
+也可将审计事件发送到内网 webhook sink：
+
+```bash
+DB_AUDIT_SINK=webhook DB_AUDIT_WEBHOOK_URL=https://audit.example.com/mcp node dist/index.js
+```
+
+v3.0.0 支持 manifest-first 本地插件。默认关闭；设置 `DB_PLUGIN_PATHS` 后，服务会读取每个插件目录下的 `plugin.json`，校验 manifest，并加载显式配置的本地插件：
+
+```bash
+DB_PLUGIN_PATHS=./plugins/clickhouse node dist/index.js
+```
+
+可用 `plugin_validate_manifest` 验证 manifest JSON，或用 `plugin_list` 查看已发现插件的脱敏摘要。插件类型覆盖 driver、tool、policy 和 export；插件工具会经过统一授权、审计和可观测 wrapper。
 
 告警 webhook 需要显式开启，可覆盖连接失败、工具错误率和慢工具调用：
 
@@ -306,6 +321,7 @@ docker compose up -d
 | `DB_MASKING_MODE` | 脱敏模式：`off`（默认）、`loose`、`strict`、`strict-v2` |
 | `DB_MASKING_EXCLUDE_FIELDS` | 白名单字段（逗号分隔），这些字段不脱敏 |
 | `DB_MASKING_EXCLUDE_CONNECTIONS` | 排除脱敏的连接 ID（逗号分隔） |
+| `DB_AUDIT_SINK`、`DB_AUDIT_FILE_PATH`、`DB_AUDIT_WEBHOOK_URL` | 审计内存、文件或 webhook sink |
 | `DB_REPLAY_BUFFER_SIZE` | 查询历史缓冲大小，默认 50 |
 | `DB_SUGGEST_TIMEOUT_MS` | 查询建议分析超时（ms），默认 5000 |
 | `DB_ALERT_ENABLED`、`DB_ALERT_WEBHOOK_URL` | 显式启用 webhook 告警 |

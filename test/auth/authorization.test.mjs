@@ -10,7 +10,7 @@ class MockRegistry {
   }
 }
 
-function extra(subject) {
+function extra(subject, claims = {}) {
   return {
     authInfo: {
       token: 'super-secret-token',
@@ -20,7 +20,7 @@ function extra(subject) {
         subject,
         transport: 'http',
         authMode: 'bearer',
-        claims: { sub: subject },
+        claims: { sub: subject, ...claims },
       },
     },
   };
@@ -165,5 +165,52 @@ describe('authorization runtime audit', () => {
       extra('agent:template-reader'),
     );
     assert.equal(write.allowed, false);
+  });
+
+  test('passes bearer claims into approval-gated policy without leaking approval payload', async () => {
+    const { createAuthorizationRuntime } = await import('../../dist/auth/authorization.js');
+    const { getRecentAuditLogs } = await import('../../dist/core/audit.js');
+    const runtime = createAuthorizationRuntime(new MockRegistry(), {
+      mode: 'bearer',
+      defaultEffect: 'deny',
+      policy: {
+        version: 'approval-runtime-policy',
+        roles: {
+          approved_writer: [
+            {
+              resources: ['connection:pg'],
+              actions: ['write'],
+              conditions: { approvalRequired: true, approvalClaim: 'change_ticket' },
+            },
+          ],
+        },
+        bindings: [{ subject: 'agent:approved-writer', roles: ['approved_writer'] }],
+      },
+    });
+
+    const denied = runtime.authorize(
+      'sql_execute',
+      { connection_id: 'pg' },
+      extra('agent:approved-writer'),
+    );
+    assert.equal(denied.allowed, false);
+
+    const allowed = runtime.authorize(
+      'sql_execute',
+      { connection_id: 'pg' },
+      extra('agent:approved-writer', {
+        change_ticket: { status: 'approved', id: 'CHG-42', expires_at: '2999-01-01T00:00:00.000Z' },
+      }),
+    );
+    assert.equal(allowed.allowed, true);
+
+    const logs = getRecentAuditLogs(20).filter(
+      (entry) =>
+        entry.operation === 'authorization' && entry.subject === 'agent:approved-writer',
+    );
+    assert.ok(logs.length >= 2);
+    assert.equal(logs.at(-1).approval_required, true);
+    assert.equal(logs.at(-1).approval_claim, 'change_ticket');
+    assert.equal(JSON.stringify(logs).includes('CHG-42'), false);
   });
 });

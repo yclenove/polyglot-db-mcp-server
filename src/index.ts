@@ -3,7 +3,7 @@ import { config as loadEnv } from 'dotenv';
 import path from 'node:path';
 import process from 'node:process';
 import { closeAll, createRegistryFromEnv, logStartupDiagnostics, pingAll } from './bootstrap.js';
-import { createServer } from './server.js';
+import { createServerWithPlugins } from './server.js';
 import { logger } from './core/logger.js';
 import { runCli } from './cli.js';
 import { parseHttpTransportConfig, safeHttpConfig } from './core/http-config.js';
@@ -57,11 +57,11 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  let mcpServer: ReturnType<typeof createServer> | undefined;
+  let mcpServer: Awaited<ReturnType<typeof createServerWithPlugins>> | undefined;
   let httpTransport: StartedHttpTransport | undefined;
 
   if (transportConfig.transport === 'stdio') {
-    mcpServer = createServer(registry, { authorization });
+    mcpServer = await createServerWithPlugins(registry, { authorization });
     await connectStdioTransport(mcpServer);
     logger.info('stdio transport connected');
   } else {

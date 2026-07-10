@@ -4,6 +4,42 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.0.0] - 2026-07-10
+
+### 新增
+- **Manifest-first 插件化底座**：新增插件 parser、本地 `DB_PLUGIN_PATHS` discovery、启动诊断/`server_info` 插件安全摘要。
+- **Driver Plugin**：`driver` 插件可声明 `driverEngines` 并通过 `createDriver` 为自定义 engine 创建 registry runtime handle。
+- **Tool Plugin**：`tool` 插件可通过 `registerTools` 注册 MCP 工具，工具 action 来自 manifest 并进入统一授权 wrapper。
+- **Policy Plugin**：`policy` 插件可通过 `evaluatePolicy` 在 RBAC allow 后追加 deny 决策，不能放宽既有授权拒绝。
+- **Export Plugin**：`export` 插件可通过 `exportEvent` 接收审计事件副本，失败不阻断主流程。
+- **插件治理工具**：新增 `plugin_list` 和 `plugin_validate_manifest`，用于列出本地插件摘要和验证 manifest JSON。
+
+### 安全
+- 插件默认关闭；`plugin.json` 的 `main` 必须位于插件目录内，拒绝绝对路径、URL 和目录逃逸。
+- 只有显式配置 `DB_PLUGIN_PATHS` 的本地插件会被加载；治理工具验证 manifest 时不加载或执行插件入口。
+- 插件工具必须经过核心 authorization/audit/observability wrapper；Policy Plugin 只能收紧权限；Export Plugin 失败不会阻断工具调用或审计写入。
+
+## [2.2.5] - 2026-07-10
+
+### 新增
+- **审批声明式策略门控**：RBAC policy conditions 新增 `approvalRequired` 和 `approvalClaim`，可要求写入或管理操作携带已验证 bearer claims 中的审批声明。
+- **审批审计元信息**：授权审计记录 `approval_required` 和 `approval_claim`，便于追踪哪些规则需要审批。
+
+### 安全
+- 审批证据只来自 bearer token claims，不接受工具参数自证审批。
+- 审计不记录审批 payload、工单号或 token 内容；对象 claim 的 `expires_at` 过期后会拒绝授权。
+
+## [2.2.4] - 2026-07-10
+
+### 新增
+- **外部审计 webhook sink**：`DB_AUDIT_SINK=webhook` 时可将审计事件 POST 到 `DB_AUDIT_WEBHOOK_URL`，用于接入内网审计采集器。
+- **审计 webhook 安全配置**：新增 `DB_AUDIT_WEBHOOK_SECRET` 和 `DB_AUDIT_WEBHOOK_TIMEOUT_MS`，共享密钥只通过 `x-db-mcp-audit-secret` header 发送。
+- **审计安全摘要**：启动诊断输出脱敏后的审计 sink 配置，不泄漏 webhook URL 明文或 secret。
+
+### 安全
+- webhook 发送失败不会阻断工具调用；明显错误的 webhook 配置会在启动诊断阶段 fail-fast。
+- 审计 webhook payload 复用审计事件结构，包含审计字段但不包含 HTTP token 或 webhook secret。
+
 ## [2.2.3] - 2026-07-10
 
 ### 新增

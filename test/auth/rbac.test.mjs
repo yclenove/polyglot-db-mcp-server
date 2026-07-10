@@ -112,6 +112,89 @@ describe('RBAC policy authorization', () => {
     assert.equal(decision.allowed, false);
     assert.equal(decision.reason, 'no role matched');
   });
+
+  test('requires approval claim when policy condition demands it', async () => {
+    const { parseRbacPolicy, authorizeWithPolicy } = await import('../../dist/auth/rbac.js');
+    const policy = parseRbacPolicy({
+      version: 'approval-policy',
+      roles: {
+        approved_writer: [
+          {
+            resources: ['connection:pg'],
+            actions: ['write'],
+            conditions: { approvalRequired: true },
+          },
+        ],
+      },
+      bindings: [{ subject: 'agent:writer', roles: ['approved_writer'] }],
+    });
+
+    const denied = authorizeWithPolicy(policy, {
+      subject: 'agent:writer',
+      action: 'write',
+      resources: ['connection:pg', 'tool:sql_execute'],
+      input: {},
+      transport: 'http',
+      claims: { sub: 'agent:writer' },
+    });
+    assert.equal(denied.allowed, false);
+    assert.match(denied.reason, /approval claim db_mcp_approval is required/);
+
+    const allowed = authorizeWithPolicy(policy, {
+      subject: 'agent:writer',
+      action: 'write',
+      resources: ['connection:pg', 'tool:sql_execute'],
+      input: {},
+      transport: 'http',
+      claims: {
+        sub: 'agent:writer',
+        db_mcp_approval: { status: 'approved', expires_at: '2999-01-01T00:00:00.000Z' },
+      },
+    });
+    assert.equal(allowed.allowed, true);
+    assert.equal(allowed.conditions.approvalRequired, true);
+  });
+
+  test('rejects expired approval claim and supports custom approval claim name', async () => {
+    const { parseRbacPolicy, authorizeWithPolicy } = await import('../../dist/auth/rbac.js');
+    const policy = parseRbacPolicy({
+      version: 'custom-approval-policy',
+      roles: {
+        approved_admin: [
+          {
+            resources: ['*'],
+            actions: ['admin'],
+            conditions: { approvalRequired: true, approvalClaim: 'change_ticket' },
+          },
+        ],
+      },
+      bindings: [{ subject: 'agent:admin', roles: ['approved_admin'] }],
+    });
+
+    const expired = authorizeWithPolicy(policy, {
+      subject: 'agent:admin',
+      action: 'admin',
+      resources: ['connection:pg', 'tool:sql_create_index'],
+      input: {},
+      transport: 'http',
+      claims: {
+        sub: 'agent:admin',
+        change_ticket: { status: 'approved', expires_at: '2000-01-01T00:00:00.000Z' },
+      },
+    });
+    assert.equal(expired.allowed, false);
+    assert.match(expired.reason, /approval claim change_ticket is required/);
+
+    const approved = authorizeWithPolicy(policy, {
+      subject: 'agent:admin',
+      action: 'admin',
+      resources: ['connection:pg', 'tool:sql_create_index'],
+      input: {},
+      transport: 'http',
+      claims: { sub: 'agent:admin', change_ticket: 'ticket-123' },
+    });
+    assert.equal(approved.allowed, true);
+  });
 });
 
 describe('RBAC policy templates', () => {

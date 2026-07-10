@@ -1,10 +1,18 @@
-import type { ConnectionSpec, RuntimeHandle } from './core/types.js';
+import type { BuiltinEngine, ConnectionSpec, RuntimeHandle } from './core/types.js';
 import { closeRuntime, pingRuntime } from './core/handle-runtime.js';
 import { ConnectionRegistry } from './core/registry.js';
 import { getDefaultConnectionId, parseConnectionSpecs } from './core/config.js';
-import { parseAuditPersistenceConfig } from './core/audit.js';
+import { parseAuditPersistenceConfig, safeAuditPersistenceConfig } from './core/audit.js';
 import { parseAlertConfig, safeAlertConfig } from './core/alerts.js';
 import { parseTelemetryConfig, safeTelemetryConfig } from './core/telemetry.js';
+import {
+  discoverPlugins,
+  findDriverPlugin,
+  loadPlugins,
+  pluginDriverEngines,
+  safePluginDiscoverySummary,
+  type LoadedPlugin,
+} from './core/plugins.js';
 import { logger } from './core/logger.js';
 import { createMysqlDriver } from './drivers/sql/mysql-driver.js';
 import { createPostgresDriver } from './drivers/sql/postgres-driver.js';
@@ -15,7 +23,34 @@ import { createDuckDbDriver } from './drivers/sql/duckdb-driver.js';
 import { createMongoDriver } from './drivers/mongo/mongo-driver.js';
 import { createRedisDriver } from './drivers/redis/redis-driver.js';
 
-async function createHandle(spec: ConnectionSpec): Promise<RuntimeHandle> {
+const BUILTIN_ENGINES = new Set<BuiltinEngine>([
+  'mysql',
+  'postgres',
+  'mssql',
+  'oracle',
+  'sqlite',
+  'duckdb',
+  'mongodb',
+  'redis',
+]);
+
+function isBuiltinEngine(engine: string): engine is BuiltinEngine {
+  return BUILTIN_ENGINES.has(engine as BuiltinEngine);
+}
+
+function validatePluginHandle(spec: ConnectionSpec, handle: RuntimeHandle): RuntimeHandle {
+  if (handle.id !== spec.id) {
+    throw new Error(`插件 driver 返回的 handle id「${handle.id}」与连接「${spec.id}」不一致`);
+  }
+  if (handle.spec.id !== spec.id || handle.spec.engine !== spec.engine) {
+    throw new Error(`插件 driver 返回的 spec 与连接「${spec.id}」不一致`);
+  }
+  return handle;
+}
+
+async function createBuiltinHandle(
+  spec: ConnectionSpec & { engine: BuiltinEngine },
+): Promise<RuntimeHandle> {
   switch (spec.engine) {
     case 'mysql':
       return { id: spec.id, spec, kind: 'sql', driver: await createMysqlDriver(spec) };
@@ -33,17 +68,36 @@ async function createHandle(spec: ConnectionSpec): Promise<RuntimeHandle> {
       return { id: spec.id, spec, kind: 'mongo', driver: await createMongoDriver(spec) };
     case 'redis':
       return { id: spec.id, spec, kind: 'redis', driver: await createRedisDriver(spec) };
-    default: {
-      const _exhaustive: never = spec.engine;
-      throw new Error(`未实现的引擎: ${_exhaustive}`);
-    }
   }
 }
 
+async function createHandle(
+  spec: ConnectionSpec,
+  plugins: readonly LoadedPlugin[],
+): Promise<RuntimeHandle> {
+  if (isBuiltinEngine(spec.engine)) {
+    return createBuiltinHandle({ ...spec, engine: spec.engine });
+  }
+
+  const plugin = findDriverPlugin(plugins, spec.engine);
+  if (!plugin?.module.createDriver) {
+    throw new Error(`未找到 engine「${spec.engine}」对应的 driver 插件`);
+  }
+  const handle = await plugin.module.createDriver(spec, {
+    manifest: plugin.manifest,
+    pluginPath: plugin.path,
+  });
+  return validatePluginHandle(spec, handle);
+}
+
 export async function createRegistryFromEnv(): Promise<ConnectionRegistry> {
-  const specs = parseConnectionSpecs();
+  const discoveredPlugins = discoverPlugins();
+  const specs = parseConnectionSpecs(undefined, {
+    pluginEngines: pluginDriverEngines(discoveredPlugins),
+  });
   const defaultId = getDefaultConnectionId(specs);
-  const handles = await Promise.all(specs.map((spec) => createHandle(spec)));
+  const loadedPlugins = await loadPlugins(discoveredPlugins);
+  const handles = await Promise.all(specs.map((spec) => createHandle(spec, loadedPlugins)));
   return new ConnectionRegistry(specs, defaultId, handles);
 }
 
@@ -80,9 +134,10 @@ export function logStartupDiagnostics(
       max_rows: parseInt(process.env.DB_MAX_ROWS || '100', 10),
       log_level: process.env.LOG_LEVEL || 'info',
       log_format: process.env.LOG_FORMAT || 'human',
-      audit_sink: parseAuditPersistenceConfig().sink,
+      audit: safeAuditPersistenceConfig(parseAuditPersistenceConfig()),
       alerts: safeAlertConfig(parseAlertConfig()),
       telemetry: safeTelemetryConfig(parseTelemetryConfig()),
+      plugins: safePluginDiscoverySummary(discoverPlugins()),
     },
   };
 

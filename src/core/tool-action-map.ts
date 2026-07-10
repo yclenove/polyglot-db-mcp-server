@@ -45,6 +45,8 @@ export const TOOL_ACTIONS = {
   mongo_update_many: { action: 'write', connectionFields },
   mongo_update_one: { action: 'write', connectionFields },
   prometheus_metrics: { action: 'diagnose' },
+  plugin_list: { action: 'diagnose' },
+  plugin_validate_manifest: { action: 'diagnose' },
   query_diff: { action: 'replay' },
   query_history: { action: 'replay', connectionFields },
   query_optimize: { action: 'read', connectionFields },
@@ -109,8 +111,22 @@ export const TOOL_ACTIONS = {
   validate_connection_config: { action: 'diagnose' },
 } as const satisfies Record<string, ToolActionInfo>;
 
+const pluginToolActions = new Map<string, ToolActionInfo>();
+
+export function setPluginToolActionsForRuntime(
+  tools: readonly { name: string; action: AuthAction }[],
+): void {
+  pluginToolActions.clear();
+  for (const tool of tools) {
+    pluginToolActions.set(tool.name, { action: tool.action });
+  }
+}
+
 export function getToolActionInfo(toolName: string): ToolActionInfo {
-  return TOOL_ACTIONS[toolName as keyof typeof TOOL_ACTIONS] ?? { action: 'admin' };
+  return (
+    TOOL_ACTIONS[toolName as keyof typeof TOOL_ACTIONS] ??
+    pluginToolActions.get(toolName) ?? { action: 'admin' }
+  );
 }
 
 export function knownToolNames(): string[] {

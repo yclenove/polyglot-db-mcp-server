@@ -1,10 +1,11 @@
 # polyglot-db-mcp-server API 文档
 
-> 自动生成于 2026-07-09T20:53:06.802Z
+> 自动生成于 2026-07-10T09:12:38.856Z
 
 ## 目录
 
 - [连接管理](#连接管理)
+- [插件治理](#插件治理)
 - [SQL](#sql)
 - [MongoDB](#mongodb)
 - [MongoDB 事务](#mongodb-事务)
@@ -157,6 +158,26 @@ HTTP 安全默认值：
 |--------|------|------|------|
 | `severity` | string | 否 | 告警级别：info、warning 或 critical；默认 warning |
 | `message` | string | 否 | 测试告警消息 |
+
+---
+
+## 插件治理
+
+### `plugin_list`
+
+列出通过 DB_PLUGIN_PATHS 发现并验证通过的本地插件 manifest 摘要；不会加载或执行插件入口。
+
+---
+
+### `plugin_validate_manifest`
+
+验证插件 manifest JSON，并返回脱敏后的插件能力摘要；不会加载或执行插件入口。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `manifest_json` | string | 是 | 插件 plugin.json 内容 |
 
 ---
 

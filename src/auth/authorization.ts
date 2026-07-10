@@ -10,6 +10,7 @@ import type { ConnectionRegistry } from '../core/registry.js';
 import { auditLog } from '../core/audit.js';
 import { createErrorPayload } from '../core/error-codes.js';
 import { recordToolCall } from '../core/observability.js';
+import { evaluateRuntimePolicyPlugins } from '../core/plugins.js';
 import { getToolActionInfo } from '../core/tool-action-map.js';
 import { authContextFromInfo, localStdioAuthInfo } from './auth-context.js';
 import { runWithRequestPolicy } from './request-policy.js';
@@ -31,6 +32,7 @@ export interface AuthorizationOptions {
   mode: 'none' | 'api_key' | 'bearer';
   policyFile?: string;
   policyTemplate?: string;
+  policy?: RbacPolicy;
   defaultEffect: PolicyEffect;
 }
 
@@ -111,6 +113,10 @@ function auditDecision(entry: {
     matched_role: entry.decision.matchedRole,
     matched_resource: entry.decision.matchedResource,
     policy_version: entry.decision.policyVersion,
+    approval_required: entry.decision.conditions?.approvalRequired === true,
+    approval_claim: entry.decision.conditions?.approvalRequired
+      ? (entry.decision.conditions.approvalClaim ?? 'db_mcp_approval')
+      : undefined,
     success: entry.decision.allowed,
   });
 }
@@ -157,11 +163,13 @@ export function createAuthorizationRuntime(
   registry: ConnectionRegistry,
   options: AuthorizationOptions,
 ): AuthorizationRuntime {
-  const policy = options.policyFile
-    ? loadRbacPolicyFile(options.policyFile)
-    : options.policyTemplate
-      ? loadRbacPolicyTemplate(options.policyTemplate)
-      : undefined;
+  const policy = options.policy
+    ? options.policy
+    : options.policyFile
+      ? loadRbacPolicyFile(options.policyFile)
+      : options.policyTemplate
+        ? loadRbacPolicyTemplate(options.policyTemplate)
+        : undefined;
 
   return {
     policy,
@@ -191,9 +199,28 @@ export function createAuthorizationRuntime(
             resources,
             input,
             transport: context.transport,
+            claims: context.claims,
           },
           options.defaultEffect,
         );
+      }
+
+      if (decision.allowed) {
+        const pluginDecision = evaluateRuntimePolicyPlugins({
+          subject: context.subject,
+          tenant: context.tenant,
+          action: info.action,
+          resources,
+          input,
+          transport: context.transport,
+        });
+        if (!pluginDecision.allowed) {
+          decision = {
+            ...decision,
+            allowed: false,
+            reason: pluginDecision.reason ?? 'denied by policy plugin',
+          };
+        }
       }
 
       auditDecision({
