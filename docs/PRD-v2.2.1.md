@@ -26,7 +26,7 @@ v2.2.0 已完成 `/metrics`、工具调用指标和 OTel API span。下一步需
 | 项目 | 处理 |
 |------|------|
 | 外部审计数据库或 webhook sink | 后续 v2.2.x 独立推进 |
-| OTel exporter 自动注册 | 后续 v2.2.x 独立推进 |
+| OTel exporter 自动注册 | 已在 v2.2.3 独立推进 |
 | 写操作审批流 | 需要更完整 policy workflow，后续设计 |
 | 插件加载机制 | v3.0.0 前置 ADR 复核后进入 |
 

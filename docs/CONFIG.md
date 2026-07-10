@@ -190,7 +190,43 @@ DB_ALERT_MIN_SEVERITY=warning
 - webhook 发送失败只记录 warning，不阻断工具调用；`alert_test` 可用于部署后验证配置。
 - `DB_ALERT_WEBHOOK_SECRET` 仅放在请求 header 中，`safeAlertConfig` 和启动诊断不会输出密钥。
 
-### 5.6 Redis 和 SQL Server 专项
+### 5.6 OpenTelemetry traces
+
+OpenTelemetry 默认关闭，必须显式设置 `DB_OTEL_ENABLED=true` 才会在进程内注册 tracer provider 和 exporter。未启用时，即使 shell 环境中残留 OTLP endpoint 或 headers，也不会校验或外发。
+
+| 环境变量 | 默认值 | 说明 |
+|----------|--------|------|
+| `DB_OTEL_ENABLED` | `false` | 是否启用内置 OTel tracer provider |
+| `DB_OTEL_EXPORTER` | `otlp_http` | exporter 类型：`otlp_http`、`console`、`none` |
+| `DB_OTEL_SERVICE_NAME` | `polyglot-db-mcp-server` | `service.name`；优先级高于 `OTEL_SERVICE_NAME` |
+| `DB_OTEL_OTLP_ENDPOINT` | `http://localhost:4318/v1/traces` | OTLP HTTP traces endpoint；也兼容 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` |
+| `DB_OTEL_OTLP_HEADERS` | 空 | 逗号分隔 `key=value` header，安全摘要只显示是否已配置 |
+| `DB_OTEL_SAMPLING_RATIO` | `1` | 采样比例，0 到 1 |
+| `DB_OTEL_BATCH` | `true` | 是否使用 batch span processor；`console` exporter 固定使用 simple processor |
+| `DB_OTEL_EXPORT_INTERVAL_MS` | `5000` | batch 导出间隔 |
+| `DB_OTEL_EXPORT_TIMEOUT_MS` | `30000` | exporter 超时，也用于 provider force flush 超时 |
+| `DB_OTEL_MAX_QUEUE_SIZE` | `2048` | batch 队列大小 |
+| `DB_OTEL_MAX_EXPORT_BATCH_SIZE` | `512` | 单批最大 span 数，必须小于等于队列大小 |
+| `DB_OTEL_RESOURCE_ATTRIBUTES` | 空 | 逗号分隔资源属性；也兼容 `OTEL_RESOURCE_ATTRIBUTES` |
+
+示例：
+
+```env
+DB_OTEL_ENABLED=true
+DB_OTEL_EXPORTER=otlp_http
+DB_OTEL_OTLP_ENDPOINT=https://collector.example.com/v1/traces
+DB_OTEL_OTLP_HEADERS=authorization=Bearer replace-me
+DB_OTEL_SAMPLING_RATIO=0.25
+```
+
+说明：
+
+- 内置 span 仍由统一授权 wrapper 创建，包含 `mcp.tool.name`、`db_mcp.action`、`db_mcp.transport`、`db_mcp.connection_id`、`db_mcp.duration_ms`、`db_mcp.error_code` 等属性。
+- `DB_OTEL_OTLP_HEADERS` 适合放置 collector token；启动诊断和 `safeTelemetryConfig` 不输出 header 值或 endpoint 明文。
+- 关闭进程时会调用 provider shutdown，尽力 flush 已缓存 span。
+- 未配置内置 exporter 时，外部宿主仍可按 OTel API 的常规方式在进程外预加载 provider。
+
+### 5.7 Redis 和 SQL Server 专项
 
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
@@ -198,7 +234,7 @@ DB_ALERT_MIN_SEVERITY=warning
 | `DB_MSSQL_ENCRYPT` | `true` | MSSQL 连接加密开关；设为 `false` 关闭 |
 | `DB_MSSQL_TRUST_SERVER_CERTIFICATE` | `false` | MSSQL 是否信任自签证书 |
 
-### 5.6 DuckDB 专项
+### 5.8 DuckDB 专项
 
 DuckDB 使用 `url` 或 `database` 指向数据库文件，未提供时使用 `:memory:`。与其他 SQL 引擎不同，DuckDB 连接默认 `readonly:true`，只有显式设置 `readonly:false` 时才允许写入。
 
@@ -216,7 +252,7 @@ DB_MCP_DEFAULT_CONNECTION_ID=duck
 - 外部文件读取默认关闭。配置 `allowlist` 后，只允许读取列表内的文件或目录，例如 `read_csv_auto('./data/demo.csv')`。
 - 不要把用户主目录、仓库根目录或系统目录整体加入 `allowlist`。
 
-### 5.7 日志和关闭
+### 5.9 日志和关闭
 
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
@@ -226,7 +262,7 @@ DB_MCP_DEFAULT_CONNECTION_ID=duck
 | `DB_MONGO_TRANSACTION_TIMEOUT_MS` | `300000` | MongoDB 事务清理超时；未设置时回退到 `DB_TRANSACTION_TIMEOUT_MS` |
 | `DB_SHUTDOWN_TIMEOUT_MS` | `10000` | 优雅关闭超时 |
 
-### 5.8 HTTP 传输配置
+### 5.10 HTTP 传输配置
 
 默认仍为 `stdio`。只有设置 `DB_MCP_TRANSPORT=http` 或 CLI `--transport http` 时才启动 Streamable HTTP。
 
@@ -334,7 +370,7 @@ HTTP endpoint：
 可观测性：
 
 - `prometheus_metrics` MCP 工具和 HTTP `GET /metrics` 使用同一套指标生成逻辑，包含连接请求、审计统计和工具调用聚合。
-- 工具调用会通过 OpenTelemetry API 创建 span；宿主进程注册 OTel provider 后可采集 `mcp.tool.name`、`db_mcp.connection_id`、`db_mcp.duration_ms`、`db_mcp.error_code` 等属性。
+- 工具调用会通过 OpenTelemetry API 创建 span；设置 `DB_OTEL_ENABLED=true` 后可使用内置 OTLP HTTP 或 console exporter，也可由宿主进程自行注册 provider。
 - `alert_test` 可发送一条测试告警；真实告警覆盖连接失败、工具错误率升高和慢工具调用。
 - `/metrics` 不是健康检查端点，生产环境应继续使用 bearer/RBAC 或 API key fallback 保护。
 
@@ -366,6 +402,7 @@ HTTP endpoint：
 | 脱敏 | 开启 `strict` 或 `strict-v2` |
 | 审计 | 设置 `DB_AUDIT_SINK=file` 和 `DB_AUDIT_FILE_PATH`，由外部日志系统采集 JSONL |
 | 告警 | 设置 `DB_ALERT_ENABLED=true` 和 webhook URL；密钥使用 `DB_ALERT_WEBHOOK_SECRET` |
+| OTel traces | 设置 `DB_OTEL_ENABLED=true` 和 collector endpoint；token 使用 `DB_OTEL_OTLP_HEADERS` |
 | HTTP | 默认 localhost；远程部署必须配置认证和 Origin |
 | Docker | `docker-compose.env` 仅提供本地开发默认连接；私有环境使用 `.env` 覆盖且不要提交 |
 

@@ -107,6 +107,12 @@ Alert webhooks are explicit opt-in and cover connection failures, tool error-rat
 DB_ALERT_ENABLED=true DB_ALERT_WEBHOOK_URL=https://alerts.example.com/mcp node dist/index.js
 ```
 
+OpenTelemetry traces are also explicit opt-in and default to OTLP HTTP traces:
+
+```bash
+DB_OTEL_ENABLED=true DB_OTEL_OTLP_ENDPOINT=http://localhost:4318/v1/traces node dist/index.js
+```
+
 Smoke test:
 
 ```bash
@@ -226,6 +232,8 @@ When you **explicitly** pass `connection_id` on any tool, it must match a config
 | `DB_HTTP_HOST`, `DB_HTTP_PORT`, `DB_HTTP_ENDPOINT` | HTTP bind host, port, and MCP endpoint |
 | `DB_HTTP_API_KEY`, `DB_HTTP_AUTH_DISABLED`, `DB_HTTP_ORIGINS` | HTTP API key, explicit auth disable flag, and Origin allowlist |
 | `DB_QUERY_TIMEOUT`, `DB_MAX_ROWS`, `DB_MAX_SQL_LENGTH`, `DB_RETRY_COUNT`, `DB_RETRY_DELAY_MS` | Global SQL limits (see `src/core/config.ts`) |
+| `DB_ALERT_ENABLED`, `DB_ALERT_WEBHOOK_URL` | Explicit opt-in webhook alerts |
+| `DB_OTEL_ENABLED`, `DB_OTEL_OTLP_ENDPOINT` | Explicit opt-in OpenTelemetry trace exporter |
 | `DB_TRANSACTION_TIMEOUT_MS`, `DB_MONGO_TRANSACTION_TIMEOUT_MS` | SQL/Mongo transaction cleanup timeouts |
 
 ## License

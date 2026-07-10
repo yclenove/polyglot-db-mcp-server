@@ -42,5 +42,5 @@ v2.2.0 新增 HTTP `/metrics`、统一 Prometheus 指标生成、工具调用内
 
 | 风险 | 级别 | 处理 |
 |------|------|------|
-| OTel exporter 未内置 | P2 | v2.2.x 继续扩展 env 配置和 exporter |
+| OTel exporter 未内置 | P2 | 已在 v2.2.3 扩展 env 配置和 exporter |
 | 内存指标不跨进程 | P2 | 当前符合单实例 MCP server；多实例由 Prometheus 聚合 |

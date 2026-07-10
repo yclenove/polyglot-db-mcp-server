@@ -11,6 +11,7 @@ import { connectStdioTransport } from './transports/stdio.js';
 import { startHttpTransport, type StartedHttpTransport } from './transports/http.js';
 import { createAuthorizationRuntime } from './auth/authorization.js';
 import { publishConnectionPingAlerts } from './core/alerts.js';
+import { initializeTelemetry, shutdownTelemetry } from './core/telemetry.js';
 
 loadEnv({ path: path.join(process.cwd(), '.env'), override: true });
 
@@ -23,6 +24,7 @@ if (cliCommands.has(process.argv[2] ?? '')) {
 
 async function main(): Promise<void> {
   logger.info('starting server');
+  initializeTelemetry();
   const transportConfig = parseHttpTransportConfig(process.env, process.argv.slice(2));
   logger.info('transport config', safeHttpConfig(transportConfig));
 
@@ -51,6 +53,7 @@ async function main(): Promise<void> {
       error: defaultPing?.error,
     });
     await closeAll(registry);
+    await shutdownTelemetry();
     process.exit(1);
   }
 
@@ -91,6 +94,7 @@ async function main(): Promise<void> {
       logger.error('transport close error', { error: e instanceof Error ? e.message : String(e) });
     }
     await closeAll(registry);
+    await shutdownTelemetry();
     process.exit(0);
   };
 
@@ -113,6 +117,7 @@ async function main(): Promise<void> {
       logger.info('configuration reloaded successfully');
       // 关闭旧连接
       await closeAll(registry);
+      await shutdownTelemetry();
       process.exit(0); // 让进程管理器重启
     } catch (e) {
       logger.error('configuration reload failed', {
@@ -129,7 +134,14 @@ async function main(): Promise<void> {
   });
 }
 
-main().catch((e) => {
+main().catch(async (e) => {
   logger.error('fatal error', { error: e instanceof Error ? (e.stack ?? e.message) : String(e) });
+  try {
+    await shutdownTelemetry();
+  } catch (shutdownError) {
+    logger.warn('telemetry shutdown failed', {
+      error: shutdownError instanceof Error ? shutdownError.message : String(shutdownError),
+    });
+  }
   process.exit(1);
 });

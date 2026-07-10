@@ -27,7 +27,7 @@ v2.2.0 已完成 Prometheus/OTel 可观测基线，v2.2.1 已完成审计文件�
 | 项目 | 处理 |
 |------|------|
 | 外部审计数据库 sink | 后续 v2.2.x 独立推进 |
-| OpenTelemetry exporter 自动注册 | 后续 v2.2.x 独立推进 |
+| OpenTelemetry exporter 自动注册 | 已在 v2.2.3 独立推进 |
 | 告警规则 DSL 和动态 reload | 后续策略治理迭代 |
 | 插件化 Export Plugin | v3.0.0 范围 |
 

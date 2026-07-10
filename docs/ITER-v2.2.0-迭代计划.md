@@ -34,6 +34,6 @@
 
 | 风险 | 级别 | 处理 |
 |------|------|------|
-| 当前未内置 OTel exporter | P2 | 先提供 API span 接入点，后续 v2.2.x 增加 exporter/env 配置 |
+| 当前未内置 OTel exporter | P2 | v2.2.0 先提供 API span 接入点；已在 v2.2.3 增加 exporter/env 配置 |
 | 当前指标为内存聚合 | P2 | 适合单进程服务；多实例聚合交给 Prometheus scrape 或后续外部 sink |
 | 告警 webhook 未实现 | P2 | 保留在 v2.2.x 治理扩展 |

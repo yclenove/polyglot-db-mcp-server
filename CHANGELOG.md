@@ -4,6 +4,17 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.3] - 2026-07-10
+
+### 新增
+- **内置 OpenTelemetry exporter 配置**：新增 `DB_OTEL_ENABLED`、`DB_OTEL_EXPORTER`、`DB_OTEL_OTLP_ENDPOINT` 等配置，可显式启用 OTLP HTTP 或 console trace exporter。
+- **OTel 安全摘要与优雅关闭**：启动诊断展示脱敏后的 telemetry 配置，进程退出时会 shutdown provider 以尽力 flush spans。
+- **OTel 配置测试**：覆盖默认关闭、标准 OTEL endpoint 兼容、header 脱敏、采样比例和 batch 队列边界。
+
+### 安全
+- OTel 默认关闭，残留 collector endpoint 或 header 不会触发外发。
+- `DB_OTEL_OTLP_HEADERS` 不进入启动诊断或安全摘要；endpoint 明文也不在摘要中输出。
+
 ## [2.2.2] - 2026-07-10
 
 ### 新增

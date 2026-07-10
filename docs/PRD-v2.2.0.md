@@ -25,7 +25,7 @@ v2.1.x 已完成 DuckDB、本地分析、查询导出和采样画像。下一阶
 
 | 项目 | 处理 |
 |------|------|
-| OTel exporter 配置 | v2.2.x 后续，当前只接入 API span，允许宿主注册 provider |
+| OTel exporter 配置 | v2.2.0 只接入 API span；已在 v2.2.3 增加内置 exporter/env 配置 |
 | 告警 webhook | v2.2.x 后续 |
 | 外部配置中心 | v2.2.x 或 v2.3.0 |
 | 写操作审批流 | 依赖更完整 policy workflow，后续独立设计 |

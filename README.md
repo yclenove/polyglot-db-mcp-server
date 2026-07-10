@@ -112,6 +112,12 @@ DB_AUDIT_SINK=file DB_AUDIT_FILE_PATH=./logs/audit.jsonl node dist/index.js
 DB_ALERT_ENABLED=true DB_ALERT_WEBHOOK_URL=https://alerts.example.com/mcp node dist/index.js
 ```
 
+OpenTelemetry traces 也需要显式开启；默认使用 OTLP HTTP traces endpoint：
+
+```bash
+DB_OTEL_ENABLED=true DB_OTEL_OTLP_ENDPOINT=http://localhost:4318/v1/traces node dist/index.js
+```
+
 HTTP smoke test：
 
 ```bash
@@ -302,6 +308,8 @@ docker compose up -d
 | `DB_MASKING_EXCLUDE_CONNECTIONS` | 排除脱敏的连接 ID（逗号分隔） |
 | `DB_REPLAY_BUFFER_SIZE` | 查询历史缓冲大小，默认 50 |
 | `DB_SUGGEST_TIMEOUT_MS` | 查询建议分析超时（ms），默认 5000 |
+| `DB_ALERT_ENABLED`、`DB_ALERT_WEBHOOK_URL` | 显式启用 webhook 告警 |
+| `DB_OTEL_ENABLED`、`DB_OTEL_OTLP_ENDPOINT` | 显式启用 OpenTelemetry traces exporter |
 | `DB_TRANSACTION_TIMEOUT_MS`、`DB_MONGO_TRANSACTION_TIMEOUT_MS` | SQL/Mongo 事务清理超时 |
 | `LOG_LEVEL` | 日志级别：`debug`、`info`（默认）、`warn`、`error` |
 | `LOG_FORMAT` | 日志格式：`json` 或人类可读（默认） |
