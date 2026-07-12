@@ -75,6 +75,7 @@ function sqlDialect(engine, table, view, procedure) {
     createView: `CREATE VIEW ${view} AS SELECT id, name, score FROM ${table}`,
     insert: `INSERT INTO ${table} (id, name, score) VALUES (${placeholders.join(', ')})`,
     update: `UPDATE ${table} SET score = ${engine === 'postgres' ? '$1' : '?'} WHERE id = ${engine === 'postgres' ? '$2' : '?'}`,
+    deleteById: `DELETE FROM ${table} WHERE id = ${engine === 'postgres' ? '$1' : '?'}`,
     selectById: `SELECT id, name, score FROM ${table} WHERE id = ${selectPlaceholder}`,
     selectAll: `SELECT id, name, score FROM ${table} ORDER BY id`,
     procedureDdl,
@@ -152,6 +153,18 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
     sql: sql.update,
     params: [11, 1],
   });
+  await callTool(server, 'sql_execute', {
+    connection_id: id,
+    sql: sql.insert,
+    params: [4, 'delete', 40],
+  });
+  await callTool(server, 'sql_execute', {
+    connection_id: id,
+    sql: sql.deleteById,
+    params: [4],
+  });
+  const deleted = await executeOk(driver, sql.selectById, [4], RO);
+  assert.equal(deleted.data?.length ?? 0, 0, `${engine} delete did not remove data`);
 
   const rollbackTx = await callTool(server, 'sql_begin_transaction', { connection_id: id });
   await callTool(server, 'sql_execute_in_transaction', {
