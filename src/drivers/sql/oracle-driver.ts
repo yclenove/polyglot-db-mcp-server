@@ -23,7 +23,8 @@ type OraModule = {
 export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDriver> {
   let oracledb: OraModule;
   try {
-    oracledb = (await import('oracledb')) as OraModule;
+    const loaded = (await import('oracledb')) as OraModule & { default?: OraModule };
+    oracledb = loaded.default ?? loaded;
   } catch (e) {
     throw new Error(
       `未安装 oracledb 可选依赖，无法创建 Oracle 连接：${e instanceof Error ? e.message : String(e)}`,

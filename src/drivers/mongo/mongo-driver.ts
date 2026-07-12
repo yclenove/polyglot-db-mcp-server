@@ -3,9 +3,21 @@ import type { ConnectionSpec } from '../../core/types.js';
 import type { MongoDriver, MongoTransactionOperation } from '../../core/types.js';
 import { auditLog } from '../../core/audit.js';
 
+type MongoCreateIndexOptions = NonNullable<Parameters<MongoDriver['createIndex']>[2]>;
+
 function dbFromClient(client: MongoClient, spec: ConnectionSpec): Db {
   if (spec.database) return client.db(spec.database);
   return client.db();
+}
+
+export function buildMongoCreateIndexOptions(
+  options?: MongoCreateIndexOptions,
+): import('mongodb').CreateIndexesOptions {
+  const indexOptions: import('mongodb').CreateIndexesOptions = {};
+  if (options?.name) indexOptions.name = options.name;
+  if (typeof options?.unique === 'boolean') indexOptions.unique = options.unique;
+  if (typeof options?.sparse === 'boolean') indexOptions.sparse = options.sparse;
+  return indexOptions;
 }
 
 export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriver> {
@@ -180,13 +192,10 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
     async createIndex(collection, keys, options) {
       assertCollectionAllowed(collection);
       assertNotReadonly();
+      const indexOptions = buildMongoCreateIndexOptions(options);
       const indexName = await db
         .collection(collection)
-        .createIndex(keys as unknown as import('mongodb').IndexSpecification, {
-          name: options?.name,
-          unique: options?.unique,
-          sparse: options?.sparse,
-        });
+        .createIndex(keys as unknown as import('mongodb').IndexSpecification, indexOptions);
       auditLog({ engine: 'mongodb', op: 'createIndex', collection, indexName });
       return indexName;
     },

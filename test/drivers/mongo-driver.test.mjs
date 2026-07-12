@@ -8,6 +8,23 @@ describe('MongoDB Driver Interface', () => {
     assert.ok(typeof createMongoDriver === 'function');
   });
 
+  test('buildMongoCreateIndexOptions omits nullish boolean options', async () => {
+    const { buildMongoCreateIndexOptions } = await import('../../dist/drivers/mongo/mongo-driver.js');
+
+    assert.deepEqual(
+      buildMongoCreateIndexOptions({
+        name: 'email_idx',
+        unique: undefined,
+        sparse: null,
+      }),
+      { name: 'email_idx' },
+    );
+    assert.deepEqual(buildMongoCreateIndexOptions({ unique: false, sparse: true }), {
+      unique: false,
+      sparse: true,
+    });
+  });
+
   test('MongoDriver interface has required methods', () => {
     // 验证接口定义
     const requiredMethods = ['ping', 'listCollections', 'find', 'aggregate', 'count', 'close'];
