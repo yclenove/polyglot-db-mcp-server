@@ -441,6 +441,18 @@ describe('SQL Tools', () => {
     assert.equal(data.procedure, 'my_proc');
   });
 
+  test('sql_call_procedure binds MySQL procedure parameters', async () => {
+    mockDriver.engine = 'mysql';
+    mockDriver.execute = async (sql, params) => {
+      assert.equal(sql, 'CALL `my_proc`(?, ?)');
+      assert.deepEqual(params, [1, 'test']);
+      return { success: true, data: [{ result: 42 }] };
+    };
+    const tool = server.tools.get('sql_call_procedure');
+    const result = await tool.handler({ procedure: 'my_proc', params: [1, 'test'] });
+    assert.equal(result.isError, undefined);
+  });
+
   test('sql_call_procedure rejects invalid procedure identifier', async () => {
     const tool = server.tools.get('sql_call_procedure');
     const result = await tool.handler({
@@ -534,5 +546,23 @@ describe('SQL Tools', () => {
     assert.ok(data.pagination);
     assert.equal(data.pagination.page, 2);
     assert.equal(data.pagination.page_size, 10);
+  });
+
+  test('sql_query uses Oracle OFFSET FETCH pagination', async () => {
+    mockDriver.engine = 'oracle';
+    mockDriver.execute = async (sql) => {
+      assert.equal(
+        sql,
+        'SELECT * FROM users ORDER BY id OFFSET 10 ROWS FETCH NEXT 10 ROWS ONLY',
+      );
+      return { success: true, data: [{ id: 11 }], totalRows: 1 };
+    };
+    const tool = server.tools.get('sql_query');
+    const result = await tool.handler({
+      sql: 'SELECT * FROM users ORDER BY id',
+      page: 2,
+      page_size: 10,
+    });
+    assert.equal(result.isError, undefined);
   });
 });

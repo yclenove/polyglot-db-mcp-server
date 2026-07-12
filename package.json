@@ -40,6 +40,7 @@
     "test": "node --test --test-name-pattern=. test/*.test.mjs test/auth/*.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs test/transports/*.test.mjs",
     "test:unit": "node --test --test-name-pattern=. test/*.test.mjs test/auth/*.test.mjs test/tools/*.test.mjs test/transports/*.test.mjs",
     "test:integration": "node --test --test-name-pattern=. test/integration/*.test.mjs",
+    "test:real": "node scripts/real-db-matrix.mjs",
     "test:coverage": "c8 --reporter=text --reporter=json --reporter=lcov node --test --test-name-pattern=. test/*.test.mjs test/auth/*.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs test/transports/*.test.mjs",
     "test:coverage:check": "c8 --lines 50 --branches 50 --functions 50 node --test --test-name-pattern=. test/*.test.mjs test/auth/*.test.mjs test/drivers/*.test.mjs test/tools/*.test.mjs test/transports/*.test.mjs",
     "benchmark": "node test/benchmark/sql-guards.bench.mjs",

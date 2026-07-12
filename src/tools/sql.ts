@@ -353,8 +353,10 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
               if (/ORDER\s+BY/i.test(sql)) {
                 finalSql = `${sql} OFFSET ${offset} ROWS FETCH NEXT ${page_size} ROWS ONLY`;
               }
+            } else if (engine === 'oracle') {
+              finalSql = `${sql} OFFSET ${offset} ROWS FETCH NEXT ${page_size} ROWS ONLY`;
             } else {
-              // MySQL, PostgreSQL, Oracle, SQLite, DuckDB 使用标准 LIMIT/OFFSET
+              // MySQL, PostgreSQL, SQLite, DuckDB 使用 LIMIT/OFFSET
               finalSql = `${sql} LIMIT ${page_size} OFFSET ${offset}`;
             }
           }
@@ -1106,16 +1108,16 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         let sql: string;
         switch (driver.engine) {
           case 'mysql':
-            sql = `CALL \`${procedure.replace(/`/g, '')}\``;
+            sql = `CALL \`${procedure.replace(/`/g, '')}\`(${params?.map(() => '?').join(', ') || ''})`;
             break;
           case 'postgres':
             sql = `CALL ${procedure}(${params?.map((_, i) => `$${i + 1}`).join(', ') || ''})`;
             break;
           case 'mssql':
-            sql = `EXEC ${procedure} ${params?.map((_, i) => `@p${i}`).join(', ') || ''}`;
+            sql = `EXEC ${procedure} ${params?.map(() => '?').join(', ') || ''}`;
             break;
           case 'oracle':
-            sql = `BEGIN ${procedure}(${params?.map((_, i) => `:p${i}`).join(', ') || ''}); END;`;
+            sql = `BEGIN ${procedure}(${params?.map(() => '?').join(', ') || ''}); END;`;
             break;
           case 'sqlite':
             sql = `SELECT ${procedure}(${params?.map(() => '?').join(', ') || ''})`;
@@ -1218,7 +1220,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         return {
           sql: `SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE
                 FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_NAME = @p0
+                WHERE TABLE_NAME = ?
                 ORDER BY ORDINAL_POSITION`,
           params: [view],
         };
@@ -1226,7 +1228,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         return {
           sql: `SELECT column_name, data_type, nullable
                 FROM user_tab_columns
-                WHERE table_name = :1
+                WHERE table_name = ?
                 ORDER BY column_id`,
           params: [view.toUpperCase()],
         };

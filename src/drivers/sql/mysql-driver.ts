@@ -14,6 +14,10 @@ const RETRIABLE = new Set([
   'EPIPE',
 ]);
 
+export function requiresTextProtocol(sql: string): boolean {
+  return /^\s*(?:CREATE\s+(?:OR\s+REPLACE\s+)?PROCEDURE|CALL)\b/i.test(sql);
+}
+
 function poolConfig(spec: ConnectionSpec): mysql.PoolOptions {
   if (spec.url) {
     return {
@@ -62,10 +66,10 @@ export async function createMysqlDriver(spec: ConnectionSpec): Promise<SqlDriver
         const d = checkDangerousOperation(sql);
         if (d) return { success: false, error: d };
       }
-      const [rows] = await withTimeout(
-        conn.execute(sql, (params ?? []) as never) as Promise<[unknown, unknown]>,
-        queryTimeoutMs,
-      );
+      const statement = requiresTextProtocol(sql)
+        ? conn.query(sql, (params ?? []) as never)
+        : conn.execute(sql, (params ?? []) as never);
+      const [rows] = await withTimeout(statement as Promise<[unknown, unknown]>, queryTimeoutMs);
       const executionTime = Date.now() - start;
       if (Array.isArray(rows)) {
         const data = (rows as RowDataPacket[]).slice(0, maxRows);
@@ -133,8 +137,11 @@ export async function createMysqlDriver(spec: ConnectionSpec): Promise<SqlDriver
       const d = checkDangerousOperation(sql);
       if (d) return { success: false, error: d };
     }
+    const statement = requiresTextProtocol(sql)
+      ? pool.query(sql, (params ?? []) as never)
+      : pool.execute(sql, (params ?? []) as never);
     const [rows, _fields] = await withTimeout(
-      pool.execute(sql, (params ?? []) as never) as Promise<[unknown, unknown]>,
+      statement as Promise<[unknown, unknown]>,
       queryTimeoutMs,
     );
     const executionTime = Date.now() - start;

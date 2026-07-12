@@ -31,7 +31,7 @@ export function describeTableSql(
       return {
         sql: `SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE
               FROM INFORMATION_SCHEMA.COLUMNS
-              WHERE TABLE_NAME = @p0
+              WHERE TABLE_NAME = ?
               ORDER BY ORDINAL_POSITION`,
         params: [table],
       };
@@ -39,7 +39,7 @@ export function describeTableSql(
       return {
         sql: `SELECT column_name, data_type, nullable
               FROM user_tab_columns
-              WHERE table_name = :1
+              WHERE table_name = ?
               ORDER BY column_id`,
         params: [table.toUpperCase()],
       };
@@ -86,7 +86,7 @@ export function listIndexesSql(
         sql: `SELECT i.name AS name, COL_NAME(ic.object_id, ic.column_id) AS column_name
               FROM sys.indexes i
               JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
-              WHERE i.object_id = OBJECT_ID(@p0)
+              WHERE i.object_id = OBJECT_ID(?)
               ORDER BY i.name, ic.key_ordinal`,
         params: [table],
       };
@@ -94,7 +94,7 @@ export function listIndexesSql(
       return {
         sql: `SELECT index_name AS name, column_name
               FROM user_ind_columns
-              WHERE table_name = :1
+              WHERE table_name = ?
               ORDER BY index_name, column_position`,
         params: [table.toUpperCase()],
       };

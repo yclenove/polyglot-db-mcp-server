@@ -18,7 +18,9 @@ describe('sql helpers', () => {
       params: ['public', 'users'],
     });
     assert.deepEqual(describeTableSql('postgres', 'users', 'app').params, ['app', 'users']);
+    assert.match(describeTableSql('mssql', 'users').sql, /TABLE_NAME = \?/);
     assert.deepEqual(describeTableSql('mssql', 'users').params, ['users']);
+    assert.match(describeTableSql('oracle', 'users').sql, /table_name = \?/);
     assert.deepEqual(describeTableSql('oracle', 'users').params, ['USERS']);
     assert.match(describeTableSql('sqlite', 'users').sql, /PRAGMA table_info\(`users`\)/);
   });
@@ -26,7 +28,9 @@ describe('sql helpers', () => {
   test('listIndexesSql supports all SQL engines', () => {
     assert.match(listIndexesSql('mysql', 'users').sql, /SHOW INDEX FROM `users`/);
     assert.deepEqual(listIndexesSql('postgres', 'users', 'app').params, ['app', 'users']);
+    assert.match(listIndexesSql('mssql', 'users').sql, /OBJECT_ID\(\?\)/);
     assert.deepEqual(listIndexesSql('mssql', 'users').params, ['users']);
+    assert.match(listIndexesSql('oracle', 'users').sql, /table_name = \?/);
     assert.deepEqual(listIndexesSql('oracle', 'users').params, ['USERS']);
     assert.match(listIndexesSql('sqlite', 'users').sql, /PRAGMA index_list\(`users`\)/);
   });

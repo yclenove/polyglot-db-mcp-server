@@ -51,3 +51,14 @@ describe('Retry Logic', () => {
     assert.ok(retriableCodes.length > 0);
   });
 });
+
+describe('MySQL protocol selection', () => {
+  test('uses text protocol only for stored procedure statements', async () => {
+    const { requiresTextProtocol } = await import('../../dist/drivers/sql/mysql-driver.js');
+
+    assert.equal(requiresTextProtocol('CREATE PROCEDURE p() SELECT 1'), true);
+    assert.equal(requiresTextProtocol('CALL p()'), true);
+    assert.equal(requiresTextProtocol('SELECT ? AS value'), false);
+    assert.equal(requiresTextProtocol('INSERT INTO t VALUES (?)'), false);
+  });
+});
