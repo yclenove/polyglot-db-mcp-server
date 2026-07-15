@@ -91,11 +91,17 @@ export function createQueryCacheFromEnv(): QueryCache {
 }
 
 /** 生成缓存键 */
-export function cacheKey(connectionId: string, sql: string, params: unknown[]): string {
+export function cacheKey(
+  connectionId: string,
+  sql: string,
+  params: unknown[],
+  variant?: Record<string, unknown>,
+): string {
   return JSON.stringify({
     connectionId,
     sql,
     params: stableSerialize(params, new WeakSet<object>()),
+    variant: variant ? stableSerialize(variant, new WeakSet<object>()) : undefined,
   });
 }
 

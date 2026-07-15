@@ -6,6 +6,7 @@ import { registerMongoTools } from '../dist/tools/mongo.js';
 import { registerRedisTools } from '../dist/tools/redis.js';
 import { registerSchemaTools } from '../dist/tools/schema.js';
 import { registerSqlTools } from '../dist/tools/sql.js';
+import { installResponseBudget } from '../dist/core/response-budget.js';
 
 const SQL_ENGINES = ['mysql', 'postgres', 'mssql', 'oracle', 'sqlite', 'duckdb'];
 const REQUIRED_ENGINES = [...SQL_ENGINES, 'mongodb', 'redis'];
@@ -101,6 +102,26 @@ function sqlDialect(engine, table, view, procedure) {
     ) SELECT n FROM seq ORDER BY n`,
     duckdb: 'SELECT range AS n FROM range(100000)',
   }[engine];
+  const byteBoundedReadQuery = {
+    mysql: `SELECT 1 AS id, 'ok' AS value
+      UNION ALL SELECT 2, REPEAT('x', 200000)
+      UNION ALL SELECT 3, 'unread' ORDER BY id`,
+    postgres: `SELECT 1 AS id, 'ok' AS value
+      UNION ALL SELECT 2, repeat('x', 200000)
+      UNION ALL SELECT 3, 'unread' ORDER BY id`,
+    mssql: `SELECT 1 AS id, CAST('ok' AS VARCHAR(MAX)) AS value
+      UNION ALL SELECT 2, REPLICATE(CAST('x' AS VARCHAR(MAX)), 200000)
+      UNION ALL SELECT 3, CAST('unread' AS VARCHAR(MAX)) ORDER BY id`,
+    oracle: `SELECT 1 AS id, 'ok' AS value FROM dual
+      UNION ALL SELECT 2, RPAD('x', 3000, 'x') FROM dual
+      UNION ALL SELECT 3, 'unread' FROM dual ORDER BY 1`,
+    sqlite: `SELECT 1 AS id, 'ok' AS value
+      UNION ALL SELECT 2, printf('%0200000d', 1)
+      UNION ALL SELECT 3, 'unread' ORDER BY id`,
+    duckdb: `SELECT * FROM (VALUES
+      (1, 'ok'), (2, repeat('x', 200000)), (3, 'unread')
+    ) AS t(id, value) ORDER BY id`,
+  }[engine];
   const probeQuery = engine === 'oracle' ? 'SELECT 42 AS value FROM dual' : 'SELECT 42 AS value';
 
   return {
@@ -113,6 +134,7 @@ function sqlDialect(engine, table, view, procedure) {
     selectAll: `SELECT id, name, score FROM ${table} ORDER BY id`,
     largeIntegerQuery,
     boundedReadQuery,
+    byteBoundedReadQuery,
     probeQuery,
     procedureDdl,
     procedureName:
@@ -122,6 +144,36 @@ function sqlDialect(engine, table, view, procedure) {
           ? 'abs'
           : null,
   };
+}
+
+async function verifyByteBoundedReads(driver, engine, byteBoundedReadQuery, probeQuery) {
+  const options = { ...RO, maxRows: 10, maxBytes: 1024 };
+  const assertBounded = (result, context) => {
+    assert.equal(result.success, true, `${engine} ${context} failed: ${result.error ?? ''}`);
+    assert.equal(result.data?.length, 1, `${engine} ${context} retained an oversized row`);
+    assert.equal(result.truncated, true, `${engine} ${context} was not marked truncated`);
+    assert.equal(result.truncatedBy, 'bytes', `${engine} ${context} used the wrong limit`);
+    assert.ok(result.returnedBytes <= 1024, `${engine} ${context} exceeded its byte budget`);
+  };
+
+  const result = await driver.execute(byteBoundedReadQuery, [], options);
+  assertBounded(result, 'byte-bounded read');
+  const followUp = await executeOk(driver, probeQuery, [], RO);
+  assert.equal(followUp.data?.length, 1, `${engine} connection was not reusable after byte cap`);
+
+  const tx = await driver.beginTransaction();
+  try {
+    const transactionResult = await tx.execute(byteBoundedReadQuery, [], options);
+    assertBounded(transactionResult, 'transaction byte-bounded read');
+    const transactionFollowUp = await tx.execute(probeQuery, [], RO);
+    assert.equal(
+      transactionFollowUp.success,
+      true,
+      `${engine} transaction was not reusable after byte cap: ${transactionFollowUp.error ?? ''}`,
+    );
+  } finally {
+    await tx.rollback();
+  }
 }
 
 async function verifyBoundedReads(driver, engine, boundedReadQuery, probeQuery) {
@@ -350,6 +402,7 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
   );
 
   await verifyBoundedReads(driver, engine, sql.boundedReadQuery, sql.probeQuery);
+  await verifyByteBoundedReads(driver, engine, sql.byteBoundedReadQuery, sql.probeQuery);
 
   await verifyReadonlyBypasses(server, driver, id, engine, table);
   await verifyDangerousDdlBlocked(server, driver, id, engine, table);
@@ -395,7 +448,8 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
   await callTool(server, 'sql_create_index', {
     connection_id: id,
     table,
-    columns: ['score'],
+    columns: ['score', 'name'],
+    unique: true,
     indexName: index,
   });
   const indexes = await callTool(server, 'sql_list_indexes', { connection_id: id, table });
@@ -428,6 +482,15 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
     table,
     sample_size: 10,
   });
+
+  const byteBoundedToolResult = await callTool(server, 'sql_query', {
+    connection_id: id,
+    sql: sql.byteBoundedReadQuery,
+    limit: 10,
+    response_bytes_limit: 1024,
+  });
+  assert.equal(byteBoundedToolResult.value.data?.length, 1, `${engine} tool retained large row`);
+  assert.equal(byteBoundedToolResult.value.truncatedBy, 'bytes');
 
   for (const format of ['json', 'csv', 'markdown']) {
     const exported = await callTool(server, 'sql_export_query', {
@@ -469,6 +532,17 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
   );
   assert.equal(suggested.value.analyzedWithSchema, true, `${engine} schema analysis was not used`);
   assert.ok(suggested.value.tableCount >= 1, `${engine} query_suggest loaded no table metadata`);
+  const indexAwareSuggestion = await callTool(server, 'query_suggest', {
+    connectionId: id,
+    sql: `SELECT id FROM ${table} WHERE score = 11`,
+  });
+  assert.equal(
+    indexAwareSuggestion.value.suggestions.some(
+      (item) => item.type === 'index' && String(item.message).includes('score'),
+    ),
+    false,
+    `${engine} query_suggest did not recognize the created score index`,
+  );
   const optimized = await callTool(server, 'query_optimize', {
     connectionId: id,
     sql: sql.selectAll,
@@ -480,6 +554,12 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
   assert.ok(
     optimized.value.tableInfo?.some((item) => item.name.toLowerCase() === table.toLowerCase()),
     `${engine} query_optimize loaded no metadata for ${table}`,
+  );
+  assert.ok(
+    optimized.value.tableInfo?.some(
+      (item) => item.name.toLowerCase() === table.toLowerCase() && item.indexCount >= 1,
+    ),
+    `${engine} query_optimize did not load index metadata for ${table}`,
   );
   if (engine === 'mssql') {
     assert.match(
@@ -555,6 +635,46 @@ async function verifyMongo(server, id, suffix) {
       { id: 3, name: 'gamma', group: 'b', score: 30 },
     ]),
   });
+  await callTool(server, 'mongo_insert_many', {
+    connection_id: id,
+    collection,
+    documents_json: JSON.stringify([
+      { id: 98, value: 'ok' },
+      { id: 99, value: 'x'.repeat(200000) },
+      { id: 100, value: 'unread' },
+    ]),
+  });
+  const byteBoundedFind = await callTool(server, 'mongo_find', {
+    connection_id: id,
+    collection,
+    filter_json: JSON.stringify({ id: { $gte: 98 } }),
+    limit: 10,
+    response_bytes_limit: 1024,
+  });
+  assert.equal(byteBoundedFind.value.rows?.length, 1, 'MongoDB find retained oversized document');
+  assert.equal(byteBoundedFind.value.truncatedBy, 'bytes');
+
+  const byteBoundedAggregate = await callTool(server, 'mongo_aggregate', {
+    connection_id: id,
+    collection,
+    pipeline_json: JSON.stringify([
+      { $match: { id: { $gte: 98 } } },
+      { $sort: { id: 1 } },
+    ]),
+    limit: 10,
+    response_bytes_limit: 1024,
+  });
+  assert.equal(
+    byteBoundedAggregate.value.rows?.length,
+    1,
+    'MongoDB aggregate retained oversized document',
+  );
+  assert.equal(byteBoundedAggregate.value.truncatedBy, 'bytes');
+  await callTool(server, 'mongo_delete_many', {
+    connection_id: id,
+    collection,
+    filter_json: JSON.stringify({ id: { $gte: 98 } }),
+  });
   const exactInt64 = await callTool(server, 'mongo_find', {
     connection_id: id,
     collection,
@@ -620,14 +740,22 @@ async function verifyMongo(server, id, suffix) {
     update_json: JSON.stringify({ $set: { name: 'beta2' } }),
     returnDocument: 'after',
   });
-  await callTool(server, 'mongo_create_index', {
+  const mongoIndex = `ri_mongo_${suffix}`;
+  const createdIndex = await callTool(server, 'mongo_create_index', {
     connection_id: id,
     collection,
-    keys_json: JSON.stringify({ score: 1 }),
-    name: `ri_mongo_${suffix}`,
-    sparse: false,
+    keys_json: JSON.stringify({ score: 1, name: -1 }),
+    name: mongoIndex,
+    unique: true,
+    sparse: true,
   });
-  await callTool(server, 'mongo_list_indexes', { connection_id: id, collection });
+  assert.equal(createdIndex.value.indexName, mongoIndex, 'MongoDB returned the wrong index name');
+  const mongoIndexes = await callTool(server, 'mongo_list_indexes', { connection_id: id, collection });
+  assert.ok(Array.isArray(mongoIndexes.value.indexes), 'MongoDB index listing is not an array');
+  assert.ok(
+    containsIdentifier(mongoIndexes.value.indexes, mongoIndex),
+    `MongoDB index listing did not contain created index ${mongoIndex}`,
+  );
   await callTool(server, 'mongo_schema_analysis', {
     connection_id: id,
     collection,
@@ -710,6 +838,18 @@ async function verifyRedis(server, id, suffix) {
   await callTool(server, 'redis_type', { connection_id: id, key: key('string') });
   await callTool(server, 'redis_expire', { connection_id: id, key: key('string'), seconds: 60 });
   await callTool(server, 'redis_ttl', { connection_id: id, key: key('string') });
+  await callTool(server, 'redis_set', {
+    connection_id: id,
+    key: key('large-string'),
+    value: 'x'.repeat(2 * 1024 * 1024),
+  });
+  const boundedString = await callTool(server, 'redis_get', {
+    connection_id: id,
+    key: key('large-string'),
+  });
+  assert.equal(boundedString.value._db_mcp_response?.truncated, true);
+  assert.equal(boundedString.value._db_mcp_response?.reason, 'response_byte_limit');
+  await callTool(server, 'redis_del', { connection_id: id, key: key('large-string') });
   await callTool(server, 'redis_scan', {
     connection_id: id,
     match: `rt:${suffix}:*`,
@@ -844,6 +984,7 @@ async function main() {
   process.env.DB_RATE_LIMIT_PER_SECOND = '0';
   process.env.DB_QUERY_TIMEOUT = process.env.DB_QUERY_TIMEOUT ?? '30000';
   process.env.DB_MAX_ROWS = process.env.DB_MAX_ROWS ?? '1000';
+  process.env.DB_MAX_RESPONSE_BYTES = '1048576';
 
   const registry = await createRegistryFromEnv();
   try {
@@ -854,6 +995,7 @@ async function main() {
     }
 
     const server = new ToolCollector();
+    installResponseBudget(server);
     registerSqlTools(server, registry);
     registerSchemaTools(server, registry);
     registerAdvisorTools(server, registry);

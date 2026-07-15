@@ -252,6 +252,66 @@ export function installAuthorization(server: McpServer, authorization: Authoriza
     config: Parameters<McpServer['registerTool']>[1],
     cb: ToolCallback,
   ) => {
+    const handler = cb as unknown;
+    if (typeof handler !== 'function') {
+      const taskHandler = handler as {
+        createTask: (...args: unknown[]) => unknown | Promise<unknown>;
+        getTask: (...args: unknown[]) => unknown | Promise<unknown>;
+        getTaskResult: (...args: unknown[]) => unknown | Promise<unknown>;
+      };
+      const wrappedTaskHandler = {
+        ...taskHandler,
+        async createTask(argsOrExtra: unknown, maybeExtra?: Extra) {
+          const startedAt = Date.now();
+          const hasArgs = maybeExtra !== undefined;
+          const input = hasArgs ? inputRecord(argsOrExtra) : {};
+          const extra = hasArgs ? maybeExtra : (argsOrExtra as Extra | undefined);
+          const decision = authorization.authorize(name, input, extra);
+          if (!decision.allowed) {
+            recordToolCall({
+              tool: name,
+              action: decision.action,
+              connectionId: decision.connectionId,
+              transport: decision.transport,
+              success: false,
+              durationMs: Date.now() - startedAt,
+              errorCode: 'AUTH_005',
+            });
+            throw new Error(textContent(denialResult(decision, decision.action)) ?? 'AUTH_005');
+          }
+
+          try {
+            const result = await runWithRequestPolicy(decision.conditions, () =>
+              hasArgs
+                ? taskHandler.createTask(argsOrExtra, maybeExtra)
+                : taskHandler.createTask(argsOrExtra),
+            );
+            recordToolCall({
+              tool: name,
+              action: decision.action,
+              connectionId: decision.connectionId,
+              transport: decision.transport,
+              success: true,
+              durationMs: Date.now() - startedAt,
+            });
+            return result;
+          } catch (error) {
+            recordToolCall({
+              tool: name,
+              action: decision.action,
+              connectionId: decision.connectionId,
+              transport: decision.transport,
+              success: false,
+              durationMs: Date.now() - startedAt,
+              errorCode: 'UNHANDLED',
+            });
+            throw error;
+          }
+        },
+      };
+      return registerTool(name, config, wrappedTaskHandler as unknown as ToolCallback);
+    }
+
     const rawCallback = cb as unknown as RawToolCallback;
     const wrapped: ToolCallback = async (argsOrExtra: unknown, maybeExtra?: Extra) => {
       return toolTracer.startActiveSpan(`mcp.tool.${name}`, async (span) => {

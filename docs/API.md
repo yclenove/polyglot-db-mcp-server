@@ -1,6 +1,6 @@
 # polyglot-db-mcp-server API 文档
 
-> 自动生成于 2026-07-15T18:45:04.679Z
+> 自动生成于 2026-07-15T19:42:18.709Z
 
 ## 目录
 
@@ -198,6 +198,7 @@ HTTP 安全默认值：
 | `limit` | number | 否 | 最大返回行数 |
 | `page` | number | 否 | 页码，从 1 开始 |
 | `page_size` | number | 否 | 每页行数，默认 20 |
+| `response_bytes_limit` | number | 否 | 本次结果数据字节上限；不能超过服务端 DB_MAX_RESPONSE_BYTES |
 
 ---
 
@@ -214,6 +215,7 @@ HTTP 安全默认值：
 | `params` | array | 否 | 查询参数 |
 | `format` | string | 否 | json、csv 或 markdown；默认 json |
 | `limit` | number | 否 | 最大导出行数，最大 10000 |
+| `response_bytes_limit` | number | 否 | 本次结果数据字节上限；不能超过服务端 DB_MAX_RESPONSE_BYTES |
 
 ---
 
@@ -382,6 +384,7 @@ HTTP 安全默认值：
 | `filter_json` | string | 否 | JSON/EJSON 对象字符串，默认 {} |
 | `limit` | number | 否 | 最大返回行数，默认 50 |
 | `skip` | number | 否 | 跳过行数 |
+| `response_bytes_limit` | number | 否 | 本次结果数据字节上限；不能超过服务端 DB_MAX_RESPONSE_BYTES |
 
 ---
 
@@ -397,6 +400,7 @@ HTTP 安全默认值：
 | `collection` | string | 是 | 集合名称 |
 | `pipeline_json` | string | 是 | JSON/EJSON 数组字符串 |
 | `limit` | number | 否 | 最大返回文档数，默认 50，最大 500 |
+| `response_bytes_limit` | number | 否 | 本次结果数据字节上限；不能超过服务端 DB_MAX_RESPONSE_BYTES |
 
 ---
 

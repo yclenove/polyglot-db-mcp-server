@@ -74,10 +74,28 @@ export function listIndexesSql(
     case 'postgres': {
       const sch = schema && IDENT.test(schema) ? schema : 'public';
       return {
-        sql: `SELECT indexname AS name, indexdef AS definition
-              FROM pg_indexes
-              WHERE schemaname = $1 AND tablename = $2
-              ORDER BY indexname`,
+        sql: `SELECT index_class.relname AS name,
+                     COALESCE(
+                       attribute.attname,
+                       pg_get_indexdef(
+                         index_class.oid,
+                         index_key.ordinal_position::integer,
+                         true
+                       )
+                     ) AS column_name,
+                     index_info.indisunique AS is_unique,
+                     index_info.indisprimary AS is_primary,
+                     pg_get_indexdef(index_class.oid) AS definition
+              FROM pg_class AS table_class
+              JOIN pg_namespace AS namespace ON namespace.oid = table_class.relnamespace
+              JOIN pg_index AS index_info ON index_info.indrelid = table_class.oid
+              JOIN pg_class AS index_class ON index_class.oid = index_info.indexrelid
+              CROSS JOIN LATERAL unnest(index_info.indkey::smallint[])
+                WITH ORDINALITY AS index_key(attnum, ordinal_position)
+              LEFT JOIN pg_attribute AS attribute
+                ON attribute.attrelid = table_class.oid AND attribute.attnum = index_key.attnum
+              WHERE namespace.nspname = $1 AND table_class.relname = $2
+              ORDER BY index_class.relname, index_key.ordinal_position`,
         params: [sch, table],
       };
     }
@@ -100,7 +118,18 @@ export function listIndexesSql(
       };
     case 'sqlite':
       return {
-        sql: `PRAGMA index_list(\`${table.replace(/`/g, '')}\`)`,
+        sql: `SELECT index_list.seq AS sequence,
+                     index_list.name AS name,
+                     index_list."unique" AS is_unique,
+                     index_list.origin,
+                     index_list.partial,
+                     index_info.seqno AS column_position,
+                     index_info.cid AS column_id,
+                     index_info.name AS column_name
+              FROM pragma_index_list(?) AS index_list
+              JOIN pragma_index_info(index_list.name) AS index_info
+              ORDER BY index_list.name, index_info.seqno`,
+        params: [table],
       };
     case 'duckdb':
       return {

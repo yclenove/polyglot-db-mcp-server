@@ -120,6 +120,27 @@ describe('DuckDB Driver', () => {
     assert.deepEqual(followUp.data, [{ value: 42 }]);
   });
 
+  test('large fields are clipped by the driver byte budget', async () => {
+    const { createDuckDbDriver } = await import('../../dist/drivers/sql/duckdb-driver.js');
+    driver = await createDuckDbDriver({ id: 'duck', engine: 'duckdb', url: ':memory:' });
+
+    const result = await driver.execute(
+      `SELECT * FROM (VALUES
+        (1, 'ok'),
+        (2, repeat('x', 10000)),
+        (3, 'unread')
+      ) AS t(id, value) ORDER BY id`,
+      [],
+      { ...RO_OPTS, maxRows: 10, maxBytes: 1000 },
+    );
+
+    assert.equal(result.success, true, result.error);
+    assert.deepEqual(result.data, [{ id: 1, value: 'ok' }]);
+    assert.equal(result.truncated, true);
+    assert.equal(result.truncatedBy, 'bytes');
+    assert.ok(result.returnedBytes <= 1000);
+  });
+
   test('read_csv_auto can read files inside allowlist', async () => {
     const { createDuckDbDriver } = await import('../../dist/drivers/sql/duckdb-driver.js');
     const dir = await mkdtemp(join(tmpdir(), 'duckdb-allow-'));

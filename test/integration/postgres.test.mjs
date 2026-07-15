@@ -80,6 +80,31 @@ describe('PostgreSQL Integration', () => {
     assert.equal(followUp.data[0].value, 42);
   });
 
+  integrationTest('byte-bounded cursor reads skip oversized rows', async () => {
+    const options = {
+      mode: 'readonly',
+      maxRows: 10,
+      maxBytes: 1024,
+      queryTimeoutMs: 5000,
+      maxSqlLength: 10240,
+    };
+    const result = await driver.execute(
+      `SELECT 1 AS id, 'ok' AS value
+       UNION ALL SELECT 2, repeat('x', 200000)
+       UNION ALL SELECT 3, 'unread' ORDER BY id`,
+      [],
+      options,
+    );
+    assert.equal(result.success, true, result.error);
+    assert.deepEqual(result.data, [{ id: 1, value: 'ok' }]);
+    assert.equal(result.truncatedBy, 'bytes');
+    assert.ok(result.returnedBytes <= 1024);
+
+    const followUp = await driver.execute('SELECT 42 AS value', [], options);
+    assert.equal(followUp.success, true, followUp.error);
+    assert.equal(followUp.data[0].value, 42);
+  });
+
   integrationTest('bounded cursor reads keep transactions reusable', async () => {
     const tx = await driver.beginTransaction();
     try {

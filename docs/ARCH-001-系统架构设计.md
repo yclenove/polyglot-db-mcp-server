@@ -243,6 +243,7 @@ services:
 | `DB_MCP_DEFAULT_CONNECTION_ID` | 否 | 数组第一项 | 默认连接 ID |
 | `DB_QUERY_TIMEOUT` | 否 | 30000 | 查询超时(ms) |
 | `DB_MAX_ROWS` | 否 | 100 | 单次查询最大返回行数 |
+| `DB_MAX_RESPONSE_BYTES` | 否 | 1048576 | 所有 MCP 工具序列化结果硬上限（4 KiB..16 MiB） |
 | `DB_MAX_SQL_LENGTH` | 否 | 102400 | SQL 最大长度(bytes) |
 | `DB_RETRY_COUNT` | 否 | 2 | 只读查询重试次数 |
 | `DB_RETRY_DELAY_MS` | 否 | 200 | 重试基础延迟(ms) |
@@ -268,7 +269,7 @@ services:
 | 风险 | 影响 | 缓解措施 |
 |------|------|----------|
 | SQL 注入绕过启发式检测 | 数据泄露或篡改 | 双层守卫 + 只读连接 + 参数化查询（driver 层强制） |
-| 大结果集 OOM | 进程崩溃 | `DB_MAX_ROWS` 有界配置 + PostgreSQL 游标、MySQL 会话限制/事件流、SQL Server 流式 cancel、Oracle `maxRows`、SQLite 迭代器、DuckDB chunk reader |
+| 大结果集 OOM / MCP 上下文溢出 | 进程崩溃或客户端拒绝响应 | `DB_MAX_ROWS` + `DB_MAX_RESPONSE_BYTES`；SQL 逐行字节预算、MongoDB 游标逐文档预算，协议层覆盖授权拒绝与插件工具 |
 | 连接泄漏 | 资源耗尽 | 连接池 + 事务超时自动回滚 + 优雅关闭 closeAll |
 | 审计日志同步写入 | 高吞吐下性能下降 | appendFileSync 非阻塞语义 + 审计失败不阻断主流程 |
 | Oracle optionalDep 安装失败 | 功能缺失 | oracledb 声明为 optionalDependencies，缺失时创建连接报错而非启动失败 |

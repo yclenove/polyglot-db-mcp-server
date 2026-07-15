@@ -10,6 +10,8 @@ import type {
 } from '../../core/types.js';
 import { checkDangerousOperation, isReadOnlyQuery } from '../../core/sql-guards.js';
 import { auditLog } from '../../core/audit.js';
+import type { BoundedItems } from '../../core/byte-budget.js';
+import { createSqlRowCollector } from './row-budget.js';
 
 /**
  * SQLite 扩展的只读判断：在通用 isReadOnlyQuery 基础上增加 PRAGMA 支持。
@@ -107,18 +109,15 @@ function adaptRunResult(info: Database.RunResult, executionTime: number): SqlExe
 /**
  * 将 better-sqlite3 的 Statement.all() 结果适配为 SqlExecuteResult。
  */
-function adaptRowsResult(
-  rows: unknown[],
-  maxRows: number,
-  executionTime: number,
-): SqlExecuteResult {
-  const truncated = rows.length > maxRows;
+function adaptRowsResult(result: BoundedItems<unknown>, executionTime: number): SqlExecuteResult {
   return {
     success: true,
-    data: rows.slice(0, maxRows).map(normalizeSqliteValue),
-    totalRows: rows.length,
-    totalRowsExact: !truncated,
-    truncated,
+    data: result.items,
+    totalRows: result.observedItems,
+    totalRowsExact: !result.truncated,
+    truncated: result.truncated,
+    truncatedBy: result.truncatedBy,
+    returnedBytes: result.returnedBytes,
     executionTime,
   };
 }
@@ -127,14 +126,13 @@ function readLimitedRows(
   statement: Database.Statement,
   params: unknown[],
   maxRows: number,
-): unknown[] {
-  const rows: unknown[] = [];
-  const fetchLimit = Math.max(1, maxRows) + 1;
+  maxBytes: number | undefined,
+): BoundedItems<unknown> {
+  const collector = createSqlRowCollector<unknown>(maxRows, maxBytes);
   for (const row of statement.iterate(...params)) {
-    rows.push(row);
-    if (rows.length >= fetchLimit) break;
+    if (!collector.add(normalizeSqliteValue(row))) break;
   }
-  return rows;
+  return collector.result();
 }
 
 /**
@@ -147,6 +145,7 @@ function executeOne(
   params: unknown[],
   mode: SqlExecutionMode,
   maxRows: number,
+  maxBytes: number | undefined,
   maxSqlLength: number,
   engine: 'sqlite',
 ): SqlExecuteResult {
@@ -165,10 +164,10 @@ function executeOne(
   try {
     const stmt = db.prepare(sql);
     if (stmt.reader && isSqliteReadOnlyQuery(sql)) {
-      const rows = readLimitedRows(stmt, params, maxRows);
+      const rows = readLimitedRows(stmt, params, maxRows, maxBytes);
       const executionTime = Date.now() - start;
       auditLog({ engine, sql, success: true, executionTime });
-      return adaptRowsResult(rows, maxRows, executionTime);
+      return adaptRowsResult(rows, executionTime);
     }
 
     // INSERT / UPDATE / DELETE / CREATE / 等
@@ -203,11 +202,12 @@ export async function createSqliteDriver(spec: ConnectionSpec): Promise<SqlDrive
     params: unknown[] | undefined,
     mode: SqlExecutionMode,
     maxRows: number,
+    maxBytes: number | undefined,
     _queryTimeoutMs: number,
     maxSqlLength: number,
   ): SqlExecuteResult {
     // better-sqlite3 不支持查询超时，忽略 queryTimeoutMs
-    return executeOne(db, sql, params ?? [], mode, maxRows, maxSqlLength, engine);
+    return executeOne(db, sql, params ?? [], mode, maxRows, maxBytes, maxSqlLength, engine);
   }
 
   async function beginTransaction(): Promise<SqlTransaction> {
@@ -224,6 +224,7 @@ export async function createSqliteDriver(spec: ConnectionSpec): Promise<SqlDrive
           params,
           options.mode,
           options.maxRows,
+          options.maxBytes,
           options.queryTimeoutMs,
           options.maxSqlLength,
         );
@@ -265,6 +266,7 @@ export async function createSqliteDriver(spec: ConnectionSpec): Promise<SqlDrive
         params,
         effectiveMode,
         options.maxRows,
+        options.maxBytes,
         options.queryTimeoutMs,
         options.maxSqlLength,
       );

@@ -32,6 +32,48 @@ export interface StartedHttpTransport {
   close: () => Promise<void>;
 }
 
+const FETCH_BLOCKED_PORTS = new Set([
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102,
+  103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179, 389, 427, 465,
+  512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993,
+  995, 1719, 1720, 1723, 2049, 3659, 4045, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669,
+  6697, 10080,
+]);
+
+export function isFetchBlockedPort(port: number): boolean {
+  return FETCH_BLOCKED_PORTS.has(port);
+}
+
+async function listenOnce(server: http.Server, port: number, host: string): Promise<AddressInfo> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, host, () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  return server.address() as AddressInfo;
+}
+
+async function closeListener(server: http.Server): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
+
+async function listenOnUsablePort(
+  server: http.Server,
+  config: Pick<HttpTransportConfig, 'host' | 'port'>,
+): Promise<AddressInfo> {
+  const maxAttempts = config.port === 0 ? 20 : 1;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const address = await listenOnce(server, config.port, config.host);
+    if (config.port !== 0 || !isFetchBlockedPort(address.port)) return address;
+    await closeListener(server);
+  }
+  throw new Error('无法分配 MCP SDK 可访问的 HTTP 动态端口');
+}
+
 class HttpResponseError extends Error {
   constructor(
     readonly statusCode: number,
@@ -373,15 +415,7 @@ export async function startHttpTransport(options: {
     });
   });
 
-  await new Promise<void>((resolve, reject) => {
-    nodeServer.once('error', reject);
-    nodeServer.listen(config.port, config.host, () => {
-      nodeServer.off('error', reject);
-      resolve();
-    });
-  });
-
-  const address = nodeServer.address() as AddressInfo;
+  const address = await listenOnUsablePort(nodeServer, config);
   const url = `http://${config.host}:${address.port}${config.endpoint}`;
 
   return {
@@ -392,9 +426,7 @@ export async function startHttpTransport(options: {
         await closeSession(session);
       }
       sessions.clear();
-      await new Promise<void>((resolve, reject) => {
-        nodeServer.close((error) => (error ? reject(error) : resolve()));
-      });
+      await closeListener(nodeServer);
     },
   };
 }

@@ -32,7 +32,8 @@ describe('sql helpers', () => {
     assert.deepEqual(listIndexesSql('mssql', 'users').params, ['users']);
     assert.match(listIndexesSql('oracle', 'users').sql, /table_name = \?/);
     assert.deepEqual(listIndexesSql('oracle', 'users').params, ['USERS']);
-    assert.match(listIndexesSql('sqlite', 'users').sql, /PRAGMA index_list\(`users`\)/);
+    assert.match(listIndexesSql('sqlite', 'users').sql, /pragma_index_list\(\?\)/);
+    assert.deepEqual(listIndexesSql('sqlite', 'users').params, ['users']);
   });
 
   test('listTablesSql supports all SQL engines', () => {

@@ -3,6 +3,7 @@ import type { SqlDriver, SqlExecuteResult, SqlExecutionMode } from '../../core/t
 import { checkDangerousOperation, isReadOnlyQuery } from '../../core/sql-guards.js';
 import { auditLog } from '../../core/audit.js';
 import { withTimeout } from './timeout.js';
+import { boundSqlRows } from './row-budget.js';
 
 type OraConnection = {
   execute: (sql: string, binds: unknown[], opts: Record<string, unknown>) => Promise<unknown>;
@@ -90,6 +91,7 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
       params: unknown[] | undefined,
       mode: SqlExecutionMode,
       maxRows: number,
+      maxBytes: number | undefined,
       queryTimeoutMs: number,
       maxSqlLength: number,
     ): Promise<SqlExecuteResult> {
@@ -108,7 +110,8 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
       const execOpts: Record<string, unknown> = {
         outFormat: oracledb.OUT_FORMAT_OBJECT,
       };
-      if (isReadOnlyQuery(sqlText, 'oracle')) {
+      const hardLimited = isReadOnlyQuery(sqlText, 'oracle');
+      if (hardLimited) {
         execOpts.maxRows = Math.max(1, maxRows) + 1;
       }
       const result = (await withTimeout(conn.execute(text, binds, execOpts), queryTimeoutMs)) as {
@@ -118,13 +121,15 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
       const executionTime = Date.now() - start;
       if (result.rows && Array.isArray(result.rows)) {
         const rows = result.rows as unknown[];
-        const truncated = rows.length > maxRows;
+        const bounded = boundSqlRows(rows, maxRows, maxBytes);
         return {
           success: true,
-          data: rows.slice(0, maxRows),
+          data: bounded.items,
           totalRows: rows.length,
-          totalRowsExact: !truncated,
-          truncated,
+          totalRowsExact: hardLimited ? rows.length < Math.max(1, maxRows) + 1 : true,
+          truncated: bounded.truncated,
+          truncatedBy: bounded.truncatedBy,
+          returnedBytes: bounded.returnedBytes,
           executionTime,
         };
       }
@@ -142,6 +147,7 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
           params,
           options.mode,
           options.maxRows,
+          options.maxBytes,
           options.queryTimeoutMs,
           options.maxSqlLength,
         );
@@ -219,7 +225,8 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
         const execOpts: Record<string, unknown> = {
           outFormat: oracledb.OUT_FORMAT_OBJECT,
         };
-        if (isReadOnlyQuery(sqlText, 'oracle')) {
+        const hardLimited = isReadOnlyQuery(sqlText, 'oracle');
+        if (hardLimited) {
           execOpts.maxRows = Math.max(1, options.maxRows) + 1;
         }
         const result = (await withTimeout(
@@ -232,14 +239,16 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
         const executionTime = Date.now() - start;
         if (result.rows && Array.isArray(result.rows)) {
           const rows = result.rows as unknown[];
-          const truncated = rows.length > options.maxRows;
+          const bounded = boundSqlRows(rows, options.maxRows, options.maxBytes);
           auditLog({ engine, sql: sqlText, success: true, executionTime });
           return {
             success: true,
-            data: rows.slice(0, options.maxRows),
+            data: bounded.items,
             totalRows: rows.length,
-            totalRowsExact: !truncated,
-            truncated,
+            totalRowsExact: hardLimited ? rows.length < Math.max(1, options.maxRows) + 1 : true,
+            truncated: bounded.truncated,
+            truncatedBy: bounded.truncatedBy,
+            returnedBytes: bounded.returnedBytes,
             executionTime,
           };
         }

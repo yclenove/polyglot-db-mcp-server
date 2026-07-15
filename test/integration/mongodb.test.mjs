@@ -60,10 +60,10 @@ describe('MongoDB Integration', () => {
   });
 
   integrationTest('find returns documents', async () => {
-    const docs = await driver.find(testCollection, { name: 'test' }, { limit: 10 });
-    assert.ok(Array.isArray(docs));
-    assert.ok(docs.length > 0);
-    assert.equal(docs[0].name, 'test');
+    const result = await driver.find(testCollection, { name: 'test' }, { limit: 10 });
+    assert.ok(Array.isArray(result.data));
+    assert.ok(result.data.length > 0);
+    assert.equal(result.data[0].name, 'test');
   });
 
   integrationTest('count returns count', async () => {
@@ -91,10 +91,10 @@ describe('MongoDB Integration', () => {
   });
 
   integrationTest('aggregate returns results', async () => {
-    const results = await driver.aggregate(testCollection, [
+    const result = await driver.aggregate(testCollection, [
       { $group: { _id: null, count: { $sum: 1 } } },
     ]);
-    assert.ok(Array.isArray(results));
+    assert.ok(Array.isArray(result.data));
   });
 
   integrationTest('listIndexes returns indexes', async () => {

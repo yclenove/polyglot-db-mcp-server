@@ -150,10 +150,21 @@ export function globalLimits() {
   return {
     queryTimeoutMs: boundedIntegerEnv('DB_QUERY_TIMEOUT', 30_000, 0, 2_147_483_647),
     maxRows: boundedIntegerEnv('DB_MAX_ROWS', 100, 1, 10_000),
+    maxResponseBytes: boundedIntegerEnv(
+      'DB_MAX_RESPONSE_BYTES',
+      1024 * 1024,
+      4096,
+      16 * 1024 * 1024,
+    ),
     maxSqlLength: boundedIntegerEnv('DB_MAX_SQL_LENGTH', 102_400, 1),
     retryCount: boundedIntegerEnv('DB_RETRY_COUNT', 2, 0, 10),
     retryDelayMs: boundedIntegerEnv('DB_RETRY_DELAY_MS', 200, 0, 2_147_483_647),
   };
+}
+
+export function responseDataByteLimit(maxResponseBytes = globalLimits().maxResponseBytes): number {
+  const reserve = Math.max(1024, Math.min(64 * 1024, Math.floor(maxResponseBytes / 4)));
+  return Math.max(2, maxResponseBytes - reserve);
 }
 
 export function mongoLimits() {

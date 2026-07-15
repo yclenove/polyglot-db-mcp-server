@@ -1,14 +1,66 @@
-import { MongoClient, type Db } from 'mongodb';
+import { BSON, MongoClient, type Db, type Document } from 'mongodb';
 import type { ConnectionSpec } from '../../core/types.js';
-import type { MongoDriver, MongoTransactionOperation } from '../../core/types.js';
+import type { MongoDriver, MongoReadResult, MongoTransactionOperation } from '../../core/types.js';
 import { auditLog } from '../../core/audit.js';
-import { mongoLimits } from '../../core/config.js';
+import { mongoLimits, responseDataByteLimit } from '../../core/config.js';
 import {
   detectNoSqlInjection,
   getMongoPipelineReferencedCollections,
 } from '../../core/mongo-guards.js';
+import { BoundedItemCollector, jsonByteLength } from '../../core/byte-budget.js';
+import { toMongoJsonSafe } from '../../core/mongo-ejson.js';
 
 type MongoCreateIndexOptions = NonNullable<Parameters<MongoDriver['createIndex']>[2]>;
+
+interface MongoCursorLike<T> {
+  tryNext(): Promise<T | null>;
+  close(): Promise<void>;
+}
+
+function mongoDocumentBytes(value: unknown): number {
+  let bsonBytes = 0;
+  try {
+    bsonBytes = BSON.calculateObjectSize(value as Document);
+  } catch {
+    // EJSON output size remains authoritative for unusual driver/plugin values.
+  }
+  return Math.max(bsonBytes, jsonByteLength(toMongoJsonSafe(value)));
+}
+
+export async function collectMongoCursor<T>(
+  cursor: MongoCursorLike<T>,
+  maxRows: number,
+  maxBytes: number,
+): Promise<MongoReadResult> {
+  const collector = new BoundedItemCollector<T>(maxRows, maxBytes, mongoDocumentBytes);
+  let exhausted = false;
+  try {
+    while (true) {
+      const document = await cursor.tryNext();
+      if (document === null) {
+        exhausted = true;
+        break;
+      }
+      if (!collector.add(document)) break;
+    }
+  } finally {
+    try {
+      await cursor.close();
+    } catch {
+      // Cursor cleanup failure must not discard an otherwise bounded result.
+    }
+  }
+
+  const result = collector.result();
+  return {
+    data: result.items,
+    totalRows: result.observedItems,
+    totalRowsExact: exhausted && !result.truncated,
+    truncated: result.truncated,
+    truncatedBy: result.truncatedBy,
+    returnedBytes: result.returnedBytes,
+  };
+}
 
 function dbFromClient(client: MongoClient, spec: ConnectionSpec): Db {
   if (spec.database) return client.db(spec.database);
@@ -76,12 +128,16 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
       assertSafeQuery(filter);
       const cur = db.collection(collection).find(filter, {
         ...readOptions,
-        limit: options.limit,
+        limit: Math.max(1, options.limit) + 1,
         skip: options.skip,
       });
-      const rows = await cur.toArray();
-      auditLog({ engine: 'mongodb', op: 'find', collection, n: rows.length });
-      return rows;
+      const result = await collectMongoCursor(
+        cur,
+        options.limit,
+        options.maxBytes ?? responseDataByteLimit(),
+      );
+      auditLog({ engine: 'mongodb', op: 'find', collection, n: result.data.length });
+      return result;
     },
     async aggregate(collection, pipeline, options) {
       assertCollectionAllowed(collection);
@@ -90,12 +146,19 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
         assertCollectionAllowed(referenced);
       }
       const limit = Math.max(1, Math.min(options?.limit ?? 500, 500));
-      const rows = await db
+      const cursor = db
         .collection(collection)
-        .aggregate([...pipeline, { $limit: limit }] as import('mongodb').Document[], readOptions)
-        .toArray();
-      auditLog({ engine: 'mongodb', op: 'aggregate', collection, n: rows.length });
-      return rows;
+        .aggregate(
+          [...pipeline, { $limit: limit + 1 }] as import('mongodb').Document[],
+          readOptions,
+        );
+      const result = await collectMongoCursor(
+        cursor,
+        limit,
+        options?.maxBytes ?? responseDataByteLimit(),
+      );
+      auditLog({ engine: 'mongodb', op: 'aggregate', collection, n: result.data.length });
+      return result;
     },
     async count(collection, filter) {
       assertCollectionAllowed(collection);

@@ -3,6 +3,8 @@ import { afterEach, describe, test } from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
+import { isFetchBlockedPort } from '../../dist/transports/http.js';
+
 const config = {
   transport: 'http',
   host: '127.0.0.1',
@@ -15,6 +17,13 @@ const config = {
   bodyLimitBytes: 1024 * 1024,
   requestTimeoutMs: 5000,
 };
+
+test('dynamic HTTP ports avoid the Fetch blocked-port list', () => {
+  assert.equal(isFetchBlockedPort(6000), true);
+  assert.equal(isFetchBlockedPort(6667), true);
+  assert.equal(isFetchBlockedPort(3000), false);
+  assert.equal(isFetchBlockedPort(65535), false);
+});
 
 async function createSqliteRegistry() {
   const { ConnectionRegistry } = await import('../../dist/core/registry.js');
@@ -54,6 +63,7 @@ describe('HTTP MCP endpoint', () => {
   let transport;
 
   afterEach(async () => {
+    delete process.env.DB_MAX_RESPONSE_BYTES;
     if (transport) {
       await transport.close();
       transport = undefined;
@@ -93,6 +103,64 @@ describe('HTTP MCP endpoint', () => {
     const payload = JSON.parse(result.content[0].text);
     assert.equal(payload.connection_id, 'local');
     assert.equal(payload.data[0].value, 1);
+  });
+
+  test('HTTP tool responses preserve byte truncation metadata', async () => {
+    process.env.DB_MAX_RESPONSE_BYTES = '4096';
+    const client = await connectClient();
+
+    const result = await client.callTool({
+      name: 'sql_query',
+      arguments: {
+        sql: `SELECT 1 AS id, 'ok' AS value
+          UNION ALL SELECT 2, printf('%010000d', 1)
+          UNION ALL SELECT 3, 'unread'`,
+        response_bytes_limit: 2048,
+      },
+    });
+
+    const payload = JSON.parse(result.content[0].text);
+    assert.deepEqual(payload.data, [{ id: 1, value: 'ok' }]);
+    assert.equal(payload.truncated, true);
+    assert.equal(payload.truncatedBy, 'bytes');
+    assert.equal(payload.responseByteLimit, 2048);
+    assert.ok(Buffer.byteLength(JSON.stringify(result), 'utf8') <= 4096);
+  });
+
+  test('HTTP protocol backstop compacts oversized non-database tool output', async () => {
+    process.env.DB_MAX_RESPONSE_BYTES = '4096';
+    const client = await connectClient();
+    const manifest = {
+      name: 'large-tool-plugin',
+      version: '1.0.0',
+      polyglotPluginVersion: '1',
+      type: ['tool'],
+      main: './dist/index.js',
+      permissions: {
+        connections: ['local'],
+        actions: ['read'],
+        network: false,
+        filesystem: false,
+      },
+      tools: [
+        {
+          name: 'large_tool',
+          action: 'read',
+          description: 'x'.repeat(20_000),
+        },
+      ],
+    };
+
+    const result = await client.callTool({
+      name: 'plugin_validate_manifest',
+      arguments: { manifest_json: JSON.stringify(manifest) },
+    });
+    const payload = JSON.parse(result.content[0].text);
+
+    assert.equal(payload._db_mcp_response.truncated, true);
+    assert.equal(payload._db_mcp_response.reason, 'response_byte_limit');
+    assert.equal(payload._db_mcp_response.tool, 'plugin_validate_manifest');
+    assert.ok(Buffer.byteLength(JSON.stringify(result), 'utf8') <= 4096);
   });
 
   test('HTTP sql_query still blocks write SQL at MCP tool layer', async () => {

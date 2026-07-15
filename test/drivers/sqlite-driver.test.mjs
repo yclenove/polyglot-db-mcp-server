@@ -265,6 +265,41 @@ describe('SQLite Driver Execute', () => {
     assert.equal(result.truncated, true);
   });
 
+  test('large fields stop before the first row over the byte budget', async () => {
+    const { createSqliteDriver } = await import('../../dist/drivers/sql/sqlite-driver.js');
+    driver = await createSqliteDriver({ id: 't', engine: 'sqlite', url: ':memory:' });
+
+    const result = await driver.execute(
+      `SELECT 1 AS id, 'ok' AS value
+       UNION ALL SELECT 2, printf('%010000d', 1)
+       UNION ALL SELECT 3, 'unread'`,
+      [],
+      {
+        mode: 'readonly',
+        maxRows: 10,
+        maxBytes: 1000,
+        queryTimeoutMs: 5000,
+        maxSqlLength: 10240,
+      },
+    );
+
+    assert.equal(result.success, true, result.error);
+    assert.deepEqual(result.data, [{ id: 1, value: 'ok' }]);
+    assert.equal(result.totalRows, 2);
+    assert.equal(result.totalRowsExact, false);
+    assert.equal(result.truncated, true);
+    assert.equal(result.truncatedBy, 'bytes');
+    assert.ok(result.returnedBytes <= 1000);
+
+    const followUp = await driver.execute('SELECT 42 AS value', [], {
+      mode: 'readonly',
+      maxRows: 10,
+      queryTimeoutMs: 5000,
+      maxSqlLength: 10240,
+    });
+    assert.deepEqual(followUp.data, [{ value: 42 }]);
+  });
+
   test('preserves integers larger than Number.MAX_SAFE_INTEGER', async () => {
     const { createSqliteDriver } = await import('../../dist/drivers/sql/sqlite-driver.js');
     driver = await createSqliteDriver({ id: 't', engine: 'sqlite', url: ':memory:' });

@@ -15,6 +15,7 @@ import type {
 } from '../../core/types.js';
 import { auditLog } from '../../core/audit.js';
 import { checkDangerousOperation, isReadOnlyQuery } from '../../core/sql-guards.js';
+import { boundSqlRows } from './row-budget.js';
 
 type DuckDbPathConfig = {
   databasePath: string;
@@ -87,15 +88,18 @@ function adaptRowsResult(
   result: DuckDBResultReader,
   rows: Record<string, unknown>[],
   maxRows: number,
+  maxBytes: number | undefined,
   executionTime: number,
 ): SqlExecuteResult {
-  const truncated = rows.length > maxRows;
+  const bounded = boundSqlRows(rows, maxRows, maxBytes);
   return {
     success: true,
-    data: rows.slice(0, maxRows),
-    totalRows: rows.length,
+    data: bounded.items,
+    totalRows: result.done ? rows.length : bounded.observedItems,
     totalRowsExact: result.done,
-    truncated,
+    truncated: bounded.truncated,
+    truncatedBy: bounded.truncatedBy,
+    returnedBytes: bounded.returnedBytes,
     executionTime,
     fields: result.columnNames().map((name, index) => ({
       name,
@@ -130,6 +134,7 @@ async function executeOne(
   params: unknown[] | undefined,
   mode: SqlExecutionMode,
   maxRows: number,
+  maxBytes: number | undefined,
   queryTimeoutMs: number,
   maxSqlLength: number,
 ): Promise<SqlExecuteResult> {
@@ -156,7 +161,7 @@ async function executeOne(
       const executionTime = Date.now() - start;
       const rows = reader.getRowObjectsJson() as Record<string, unknown>[];
       auditLog({ engine: 'duckdb', sql, success: true, executionTime });
-      return adaptRowsResult(reader, rows, maxRows, executionTime);
+      return adaptRowsResult(reader, rows, maxRows, maxBytes, executionTime);
     }
 
     const result = await runWithQueryTimeout(
@@ -240,6 +245,7 @@ export async function createDuckDbDriver(spec: ConnectionSpec): Promise<SqlDrive
           params,
           options.mode,
           options.maxRows,
+          options.maxBytes,
           options.queryTimeoutMs,
           options.maxSqlLength,
         );
@@ -261,7 +267,16 @@ export async function createDuckDbDriver(spec: ConnectionSpec): Promise<SqlDrive
     engine,
 
     async ping() {
-      const result = await executeOne(connection, 'SELECT 1 AS ok', [], 'readonly', 1, 5000, 100);
+      const result = await executeOne(
+        connection,
+        'SELECT 1 AS ok',
+        [],
+        'readonly',
+        1,
+        undefined,
+        5000,
+        100,
+      );
       return result.success ? { ok: true } : { ok: false, error: result.error };
     },
 
@@ -273,6 +288,7 @@ export async function createDuckDbDriver(spec: ConnectionSpec): Promise<SqlDrive
         params,
         effectiveMode,
         options.maxRows,
+        options.maxBytes,
         options.queryTimeoutMs,
         options.maxSqlLength,
       );

@@ -9,6 +9,99 @@ import { describeTableSql, explainQuerySql, listIndexesSql } from '../core/sql-h
 
 type SqlResultRow = Record<string, unknown>;
 
+function rowValue(row: SqlResultRow, ...keys: string[]): unknown {
+  const values = new Map(Object.entries(row).map(([key, value]) => [key.toLowerCase(), value]));
+  for (const key of keys) {
+    if (values.has(key.toLowerCase())) return values.get(key.toLowerCase());
+  }
+  return undefined;
+}
+
+function isPrimaryKeyValue(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === 'number') return value > 0;
+  const normalized = String(value ?? '')
+    .trim()
+    .toUpperCase();
+  return normalized === 'PRI' || normalized === 'PRIMARY' || normalized === 'TRUE';
+}
+
+function normalizeColumns(rows: SqlResultRow[]): TableInfo['columns'] {
+  const columns: TableInfo['columns'] = [];
+  for (const row of rows) {
+    const name = String(rowValue(row, 'column_name', 'field', 'name') ?? '').trim();
+    if (!name) continue;
+    columns.push({
+      name,
+      type: String(rowValue(row, 'data_type', 'type', 'column_type') ?? ''),
+      isPrimaryKey: isPrimaryKeyValue(rowValue(row, 'column_key', 'key', 'pk', 'is_primary')),
+    });
+  }
+  return columns;
+}
+
+function columnsFromDefinition(definition: string, columns: TableInfo['columns']): string[] {
+  const canonical = new Map(columns.map((column) => [column.name.toLowerCase(), column.name]));
+  const trimmed = definition.trim();
+  const body = trimmed.startsWith('[') && trimmed.endsWith(']') ? trimmed.slice(1, -1) : trimmed;
+  const found: string[] = [];
+  const wrappers: ReadonlyArray<readonly [string, string]> = [
+    ["'", "'"],
+    ['"', '"'],
+    ['`', '`'],
+    ['[', ']'],
+  ];
+
+  for (const expression of body.split(',')) {
+    let identifier = expression.trim();
+    for (const [open, close] of wrappers) {
+      if (identifier.startsWith(open) && identifier.endsWith(close)) {
+        identifier = identifier.slice(1, -1).trim();
+      }
+    }
+    const column = /^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier)
+      ? canonical.get(identifier.toLowerCase())
+      : undefined;
+    if (column && !found.includes(column)) found.push(column);
+  }
+
+  return found;
+}
+
+function normalizeIndexes(
+  rows: SqlResultRow[],
+  columns: TableInfo['columns'],
+): TableInfo['indexes'] {
+  const indexes = new Map<string, string[]>();
+  const canonicalColumns = new Map(
+    columns.map((column) => [column.name.toLowerCase(), column.name]),
+  );
+
+  for (const row of rows) {
+    const name = String(rowValue(row, 'name', 'index_name', 'indexname', 'key_name') ?? '').trim();
+    if (!name) continue;
+
+    const existing = indexes.get(name) ?? [];
+    const directColumn = String(rowValue(row, 'column_name', 'column') ?? '').trim();
+    const definition = String(rowValue(row, 'definition', 'expressions', 'indexdef', 'sql') ?? '');
+    const candidates = directColumn
+      ? [canonicalColumns.get(directColumn.toLowerCase()) ?? directColumn]
+      : columnsFromDefinition(definition, columns);
+
+    for (const column of candidates) {
+      if (!existing.some((item) => item.toLowerCase() === column.toLowerCase())) {
+        existing.push(column);
+      }
+    }
+    indexes.set(name, existing);
+  }
+
+  return Array.from(indexes.entries()).map(([name, indexColumns]) => ({
+    name,
+    columns: indexColumns,
+  }));
+}
+
 // 提取 WHERE/ORDER BY 列名用于索引建议
 function extractReferencedTables(sql: string): string[] {
   const normalized = sql
@@ -40,12 +133,10 @@ async function fetchTableInfo(
     queryTimeoutMs: L.queryTimeoutMs,
     maxSqlLength: L.maxSqlLength,
   });
+  if (!colRes.success) throw new Error(colRes.error ?? `无法读取表 ${tableName} 的列信息`);
 
-  const columns = ((colRes.data ?? []) as SqlResultRow[]).map((row) => ({
-    name: String(row.column_name ?? row.COLUMN_NAME ?? row.Field ?? Object.values(row)[0]),
-    type: String(row.data_type ?? row.DATA_TYPE ?? row.Type ?? Object.values(row)[1]),
-    isPrimaryKey: String(row.column_key ?? row.COLUMN_KEY ?? '').toUpperCase() === 'PRI',
-  }));
+  const columns = normalizeColumns((colRes.data ?? []) as SqlResultRow[]);
+  if (columns.length === 0) throw new Error(`表 ${tableName} 没有可分析的列信息`);
 
   // 获取索引信息
   const { sql: idxSql, params: idxParams } = listIndexesSql(driver.engine, tableName);
@@ -55,24 +146,12 @@ async function fetchTableInfo(
     queryTimeoutMs: L.queryTimeoutMs,
     maxSqlLength: L.maxSqlLength,
   });
-
-  const indexesMap = new Map<string, string[]>();
-  for (const row of (idxRes.data ?? []) as SqlResultRow[]) {
-    const idxName = String(row.name ?? row.Key_name ?? row.indexname ?? '');
-    const colName = String(row.column_name ?? row.Column_name ?? '');
-    if (idxName && colName) {
-      const existing = indexesMap.get(idxName) ?? [];
-      if (!existing.includes(colName)) {
-        existing.push(colName);
-        indexesMap.set(idxName, existing);
-      }
-    }
-  }
+  if (!idxRes.success) throw new Error(idxRes.error ?? `无法读取表 ${tableName} 的索引信息`);
 
   return {
     tableName,
     columns,
-    indexes: Array.from(indexesMap.entries()).map(([name, cols]) => ({ name, columns: cols })),
+    indexes: normalizeIndexes((idxRes.data ?? []) as SqlResultRow[], columns),
   };
 }
 
@@ -119,7 +198,7 @@ export function registerAdvisorTools(server: McpServer, registry: ConnectionRegi
               text: JSON.stringify({
                 sql,
                 suggestions,
-                analyzedWithSchema: !!tableInfo,
+                analyzedWithSchema: (tableInfo?.length ?? 0) > 0,
                 tableCount: tableInfo?.length ?? 0,
               }),
             },

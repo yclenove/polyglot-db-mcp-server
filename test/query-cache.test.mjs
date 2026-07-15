@@ -108,5 +108,12 @@ describe('cacheKey', () => {
     circular.self = circular;
     assert.throws(() => cacheKey('pg', 'select $1', [circular]), /循环引用/);
   });
+
+  test('distinguishes response budget variants', () => {
+    assert.notEqual(
+      cacheKey('pg', 'select 1', [], { maxBytes: 1024 }),
+      cacheKey('pg', 'select 1', [], { maxBytes: 2048 }),
+    );
+  });
 }
 );

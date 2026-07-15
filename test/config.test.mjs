@@ -5,6 +5,7 @@ import {
   getDefaultConnectionId,
   globalLimits,
   mongoLimits,
+  responseDataByteLimit,
 } from '../dist/core/config.js';
 
 describe('parseConnectionSpecs', () => {
@@ -182,6 +183,7 @@ describe('globalLimits', () => {
   test('returns default values', () => {
     delete process.env.DB_QUERY_TIMEOUT;
     delete process.env.DB_MAX_ROWS;
+    delete process.env.DB_MAX_RESPONSE_BYTES;
     delete process.env.DB_MAX_SQL_LENGTH;
     delete process.env.DB_RETRY_COUNT;
     delete process.env.DB_RETRY_DELAY_MS;
@@ -189,6 +191,7 @@ describe('globalLimits', () => {
     const limits = globalLimits();
     assert.equal(limits.queryTimeoutMs, 30000);
     assert.equal(limits.maxRows, 100);
+    assert.equal(limits.maxResponseBytes, 1024 * 1024);
     assert.equal(limits.maxSqlLength, 102400);
     assert.equal(limits.retryCount, 2);
     assert.equal(limits.retryDelayMs, 200);
@@ -197,6 +200,7 @@ describe('globalLimits', () => {
   test('reads from env vars', () => {
     process.env.DB_QUERY_TIMEOUT = '5000';
     process.env.DB_MAX_ROWS = '50';
+    process.env.DB_MAX_RESPONSE_BYTES = '65536';
     process.env.DB_MAX_SQL_LENGTH = '51200';
     process.env.DB_RETRY_COUNT = '3';
     process.env.DB_RETRY_DELAY_MS = '100';
@@ -204,6 +208,7 @@ describe('globalLimits', () => {
     const limits = globalLimits();
     assert.equal(limits.queryTimeoutMs, 5000);
     assert.equal(limits.maxRows, 50);
+    assert.equal(limits.maxResponseBytes, 65536);
     assert.equal(limits.maxSqlLength, 51200);
     assert.equal(limits.retryCount, 3);
     assert.equal(limits.retryDelayMs, 100);
@@ -211,6 +216,7 @@ describe('globalLimits', () => {
     // 清理
     delete process.env.DB_QUERY_TIMEOUT;
     delete process.env.DB_MAX_ROWS;
+    delete process.env.DB_MAX_RESPONSE_BYTES;
     delete process.env.DB_MAX_SQL_LENGTH;
     delete process.env.DB_RETRY_COUNT;
     delete process.env.DB_RETRY_DELAY_MS;
@@ -243,6 +249,19 @@ describe('globalLimits', () => {
     delete process.env.DB_MAX_SQL_LENGTH;
     delete process.env.DB_RETRY_COUNT;
     delete process.env.DB_RETRY_DELAY_MS;
+  });
+
+  test('keeps response byte limits bounded and reserves envelope space', () => {
+    for (const value of ['invalid', '0', '1024']) {
+      process.env.DB_MAX_RESPONSE_BYTES = value;
+      assert.equal(globalLimits().maxResponseBytes, 1024 * 1024);
+    }
+
+    process.env.DB_MAX_RESPONSE_BYTES = String(64 * 1024 * 1024);
+    assert.equal(globalLimits().maxResponseBytes, 16 * 1024 * 1024);
+    assert.ok(responseDataByteLimit() < globalLimits().maxResponseBytes);
+    assert.ok(responseDataByteLimit() > 0);
+    delete process.env.DB_MAX_RESPONSE_BYTES;
   });
 });
 

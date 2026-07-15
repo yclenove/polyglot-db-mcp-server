@@ -228,6 +228,35 @@ describe('MongoDB Tools', () => {
     assert.equal(data.rows.length, 1);
   });
 
+  test('mongo_find forwards a lower byte budget and reports truncation metadata', async () => {
+    mockDriver.find = async (collection, filter, options) => {
+      mockDriver.operations.push({ op: 'find', collection, filter, options });
+      return {
+        data: [{ id: 1 }],
+        totalRows: 2,
+        totalRowsExact: false,
+        truncated: true,
+        truncatedBy: 'bytes',
+        returnedBytes: 12,
+      };
+    };
+
+    const result = await server.tools.get('mongo_find').handler({
+      collection: 'users',
+      response_bytes_limit: 2048,
+    });
+    const data = JSON.parse(result.content[0].text);
+    const operation = mockDriver.operations.find((item) => item.op === 'find');
+
+    assert.equal(operation.options.maxBytes, 2048);
+    assert.equal(data.returnedRows, 1);
+    assert.equal(data.totalRows, 2);
+    assert.equal(data.totalRowsExact, false);
+    assert.equal(data.truncated, true);
+    assert.equal(data.truncatedBy, 'bytes');
+    assert.equal(data.returnedBytes, 12);
+  });
+
   test('mongo_find applies request policy maskingMode to result rows', async () => {
     const { runWithRequestPolicy } = await import('../../dist/auth/request-policy.js');
     mockDriver.find = async () => [{ email: 'mongo@example.com', name: 'Alice' }];

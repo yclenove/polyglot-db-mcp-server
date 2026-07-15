@@ -155,6 +155,32 @@ describe('SQL Tools', () => {
     assert.ok(Array.isArray(data.data));
   });
 
+  test('sql_query forwards a lower byte budget and exposes driver truncation', async () => {
+    mockDriver.execute = async (_sql, _params, options) => {
+      assert.equal(options.maxBytes, 2048);
+      return {
+        success: true,
+        data: [{ id: 1 }],
+        totalRows: 2,
+        totalRowsExact: false,
+        truncated: true,
+        truncatedBy: 'bytes',
+        returnedBytes: 12,
+      };
+    };
+
+    const result = await server.tools.get('sql_query').handler({
+      sql: 'SELECT * FROM users',
+      response_bytes_limit: 2048,
+    });
+    const data = JSON.parse(result.content[0].text);
+
+    assert.equal(data.truncated, true);
+    assert.equal(data.truncatedBy, 'bytes');
+    assert.equal(data.returnedBytes, 12);
+    assert.equal(data.responseByteLimit, 2048);
+  });
+
   test('sql_query applies request policy maskingMode to result rows', async () => {
     const { runWithRequestPolicy } = await import('../../dist/auth/request-policy.js');
     mockDriver.execute = async () => ({

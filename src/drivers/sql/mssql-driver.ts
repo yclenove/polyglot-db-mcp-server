@@ -3,6 +3,7 @@ import type { ConnectionSpec } from '../../core/types.js';
 import type { SqlDriver, SqlExecuteResult, SqlExecutionMode } from '../../core/types.js';
 import { checkDangerousOperation, isReadOnlyQuery } from '../../core/sql-guards.js';
 import { auditLog } from '../../core/audit.js';
+import { createSqlRowCollector } from './row-budget.js';
 
 function inferSqlType(val: unknown) {
   if (val === null || val === undefined) return sql.NVarChar(sql.MAX);
@@ -38,18 +39,20 @@ interface StreamedMssqlResult {
   fields: { name: string }[];
   hasRecordset: boolean;
   exact: boolean;
+  truncatedBy?: 'rows' | 'bytes';
+  returnedBytes: number;
 }
 
 async function queryStreamed(
   request: sql.Request,
   text: string,
   maxRows: number,
+  maxBytes: number | undefined,
   queryTimeoutMs: number,
   cancelOnLimit: boolean,
 ): Promise<StreamedMssqlResult> {
   return new Promise((resolve, reject) => {
-    const rows: unknown[] = [];
-    const fetchLimit = Math.max(1, maxRows) + 1;
+    const collector = createSqlRowCollector<unknown>(maxRows, maxBytes);
     let observedRows = 0;
     let fields: { name: string }[] = [];
     let hasRecordset = false;
@@ -70,12 +73,14 @@ async function queryStreamed(
         return;
       }
       resolve({
-        rows,
+        rows: collector.items,
         observedRows,
         rowsAffected,
         fields,
         hasRecordset,
         exact: !canceledForLimit,
+        truncatedBy: collector.truncatedBy,
+        returnedBytes: collector.returnedBytes,
       });
     };
 
@@ -86,8 +91,8 @@ async function queryStreamed(
     });
     request.on('row', (row: unknown) => {
       observedRows++;
-      if (rows.length < fetchLimit) rows.push(row);
-      if (cancelOnLimit && observedRows >= fetchLimit && !canceledForLimit) {
+      const accepted = collector.truncatedBy ? false : collector.add(row);
+      if (cancelOnLimit && !accepted && !canceledForLimit) {
         canceledForLimit = true;
         if (timeout) {
           clearTimeout(timeout);
@@ -133,19 +138,16 @@ async function queryStreamed(
   });
 }
 
-function adaptStreamedResult(
-  result: StreamedMssqlResult,
-  maxRows: number,
-  executionTime: number,
-): SqlExecuteResult {
+function adaptStreamedResult(result: StreamedMssqlResult, executionTime: number): SqlExecuteResult {
   if (result.hasRecordset) {
-    const truncated = result.observedRows > maxRows;
     return {
       success: true,
-      data: result.rows.slice(0, maxRows),
+      data: result.rows,
       totalRows: result.observedRows,
       totalRowsExact: result.exact,
-      truncated,
+      truncated: result.truncatedBy !== undefined,
+      truncatedBy: result.truncatedBy,
+      returnedBytes: result.returnedBytes,
       fields: result.fields,
       executionTime,
     };
@@ -186,6 +188,7 @@ export async function createMssqlDriver(spec: ConnectionSpec): Promise<SqlDriver
       params: unknown[] | undefined,
       mode: SqlExecutionMode,
       maxRows: number,
+      maxBytes: number | undefined,
       queryTimeoutMs: number,
       maxSqlLength: number,
     ): Promise<SqlExecuteResult> {
@@ -206,11 +209,12 @@ export async function createMssqlDriver(spec: ConnectionSpec): Promise<SqlDriver
         request,
         text,
         maxRows,
+        maxBytes,
         queryTimeoutMs,
         mode === 'readonly',
       );
       const executionTime = Date.now() - start;
-      return adaptStreamedResult(result, maxRows, executionTime);
+      return adaptStreamedResult(result, executionTime);
     }
 
     return {
@@ -220,6 +224,7 @@ export async function createMssqlDriver(spec: ConnectionSpec): Promise<SqlDriver
           params,
           options.mode,
           options.maxRows,
+          options.maxBytes,
           options.queryTimeoutMs,
           options.maxSqlLength,
         );
@@ -262,11 +267,12 @@ export async function createMssqlDriver(spec: ConnectionSpec): Promise<SqlDriver
           request,
           text,
           options.maxRows,
+          options.maxBytes,
           options.queryTimeoutMs,
           options.mode === 'readonly',
         );
         const executionTime = Date.now() - start;
-        const adapted = adaptStreamedResult(result, options.maxRows, executionTime);
+        const adapted = adaptStreamedResult(result, executionTime);
         auditLog({
           engine,
           sql: sqlText,

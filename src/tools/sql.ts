@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ConnectionRegistry } from '../core/registry.js';
-import { globalLimits } from '../core/config.js';
+import { globalLimits, responseDataByteLimit } from '../core/config.js';
 import {
   analyzeSqlPagination,
   isReadOnlyQuery,
@@ -26,6 +26,10 @@ type ExportFormat = 'json' | 'csv' | 'markdown';
 
 const MAX_EXPORT_ROWS = 10_000;
 const MAX_SAMPLE_ROWS = 10_000;
+
+function effectiveResponseByteLimit(requested: number | undefined): number {
+  return Math.min(requested ?? Number.MAX_SAFE_INTEGER, responseDataByteLimit());
+}
 
 const activeTransactions = new Map<
   string,
@@ -307,9 +311,15 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
           .describe('最大返回行数，优先级高于分页'),
         page: z.number().int().min(1).optional().describe('页码，从 1 开始'),
         page_size: z.number().int().min(1).max(1000).optional().describe('每页行数，默认 20'),
+        response_bytes_limit: z
+          .number()
+          .int()
+          .min(1024)
+          .max(16 * 1024 * 1024)
+          .optional(),
       },
     },
-    async ({ connection_id, sql, params, limit, page, page_size }) => {
+    async ({ connection_id, sql, params, limit, page, page_size, response_bytes_limit }) => {
       try {
         const id = registry.resolveConnectionId(connection_id);
 
@@ -323,6 +333,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
 
         const driver = registry.requireSql(id);
         const L = limits();
+        const maxBytes = effectiveResponseByteLimit(response_bytes_limit);
 
         if (!isReadOnlyQuery(sql, driver.engine)) {
           return {
@@ -337,7 +348,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         }
 
         // 查询缓存（仅对无分页的简单查询生效）
-        const ck = makeCacheKey(id, sql, params ?? []);
+        const ck = makeCacheKey(id, sql, params ?? [], { maxBytes });
         const cached = !page && !limit ? queryCache.get(ck) : undefined;
         if (cached !== undefined) {
           return {
@@ -408,6 +419,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const res = await driver.execute(finalSql, params ?? [], {
           mode: 'readonly',
           maxRows,
+          maxBytes,
           queryTimeoutMs: L.queryTimeoutMs,
           maxSqlLength: L.maxSqlLength,
         });
@@ -438,6 +450,9 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
           totalRows,
           totalRowsExact,
           truncated,
+          truncatedBy: res.truncatedBy,
+          returnedBytes: res.returnedBytes,
+          responseByteLimit: maxBytes,
           fields: res.fields,
           pagination: paginationPage
             ? {
@@ -476,9 +491,15 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         params: z.array(z.any()).optional(),
         format: z.enum(['json', 'csv', 'markdown']).optional().describe('导出格式，默认 json'),
         limit: z.number().int().min(1).max(MAX_EXPORT_ROWS).optional().describe('最大导出行数'),
+        response_bytes_limit: z
+          .number()
+          .int()
+          .min(1024)
+          .max(16 * 1024 * 1024)
+          .optional(),
       },
     },
-    async ({ connection_id, sql, params, format, limit }) => {
+    async ({ connection_id, sql, params, format, limit, response_bytes_limit }) => {
       try {
         const id = registry.resolveConnectionId(connection_id);
         const driver = registry.requireSql(id);
@@ -503,9 +524,11 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
 
         const L = limits();
         const maxRows = Math.min(limit ?? L.maxRows, MAX_EXPORT_ROWS);
+        const maxBytes = effectiveResponseByteLimit(response_bytes_limit);
         const res = await driver.execute(sql, params ?? [], {
           mode: 'readonly',
           maxRows,
+          maxBytes,
           queryTimeoutMs: L.queryTimeoutMs,
           maxSqlLength: L.maxSqlLength,
         });
@@ -531,6 +554,9 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
                 totalRows: res.totalRows ?? rows.length,
                 totalRowsExact: res.totalRowsExact ?? !res.truncated,
                 truncated: res.truncated ?? false,
+                truncatedBy: res.truncatedBy,
+                returnedBytes: res.returnedBytes,
+                responseByteLimit: maxBytes,
                 fields,
                 content,
               }),

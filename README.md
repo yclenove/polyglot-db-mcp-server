@@ -323,6 +323,7 @@ docker compose up -d
 | `DB_HTTP_HOST`、`DB_HTTP_PORT`、`DB_HTTP_ENDPOINT` | HTTP 监听地址、端口和 MCP endpoint |
 | `DB_HTTP_API_KEY`、`DB_HTTP_AUTH_DISABLED`、`DB_HTTP_ALLOWED_HOSTS`、`DB_HTTP_ORIGINS` | HTTP API key、显式关闭认证、Host 和 Origin allowlist |
 | `DB_QUERY_TIMEOUT`、`DB_MAX_ROWS`、`DB_MAX_SQL_LENGTH`、`DB_RETRY_COUNT`、`DB_RETRY_DELAY_MS` | 全局 SQL 限制（见 `src/core/config.ts`） |
+| `DB_MAX_RESPONSE_BYTES` | 所有 MCP 工具序列化结果硬上限，默认 1 MiB；有效范围 4 KiB..16 MiB |
 | `DB_MONGO_MAX_TIME_MS` | MongoDB `find`/`aggregate`/`count` 服务端超时；默认 `30000`，`0` 表示关闭 |
 | `DB_MASKING_MODE` | 脱敏模式：`off`（默认）、`loose`、`strict`、`strict-v2` |
 | `DB_MASKING_EXCLUDE_FIELDS` | 白名单字段（逗号分隔），这些字段不脱敏 |

@@ -42,3 +42,49 @@ v3.0.0 完成 manifest-first 插件化生态 MVP：本地插件 discovery、mani
 | 插件依赖隔离 | P1 | 后续可评估 worker thread 或进程隔离 |
 | Metric export event | P2 | 当前 Export Plugin 先接入 audit event |
 | 插件市场 | P2 | ADR 明确首版不做市场 |
+
+## 五、2026-07-16 增量全功能审计
+
+本轮针对结果字节上限、数据库操作完整性和生产镜像执行了增量全功能回归。结论为通过；所有已注册数据库工具均至少在一个适用的真实引擎上执行，SQL 通用工具在六个 SQL 引擎上逐一验证。
+
+### 5.1 最终门禁
+
+| 项目 | 结果 | 证据 |
+|------|------|------|
+| TypeScript 构建 | 通过 | `npm run build` |
+| 全量测试 | 通过 | 659/659，0 fail、0 skip |
+| 覆盖率门禁 | 通过 | statements/lines 73.17%，branches 75.91%，functions 81.11% |
+| 类型、Lint、格式 | 通过 | `npm run typecheck`、`npm run lint`、`npm run format:check` |
+| 原生集成测试 | 通过 | MySQL、PostgreSQL、MongoDB、Redis，39/39 |
+| 真实数据库矩阵 | 通过 | 8 engines，73/73 registered database tools exercised |
+| 生产镜像 | 通过 | Docker build；HTTP 与 stdio 均列出 97 tools 并完成真实调用 |
+| 依赖审计 | 通过 | moderate 及以上漏洞 0，总漏洞 0 |
+| npm 包检查 | 通过 | 233573 bytes，解包 1206867 bytes，250 entries |
+| 静态发布检查 | 通过 | `git diff --check`、脚本语法、Compose 配置 |
+
+### 5.2 数据库操作证据
+
+| 范围 | 验证内容 |
+|------|----------|
+| DDL | 六个 SQL 引擎真实创建表和视图；适用引擎创建/调用过程；JSON/SQL schema 导出包含新表 DDL |
+| DDL 防护 | `ALTER TABLE`、`TRUNCATE TABLE`、`DROP TABLE` 均被 MCP 安全策略拒绝，拒绝后回查确认原表和数据仍存在 |
+| 索引 | 六个 SQL 引擎创建复合唯一索引并从系统目录反查名称和列；MongoDB 创建唯一稀疏复合索引并反查 |
+| SQL 分析 | MySQL、PostgreSQL、Oracle、SQLite、DuckDB 返回真实 `EXPLAIN`；SQL Server 返回文档化的不支持错误 |
+| 优化建议 | 六个 SQL 引擎执行 `query_suggest`/`query_optimize`，验证 schema、索引元数据和执行计划；已有索引不再被误报缺失 |
+| 数据与事务 | 参数查询、分页、增删改、batch、commit/rollback、过程调用、导出、采样和类型生成 |
+| MongoDB | CRUD、聚合、索引、schema analysis、rename/drop、事务 commit/rollback、危险聚合阶段拦截 |
+| Redis | String、Hash、List、Set、Sorted Set、TTL、SCAN、pipeline 和危险命令拦截 |
+| 响应上限 | SQL 六驱动、Mongo 游标和 Redis 2 MiB 值均验证字节截断；普通连接与事务截断后可复用 |
+
+### 5.3 生产协议验收
+
+- HTTP MCP：通过 SDK 执行建表、batch insert、复合唯一索引、索引反查、`query_suggest`、`query_optimize`、`sql_explain`、DDL 导出和危险 DDL 拦截。
+- stdio MCP：通过 SDK 执行建表、建索引、索引反查和索引感知建议。
+- 两种传输均从生产镜像列出 97 个工具。
+- HTTP 动态端口连续执行 15 轮 SDK 回归，未再出现 Fetch `bad port`。
+
+### 5.4 边界说明
+
+- “73/73”表示所有已注册数据库工具均被真实调用，不表示覆盖每个数据库版本、所有参数排列或所有 SQL 方言语句。
+- SQL Server 的安全 `EXPLAIN` 批处理当前明确不支持，测试要求返回稳定错误；其余五个 SQL 引擎验证真实执行计划。
+- 危险 DDL 是产品安全边界，目标是稳定拒绝而不是成功执行；允许的建表、建视图、建索引和过程 DDL 已真实执行。

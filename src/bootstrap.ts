@@ -164,6 +164,7 @@ export function logStartupDiagnostics(
     config: {
       query_timeout_ms: limits.queryTimeoutMs,
       max_rows: limits.maxRows,
+      max_response_bytes: limits.maxResponseBytes,
       log_level: process.env.LOG_LEVEL || 'info',
       log_format: process.env.LOG_FORMAT || 'human',
       audit: safeAuditPersistenceConfig(parseAuditPersistenceConfig()),

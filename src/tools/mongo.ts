@@ -2,7 +2,12 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ConnectionRegistry } from '../core/registry.js';
 import { createErrorPayload, type ErrorCode } from '../core/error-codes.js';
-import type { MongoTransaction, MongoTransactionOperation } from '../core/types.js';
+import type {
+  MongoReadResult,
+  MongoTransaction,
+  MongoTransactionOperation,
+} from '../core/types.js';
+import { responseDataByteLimit } from '../core/config.js';
 import {
   parseMongoEjsonArray,
   parseMongoEjsonObject as parseJsonObject,
@@ -58,6 +63,21 @@ function analyzeDocument(
 function codedMongoErrorText(code: ErrorCode, detail: string): string {
   const errorInfo = createErrorPayload(code, { detail });
   return JSON.stringify({ error: errorInfo.message, detail, error_info: errorInfo });
+}
+
+function normalizeMongoReadResult(result: MongoReadResult | unknown[]): MongoReadResult {
+  if (!Array.isArray(result)) return result;
+  return {
+    data: result,
+    totalRows: result.length,
+    totalRowsExact: true,
+    truncated: false,
+    returnedBytes: 2,
+  };
+}
+
+function effectiveMongoByteLimit(requested: number | undefined): number {
+  return Math.min(requested ?? Number.MAX_SAFE_INTEGER, responseDataByteLimit());
 }
 
 function ensureMongoTransactionCleanup(): void {
@@ -491,9 +511,15 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         filter_json: z.string().optional().describe('JSON/EJSON 对象字符串，默认 {}'),
         limit: z.number().int().min(1).max(500).optional(),
         skip: z.number().int().min(0).optional(),
+        response_bytes_limit: z
+          .number()
+          .int()
+          .min(1024)
+          .max(16 * 1024 * 1024)
+          .optional(),
       },
     },
-    async ({ connection_id, collection, filter_json, limit, skip }) => {
+    async ({ connection_id, collection, filter_json, limit, skip, response_bytes_limit }) => {
       try {
         const id = registry.resolveConnectionId(connection_id);
         const d = registry.requireMongo(id);
@@ -506,9 +532,30 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           };
         }
         const lim = limit ?? 50;
-        const rows = maskResultRows(await d.find(collection, filter, { limit: lim, skip }));
+        const read = normalizeMongoReadResult(
+          await d.find(collection, filter, {
+            limit: lim,
+            skip,
+            maxBytes: effectiveMongoByteLimit(response_bytes_limit),
+          }),
+        );
+        const rows = maskResultRows(read.data);
         return {
-          content: [{ type: 'text', text: stringifyMongoResult({ connection_id: id, rows }) }],
+          content: [
+            {
+              type: 'text',
+              text: stringifyMongoResult({
+                connection_id: id,
+                rows,
+                returnedRows: rows.length,
+                totalRows: read.totalRows,
+                totalRowsExact: read.totalRowsExact,
+                truncated: read.truncated,
+                truncatedBy: read.truncatedBy,
+                returnedBytes: read.returnedBytes,
+              }),
+            },
+          ],
         };
       } catch (e) {
         return {
@@ -528,9 +575,15 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         collection: z.string(),
         pipeline_json: z.string(),
         limit: z.number().int().min(1).max(500).optional(),
+        response_bytes_limit: z
+          .number()
+          .int()
+          .min(1024)
+          .max(16 * 1024 * 1024)
+          .optional(),
       },
     },
-    async ({ connection_id, collection, pipeline_json, limit }) => {
+    async ({ connection_id, collection, pipeline_json, limit, response_bytes_limit }) => {
       try {
         const id = registry.resolveConnectionId(connection_id);
         const h = registry.require(id);
@@ -569,9 +622,13 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           };
         }
         const maxRows = limit ?? 50;
-        const rows = maskResultRows(
-          await h.driver.aggregate(collection, pipeline, { limit: maxRows }),
+        const read = normalizeMongoReadResult(
+          await h.driver.aggregate(collection, pipeline, {
+            limit: maxRows,
+            maxBytes: effectiveMongoByteLimit(response_bytes_limit),
+          }),
         );
+        const rows = maskResultRows(read.data);
         return {
           content: [
             {
@@ -581,6 +638,11 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
                 rows,
                 returnedRows: rows.length,
                 limit: maxRows,
+                totalRows: read.totalRows,
+                totalRowsExact: read.totalRowsExact,
+                truncated: read.truncated,
+                truncatedBy: read.truncatedBy,
+                returnedBytes: read.returnedBytes,
               }),
             },
           ],
@@ -855,7 +917,8 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         const id = registry.resolveConnectionId(connection_id);
         const d = registry.requireMongo(id);
         const limit = sample_size ?? 100;
-        const docs = await d.find(collection, {}, { limit });
+        const read = normalizeMongoReadResult(await d.find(collection, {}, { limit }));
+        const docs = read.data;
 
         const fieldMap = new Map<string, Set<string>>();
         for (const doc of docs) {

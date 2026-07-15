@@ -97,6 +97,7 @@ const tools = [
       { name: 'limit', type: 'number', required: false, description: '最大返回行数' },
       { name: 'page', type: 'number', required: false, description: '页码，从 1 开始' },
       { name: 'page_size', type: 'number', required: false, description: '每页行数，默认 20' },
+      { name: 'response_bytes_limit', type: 'number', required: false, description: '本次结果数据字节上限；不能超过服务端 DB_MAX_RESPONSE_BYTES' },
     ],
   },
   {
@@ -109,6 +110,7 @@ const tools = [
       { name: 'params', type: 'array', required: false, description: '查询参数' },
       { name: 'format', type: 'string', required: false, description: 'json、csv 或 markdown；默认 json' },
       { name: 'limit', type: 'number', required: false, description: '最大导出行数，最大 10000' },
+      { name: 'response_bytes_limit', type: 'number', required: false, description: '本次结果数据字节上限；不能超过服务端 DB_MAX_RESPONSE_BYTES' },
     ],
   },
   {
@@ -229,6 +231,7 @@ const tools = [
       { name: 'filter_json', type: 'string', required: false, description: 'JSON/EJSON 对象字符串，默认 {}' },
       { name: 'limit', type: 'number', required: false, description: '最大返回行数，默认 50' },
       { name: 'skip', type: 'number', required: false, description: '跳过行数' },
+      { name: 'response_bytes_limit', type: 'number', required: false, description: '本次结果数据字节上限；不能超过服务端 DB_MAX_RESPONSE_BYTES' },
     ],
   },
   {
@@ -240,6 +243,7 @@ const tools = [
       { name: 'collection', type: 'string', required: true, description: '集合名称' },
       { name: 'pipeline_json', type: 'string', required: true, description: 'JSON/EJSON 数组字符串' },
       { name: 'limit', type: 'number', required: false, description: '最大返回文档数，默认 50，最大 500' },
+      { name: 'response_bytes_limit', type: 'number', required: false, description: '本次结果数据字节上限；不能超过服务端 DB_MAX_RESPONSE_BYTES' },
     ],
   },
   {

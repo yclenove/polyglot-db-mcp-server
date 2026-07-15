@@ -246,6 +246,7 @@ function suggestIndexes(sql: string, tableInfo?: TableInfo[]): Suggestion[] {
 
   for (const table of tableInfo) {
     const indexedColumns = new Set<string>();
+    const availableColumns = new Set(table.columns.map((column) => column.name.toLowerCase()));
     for (const idx of table.indexes) {
       for (const col of idx.columns) {
         indexedColumns.add(col.toLowerCase());
@@ -257,7 +258,9 @@ function suggestIndexes(sql: string, tableInfo?: TableInfo[]): Suggestion[] {
       }
     }
 
-    const missingIndexCols = whereCols.filter((c) => !indexedColumns.has(c));
+    const missingIndexCols = whereCols.filter(
+      (column) => availableColumns.has(column) && !indexedColumns.has(column),
+    );
     if (missingIndexCols.length > 0) {
       suggestions.push({
         type: 'index',

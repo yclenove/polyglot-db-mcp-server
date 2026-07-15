@@ -10,6 +10,7 @@ import {
 import { auditLog } from '../../core/audit.js';
 import { globalLimits } from '../../core/config.js';
 import { sleep, withTimeout } from './timeout.js';
+import { boundSqlRows } from './row-budget.js';
 
 function buildConnectionString(spec: ConnectionSpec): string {
   if (spec.url) return spec.url;
@@ -32,18 +33,21 @@ function shouldUseCursor(sql: string): boolean {
 function adaptQueryResult(
   result: QueryResult,
   maxRows: number,
+  maxBytes: number | undefined,
   executionTime: number,
   hardLimited: boolean,
 ): SqlExecuteResult {
   if (result.fields.length > 0) {
     const rows = result.rows as unknown[];
-    const truncated = rows.length > maxRows;
+    const bounded = boundSqlRows(rows, maxRows, maxBytes);
     return {
       success: true,
-      data: rows.slice(0, maxRows),
+      data: bounded.items,
       totalRows: rows.length,
-      totalRowsExact: hardLimited ? !truncated : true,
-      truncated,
+      totalRowsExact: hardLimited ? rows.length < Math.max(1, maxRows) + 1 : true,
+      truncated: bounded.truncated,
+      truncatedBy: bounded.truncatedBy,
+      returnedBytes: bounded.returnedBytes,
       fields: result.fields.map((field: FieldDef) => ({
         name: field.name,
         dataTypeID: field.dataTypeID,
@@ -111,6 +115,7 @@ export async function createPostgresDriver(spec: ConnectionSpec): Promise<SqlDri
       params: unknown[] | undefined,
       mode: SqlExecutionMode,
       maxRows: number,
+      maxBytes: number | undefined,
       queryTimeoutMs: number,
       maxSqlLength: number,
     ): Promise<SqlExecuteResult> {
@@ -133,7 +138,7 @@ export async function createPostgresDriver(spec: ConnectionSpec): Promise<SqlDri
         ? await executeCursorQuery(client, sql, params, maxRows, queryTimeoutMs)
         : await withTimeout(client.query(sql, params ?? []), queryTimeoutMs);
       const executionTime = Date.now() - start;
-      return adaptQueryResult(res, maxRows, executionTime, hardLimited);
+      return adaptQueryResult(res, maxRows, maxBytes, executionTime, hardLimited);
     }
 
     return {
@@ -143,6 +148,7 @@ export async function createPostgresDriver(spec: ConnectionSpec): Promise<SqlDri
           params,
           options.mode,
           options.maxRows,
+          options.maxBytes,
           options.queryTimeoutMs,
           options.maxSqlLength,
         );
@@ -169,6 +175,7 @@ export async function createPostgresDriver(spec: ConnectionSpec): Promise<SqlDri
     params: unknown[] | undefined,
     mode: SqlExecutionMode,
     maxRows: number,
+    maxBytes: number | undefined,
     queryTimeoutMs: number,
     maxSqlLength: number,
   ): Promise<SqlExecuteResult> {
@@ -205,7 +212,7 @@ export async function createPostgresDriver(spec: ConnectionSpec): Promise<SqlDri
       res = await withTimeout(pool.query(sql, params ?? []), queryTimeoutMs);
     }
     const executionTime = Date.now() - start;
-    const adapted = adaptQueryResult(res, maxRows, executionTime, hardLimited);
+    const adapted = adaptQueryResult(res, maxRows, maxBytes, executionTime, hardLimited);
     auditLog({
       engine,
       sql,
@@ -221,6 +228,7 @@ export async function createPostgresDriver(spec: ConnectionSpec): Promise<SqlDri
     params: unknown[] | undefined,
     mode: SqlExecutionMode,
     maxRows: number,
+    maxBytes: number | undefined,
     queryTimeoutMs: number,
     maxSqlLength: number,
   ): Promise<SqlExecuteResult> {
@@ -228,7 +236,15 @@ export async function createPostgresDriver(spec: ConnectionSpec): Promise<SqlDri
     const attempts = Math.max(0, retryCount) + 1;
     for (let i = 0; i < attempts; i++) {
       try {
-        return await executeInner(sql, params, mode, maxRows, queryTimeoutMs, maxSqlLength);
+        return await executeInner(
+          sql,
+          params,
+          mode,
+          maxRows,
+          maxBytes,
+          queryTimeoutMs,
+          maxSqlLength,
+        );
       } catch (e) {
         const code = (e as { code?: string })?.code;
         const retriable = mode === 'readonly' && code && RETRIABLE.has(code);
@@ -259,6 +275,7 @@ export async function createPostgresDriver(spec: ConnectionSpec): Promise<SqlDri
         params,
         options.mode,
         options.maxRows,
+        options.maxBytes,
         options.queryTimeoutMs,
         options.maxSqlLength,
       );

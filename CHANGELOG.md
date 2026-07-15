@@ -7,6 +7,13 @@
 ## [Unreleased]
 
 ### 修复
+- 所有 MCP 工具新增 `DB_MAX_RESPONSE_BYTES` 序列化硬上限；超限结果保持合法 JSON，并通过 `_db_mcp_response` 返回截断原因、原始字节数和上限。
+- MongoDB `find`/`aggregate` 改为游标逐文档收集，不再使用 `toArray()`；按 BSON/EJSON 较大值执行字节预算并在所有路径关闭游标。
+- 六个 SQL 驱动新增逐行字节预算，`sql_query`、`sql_export_query`、`mongo_find`、`mongo_aggregate` 支持只能收紧的 `response_bytes_limit`。
+- 查询缓存键纳入有效响应字节预算，避免小预算请求命中大预算缓存结果。
+- `query_suggest`/`query_optimize` 统一解析六个 SQL 引擎的列与索引元数据；PostgreSQL、Oracle、SQLite、DuckDB 不再漏识别已有索引，多表查询不再为不存在的列生成错误索引建议。
+- PostgreSQL 与 SQLite 索引列表改为结构化返回索引列，同时保留唯一性、主键/来源和定义元数据。
+- HTTP 动态端口会避开 WHATWG Fetch 禁用端口，修复 Windows/CI 偶发由 MCP SDK 报 `bad port` 的启动失败。
 - MySQL、Oracle 和 SQLite 大整数查询不再发生 JavaScript `number` 精度损失；超过安全整数范围的值以字符串返回。
 - MongoDB 工具支持 canonical Extended JSON，`Long`、`ObjectId`、`Decimal128` 等 BSON 类型不再被普通 JSON 序列化破坏。
 - SQLite 只读模式仅允许明确的元数据 PRAGMA，拒绝 `journal_mode`、`foreign_keys` 和 `writable_schema` 等状态修改。
@@ -21,6 +28,7 @@
 - 全局 SQL 数值限制执行严格整数校验；`DB_MAX_ROWS` 固定在 `1..10000`，避免无效或负配置绕过结果上限。
 
 ### 性能
+- MySQL/SQL Server/SQLite 在流式或迭代读取时遇到字节上限立即停止收集；PostgreSQL/Oracle/DuckDB 对有界读取批次执行二次字节裁剪。
 - MySQL、PostgreSQL、SQL Server、Oracle、SQLite 和 DuckDB 查询改为数据库原生限制、游标或流式/chunk 读取，不再先完整物化大结果后执行 `slice(maxRows)`。
 - PostgreSQL 游标和 SQL Server/MySQL 流式截断在普通连接及事务内均执行资源清理，截断后连接可继续复用。
 

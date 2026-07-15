@@ -318,4 +318,47 @@ describe('index suggestions', () => {
     );
     assert.equal(indexSuggestions.length, 0);
   });
+
+  test('does not suggest a column on tables that do not contain it', () => {
+    const tableInfo = [
+      {
+        tableName: 'users',
+        columns: [
+          { name: 'id', type: 'int', isPrimaryKey: true },
+          { name: 'email', type: 'varchar', isPrimaryKey: false },
+        ],
+        indexes: [{ name: 'PRIMARY', columns: ['id'] }],
+      },
+      {
+        tableName: 'orders',
+        columns: [
+          { name: 'id', type: 'int', isPrimaryKey: true },
+          { name: 'user_id', type: 'int', isPrimaryKey: false },
+        ],
+        indexes: [{ name: 'PRIMARY', columns: ['id'] }],
+      },
+    ];
+    const suggestions = analyzeQuery(
+      'SELECT users.id FROM users JOIN orders ON orders.user_id = users.id WHERE users.email = ?',
+      tableInfo,
+    );
+
+    assert.ok(
+      suggestions.some(
+        (suggestion) =>
+          suggestion.type === 'index' &&
+          suggestion.message.includes('users') &&
+          suggestion.message.includes('email'),
+      ),
+    );
+    assert.equal(
+      suggestions.some(
+        (suggestion) =>
+          suggestion.type === 'index' &&
+          suggestion.message.includes('orders') &&
+          suggestion.message.includes('email'),
+      ),
+      false,
+    );
+  });
 });

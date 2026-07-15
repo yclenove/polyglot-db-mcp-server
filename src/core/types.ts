@@ -33,19 +33,24 @@ export interface SqlExecuteResult {
   totalRows?: number;
   /** `false` means totalRows is only the number observed before a hard fetch cap. */
   totalRowsExact?: boolean;
+  truncatedBy?: 'rows' | 'bytes';
+  returnedBytes?: number;
   fields?: { name: string; dataTypeID?: number }[];
+}
+
+export interface SqlExecuteOptions {
+  mode: SqlExecutionMode;
+  maxRows: number;
+  queryTimeoutMs: number;
+  maxSqlLength: number;
+  maxBytes?: number;
 }
 
 export interface SqlTransaction {
   execute(
     sql: string,
     params: unknown[] | undefined,
-    options: {
-      mode: SqlExecutionMode;
-      maxRows: number;
-      queryTimeoutMs: number;
-      maxSqlLength: number;
-    },
+    options: SqlExecuteOptions,
   ): Promise<SqlExecuteResult>;
   commit(): Promise<void>;
   rollback(): Promise<void>;
@@ -57,12 +62,7 @@ export interface SqlDriver {
   execute(
     sql: string,
     params: unknown[] | undefined,
-    options: {
-      mode: SqlExecutionMode;
-      maxRows: number;
-      queryTimeoutMs: number;
-      maxSqlLength: number;
-    },
+    options: SqlExecuteOptions,
   ): Promise<SqlExecuteResult>;
   beginTransaction(): Promise<SqlTransaction>;
   close(): Promise<void>;
@@ -86,19 +86,28 @@ export interface MongoDeleteResult {
   deletedCount: number;
 }
 
+export interface MongoReadResult {
+  data: unknown[];
+  totalRows: number;
+  totalRowsExact: boolean;
+  truncated: boolean;
+  truncatedBy?: 'rows' | 'bytes';
+  returnedBytes: number;
+}
+
 export interface MongoDriver {
   ping(): Promise<{ ok: boolean; error?: string }>;
   listCollections(): Promise<string[]>;
   find(
     collection: string,
     filter: Record<string, unknown>,
-    options: { limit: number; skip?: number },
-  ): Promise<unknown[]>;
+    options: { limit: number; skip?: number; maxBytes?: number },
+  ): Promise<MongoReadResult>;
   aggregate(
     collection: string,
     pipeline: unknown[],
-    options?: { limit?: number },
-  ): Promise<unknown[]>;
+    options?: { limit?: number; maxBytes?: number },
+  ): Promise<MongoReadResult>;
   count(collection: string, filter: Record<string, unknown>): Promise<number>;
   insertOne(collection: string, document: Record<string, unknown>): Promise<MongoInsertResult>;
   insertMany(collection: string, documents: Record<string, unknown>[]): Promise<MongoInsertResult>;

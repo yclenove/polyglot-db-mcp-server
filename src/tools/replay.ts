@@ -113,6 +113,8 @@ export function registerReplayTools(server: McpServer, registry: ConnectionRegis
                 totalRows: res.totalRows,
                 totalRowsExact: res.totalRowsExact ?? !res.truncated,
                 truncated: res.truncated,
+                truncatedBy: res.truncatedBy,
+                returnedBytes: res.returnedBytes,
                 executionTime: duration,
               }),
             },

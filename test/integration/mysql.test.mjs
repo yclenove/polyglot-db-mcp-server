@@ -75,6 +75,29 @@ describe('MySQL Integration', () => {
     assert.equal(followUp.totalRowsExact, true);
   });
 
+  integrationTest('byte-bounded reads skip oversized rows and keep connection reusable', async () => {
+    const query = `SELECT 1 AS id, 'ok' AS value
+      UNION ALL SELECT 2, REPEAT('x', 200000)
+      UNION ALL SELECT 3, 'unread' ORDER BY id`;
+    const options = {
+      mode: 'readonly',
+      maxRows: 10,
+      maxBytes: 1024,
+      queryTimeoutMs: 5000,
+      maxSqlLength: 10240,
+    };
+    const result = await driver.execute(query, [], options);
+    assert.equal(result.success, true, result.error);
+    assert.equal(Number(result.data[0].id), 1);
+    assert.equal(result.data[0].value, 'ok');
+    assert.equal(result.truncatedBy, 'bytes');
+    assert.ok(result.returnedBytes <= 1024);
+
+    const followUp = await driver.execute('SELECT 42 AS value', [], options);
+    assert.equal(followUp.success, true, followUp.error);
+    assert.equal(Number(followUp.data[0].value), 42);
+  });
+
   integrationTest('bounded reads reset the session limit inside transactions', async () => {
     const tx = await driver.beginTransaction();
     const query = `WITH RECURSIVE seq(n) AS (

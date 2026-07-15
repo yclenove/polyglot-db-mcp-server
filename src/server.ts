@@ -13,6 +13,7 @@ import { registerAdvisorTools } from './tools/advisor.js';
 import { registerAuthTools } from './tools/auth.js';
 import { registerExternalPluginTools, registerPluginTools } from './tools/plugins.js';
 import { installAuthorization, type AuthorizationRuntime } from './auth/authorization.js';
+import { installResponseBudget } from './core/response-budget.js';
 
 export interface CreateServerOptions {
   authorization?: AuthorizationRuntime;
@@ -23,6 +24,7 @@ export function createServer(
   options: CreateServerOptions = {},
 ): McpServer {
   const server = new McpServer({ name: 'polyglot-db-mcp-server', version: getVersion() });
+  installResponseBudget(server);
   if (options.authorization) {
     installAuthorization(server, options.authorization);
   }

@@ -142,6 +142,45 @@ describe('authorization runtime audit', () => {
     assert.equal(metrics.byErrorCode.AUTH_005, 1);
   });
 
+  test('preserves task handlers and authorizes task creation', async () => {
+    const { installAuthorization } = await import('../../dist/auth/authorization.js');
+    const server = new MockMcpServer();
+    let allowed = true;
+    let calls = 0;
+    installAuthorization(server, {
+      authorize() {
+        return {
+          allowed,
+          reason: allowed ? 'ok' : 'denied',
+          roles: [],
+          action: 'read',
+          subject: 'task-user',
+          transport: 'stdio',
+        };
+      },
+    });
+    const getTask = async () => ({ task: { taskId: '1', status: 'working' } });
+    const getTaskResult = async () => ({ content: [{ type: 'text', text: 'done' }] });
+    server.registerTool('task_probe', { inputSchema: {} }, {
+      async createTask() {
+        calls++;
+        return { task: { taskId: '1', status: 'working' } };
+      },
+      getTask,
+      getTaskResult,
+    });
+
+    const handler = server.tools.get('task_probe').handler;
+    assert.equal(handler.getTask, getTask);
+    assert.equal(handler.getTaskResult, getTaskResult);
+    await handler.createTask({}, {});
+    assert.equal(calls, 1);
+
+    allowed = false;
+    await assert.rejects(handler.createTask({}, {}), /AUTH_005/);
+    assert.equal(calls, 1);
+  });
+
   test('can authorize with a built-in policy template', async () => {
     const { createAuthorizationRuntime } = await import('../../dist/auth/authorization.js');
     const runtime = createAuthorizationRuntime(new MockRegistry(), {
