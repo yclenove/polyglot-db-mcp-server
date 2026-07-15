@@ -68,11 +68,11 @@ export async function createMssqlDriver(spec: ConnectionSpec): Promise<SqlDriver
       if (sqlText.length > maxSqlLength) {
         return { success: false, error: `SQL 超过长度限制（${maxSqlLength}）` };
       }
-      if (mode === 'readonly' && !isReadOnlyQuery(sqlText)) {
+      if (mode === 'readonly' && !isReadOnlyQuery(sqlText, 'mssql')) {
         return { success: false, error: '只读模式仅允许 SELECT/WITH(SELECT) 等' };
       }
       if (mode === 'readwrite') {
-        const d = checkDangerousOperation(sqlText);
+        const d = checkDangerousOperation(sqlText, 'mssql');
         if (d) return { success: false, error: d };
       }
       const request = new sql.Request(transaction);
@@ -132,11 +132,11 @@ export async function createMssqlDriver(spec: ConnectionSpec): Promise<SqlDriver
       if (sqlText.length > options.maxSqlLength) {
         return { success: false, error: `SQL 超过长度限制（${options.maxSqlLength}）` };
       }
-      if (options.mode === 'readonly' && !isReadOnlyQuery(sqlText)) {
+      if (options.mode === 'readonly' && !isReadOnlyQuery(sqlText, 'mssql')) {
         return { success: false, error: '只读模式仅允许 SELECT/WITH(SELECT) 等' };
       }
       if (options.mode === 'readwrite') {
-        const d = checkDangerousOperation(sqlText);
+        const d = checkDangerousOperation(sqlText, 'mssql');
         if (d) return { success: false, error: d };
       }
       try {

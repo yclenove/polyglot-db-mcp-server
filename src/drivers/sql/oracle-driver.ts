@@ -17,7 +17,18 @@ type OraPool = {
 type OraModule = {
   createPool: (config: Record<string, unknown>) => Promise<OraPool>;
   OUT_FORMAT_OBJECT: number;
+  NUMBER: number;
+  fetchAsString: number[];
 };
+
+export function configureOracleNumberFetching(config: {
+  NUMBER: number;
+  fetchAsString: number[];
+}): void {
+  if (!config.fetchAsString.includes(config.NUMBER)) {
+    config.fetchAsString = [...config.fetchAsString, config.NUMBER];
+  }
+}
 
 /** 动态加载 optionalDependency `oracledb` */
 export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDriver> {
@@ -30,6 +41,8 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
       `未安装 oracledb 可选依赖，无法创建 Oracle 连接：${e instanceof Error ? e.message : String(e)}`,
     );
   }
+
+  configureOracleNumberFetching(oracledb);
 
   const connectString =
     spec.url ??
@@ -84,11 +97,11 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
       if (sqlText.length > maxSqlLength) {
         return { success: false, error: `SQL 超过长度限制（${maxSqlLength}）` };
       }
-      if (mode === 'readonly' && !isReadOnlyQuery(sqlText)) {
+      if (mode === 'readonly' && !isReadOnlyQuery(sqlText, 'oracle')) {
         return { success: false, error: '只读模式仅允许 SELECT/WITH(SELECT) 等' };
       }
       if (mode === 'readwrite') {
-        const d = checkDangerousOperation(sqlText);
+        const d = checkDangerousOperation(sqlText, 'oracle');
         if (d) return { success: false, error: d };
       }
       const { text, binds } = bindQuestionMarks(sqlText, params);
@@ -190,11 +203,11 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
       if (sqlText.length > options.maxSqlLength) {
         return { success: false, error: `SQL 超过长度限制（${options.maxSqlLength}）` };
       }
-      if (options.mode === 'readonly' && !isReadOnlyQuery(sqlText)) {
+      if (options.mode === 'readonly' && !isReadOnlyQuery(sqlText, 'oracle')) {
         return { success: false, error: '只读模式仅允许 SELECT/WITH(SELECT) 等' };
       }
       if (options.mode === 'readwrite') {
-        const d = checkDangerousOperation(sqlText);
+        const d = checkDangerousOperation(sqlText, 'oracle');
         if (d) return { success: false, error: d };
       }
       let conn: OraConnection | undefined;

@@ -26,7 +26,7 @@ export interface SqlExecuteResult {
   success: boolean;
   data?: unknown[];
   affectedRows?: number;
-  insertId?: number | bigint;
+  insertId?: number | string | bigint;
   error?: string;
   executionTime?: number;
   truncated?: boolean;

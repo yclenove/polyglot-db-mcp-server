@@ -284,6 +284,7 @@ DB_MCP_DEFAULT_CONNECTION_ID=duck
 | `DB_HTTP_HOST` | `127.0.0.1` | HTTP 监听地址 |
 | `DB_HTTP_PORT` | `3000` | HTTP 监听端口 |
 | `DB_HTTP_ENDPOINT` | `/mcp` | MCP HTTP endpoint |
+| `DB_HTTP_ALLOWED_HOSTS` | `localhost,127.0.0.1,::1` | 逗号分隔 Host allowlist；远程部署必须显式加入服务域名或 IP |
 | `DB_HTTP_ORIGINS` | 空 | 逗号分隔 Origin allowlist；请求带 Origin 且不匹配时拒绝 |
 | `DB_AUTH_MODE` | `none` for stdio, `bearer` for HTTP | `none`、`api_key`、`bearer` |
 | `DB_AUTH_ISSUER` | 空 | Bearer JWT issuer |
@@ -484,7 +485,7 @@ node dist/index.js
 | 审计 | 设置 `DB_AUDIT_SINK=file` 和 `DB_AUDIT_FILE_PATH`，或 `DB_AUDIT_SINK=webhook` 接入内网采集器 |
 | 告警 | 设置 `DB_ALERT_ENABLED=true` 和 webhook URL；密钥使用 `DB_ALERT_WEBHOOK_SECRET` |
 | OTel traces | 设置 `DB_OTEL_ENABLED=true` 和 collector endpoint；token 使用 `DB_OTEL_OTLP_HEADERS` |
-| HTTP | 默认 localhost；远程部署必须配置认证和 Origin |
+| HTTP | 默认 localhost；远程部署必须配置认证、Host allowlist 和 Origin allowlist |
 | Docker | `docker-compose.env` 仅提供本地开发默认连接；私有环境使用 `.env` 覆盖且不要提交 |
 
 ---

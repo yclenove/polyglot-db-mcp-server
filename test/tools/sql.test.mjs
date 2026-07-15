@@ -186,6 +186,53 @@ describe('SQL Tools', () => {
     assert.equal(data.error_info.code, 'SQL_002');
   });
 
+  test('sql_query rejects readonly bypasses before driver execution', async () => {
+    const tool = server.tools.get('sql_query');
+    const bypasses = [
+      'SELECT 1; DELETE FROM users WHERE id = 1',
+      'WITH deleted AS (DELETE FROM users WHERE id = 1 RETURNING *) SELECT * FROM deleted',
+      '/*!50000 DELETE FROM users WHERE id = 1 */',
+      "EXEC('DELETE FROM users WHERE id = 1')",
+      'SELECT * INTO users_backup FROM users',
+      'SELECT * FROM users FOR UPDATE',
+      "SELECT '\\'; DELETE FROM users WHERE id = 1; --'",
+    ];
+
+    for (const sql of bypasses) {
+      const result = await tool.handler({ sql, params: [] });
+      assert.equal(result.isError, true, `expected readonly rejection for: ${sql}`);
+      const data = JSON.parse(result.content[0].text);
+      assert.equal(data.error_info.code, 'SQL_002');
+    }
+
+    assert.equal(mockDriver.executedSql.length, 0);
+  });
+
+  test('sql_query applies the selected driver dialect before execution', async () => {
+    const tool = server.tools.get('sql_query');
+    mockDriver.engine = 'mysql';
+
+    for (const sql of [
+      'SELECT $tag$; DELETE FROM users; $tag$',
+      'SELECT 1--x; DELETE FROM users WHERE id = 1',
+      'SELECT 1 /* outer /* nested */; DELETE FROM users WHERE id = 1; */',
+    ]) {
+      const result = await tool.handler({ sql, params: [] });
+      assert.equal(result.isError, true, `expected MySQL readonly rejection for: ${sql}`);
+    }
+    assert.equal(mockDriver.executedSql.length, 0);
+
+    const mysqlComment = await tool.handler({ sql: '# comment\nSELECT 1', params: [] });
+    assert.notEqual(mysqlComment.isError, true);
+
+    mockDriver.engine = 'postgres';
+    const postgresDollarQuote = await tool.handler({
+      sql: 'SELECT $$DELETE FROM users$$ AS message',
+      params: [],
+    });
+    assert.notEqual(postgresDollarQuote.isError, true);
+  });
+
   test('sql_export_query exports masked JSON rows', async () => {
     const { runWithRequestPolicy } = await import('../../dist/auth/request-policy.js');
     mockDriver.execute = async (_sql, _params, options) => {

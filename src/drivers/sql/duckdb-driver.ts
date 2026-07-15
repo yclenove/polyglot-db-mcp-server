@@ -136,11 +136,11 @@ async function executeOne(
   if (sql.length > maxSqlLength) {
     return { success: false, error: `SQL 超过长度限制（${maxSqlLength}）` };
   }
-  if (mode === 'readonly' && !isReadOnlyQuery(sql)) {
+  if (mode === 'readonly' && !isReadOnlyQuery(sql, 'duckdb')) {
     return { success: false, error: '只读模式仅允许 SELECT/SHOW/DESCRIBE/EXPLAIN' };
   }
   if (mode === 'readwrite') {
-    const dangerous = checkDangerousOperation(sql);
+    const dangerous = checkDangerousOperation(sql, 'duckdb');
     if (dangerous) return { success: false, error: dangerous };
   }
 

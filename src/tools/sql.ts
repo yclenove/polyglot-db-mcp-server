@@ -367,7 +367,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
           maxRows = L.maxRows;
         }
 
-        if (!isReadOnlyQuery(finalSql)) {
+        if (!isReadOnlyQuery(finalSql, driver.engine)) {
           return {
             content: [
               {
@@ -444,6 +444,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
     async ({ connection_id, sql, params, format, limit }) => {
       try {
         const id = registry.resolveConnectionId(connection_id);
+        const driver = registry.requireSql(id);
         if (!rateLimiter.allow(id)) {
           return {
             content: [{ type: 'text', text: `连接「${id}」请求过于频繁，请稍后重试` }],
@@ -451,7 +452,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
           };
         }
 
-        if (!isReadOnlyQuery(sql)) {
+        if (!isReadOnlyQuery(sql, driver.engine)) {
           return {
             content: [
               {
@@ -463,7 +464,6 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
           };
         }
 
-        const driver = registry.requireSql(id);
         const L = limits();
         const maxRows = Math.min(limit ?? L.maxRows, MAX_EXPORT_ROWS);
         const res = await driver.execute(sql, params ?? [], {
@@ -1041,7 +1041,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const driver = registry.requireSql(id);
         const L = limits();
 
-        if (!isReadOnlyQuery(sql)) {
+        if (!isReadOnlyQuery(sql, driver.engine)) {
           return {
             content: [
               {

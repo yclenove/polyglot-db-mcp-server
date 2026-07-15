@@ -13,6 +13,7 @@ describe('HTTP transport config', () => {
     assert.equal(config.port, 3000);
     assert.equal(config.endpoint, '/mcp');
     assert.deepEqual(config.origins, []);
+    assert.deepEqual(config.allowedHosts, ['localhost', '127.0.0.1', '::1']);
     assert.equal(config.authDisabled, false);
     assert.equal(config.authMode, 'none');
     assert.equal(config.bodyLimitBytes, 1024 * 1024);
@@ -26,6 +27,7 @@ describe('HTTP transport config', () => {
     });
     assert.equal(safe.auth, 'api_key');
     assert.equal(safe.rbac_policy_template, 'readonly-http');
+    assert.deepEqual(safe.allowed_hosts, ['localhost', '127.0.0.1', '::1']);
     assert.equal(Object.values(safe).includes('secret-key'), false);
   });
 
@@ -63,6 +65,30 @@ describe('HTTP transport config', () => {
     assert.throws(() => parseHttpTransportConfig({ DB_MCP_TRANSPORT: 'tcp' }), /CLI_002/);
     assert.throws(() => parseHttpTransportConfig({ DB_HTTP_ENDPOINT: 'mcp' }), /CFG_005/);
     assert.throws(() => parseHttpTransportConfig({ DB_HTTP_PORT: '70000' }), /CFG_005/);
+    assert.throws(
+      () => parseHttpTransportConfig({ DB_HTTP_ALLOWED_HOSTS: '*.example.com' }),
+      /CFG_005/,
+    );
+    assert.throws(
+      () => parseHttpTransportConfig({ DB_HTTP_ALLOWED_HOSTS: 'example.com:443' }),
+      /CFG_005/,
+    );
+  });
+
+  test('parses and normalizes HTTP Host allowlist', async () => {
+    const { parseHttpTransportConfig } = await import('../../dist/core/http-config.js');
+
+    const config = parseHttpTransportConfig({
+      DB_HTTP_ALLOWED_HOSTS: 'db.internal,DB.EXAMPLE.,[::1]',
+    });
+
+    assert.deepEqual(config.allowedHosts, [
+      'localhost',
+      '127.0.0.1',
+      '::1',
+      'db.internal',
+      'db.example',
+    ]);
   });
 
   test('HTTP defaults to bearer and keeps API key fallback explicit', async () => {

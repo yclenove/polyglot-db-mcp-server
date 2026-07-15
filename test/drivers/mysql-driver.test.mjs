@@ -15,14 +15,28 @@ const mockMysql = {
 // 测试配置生成
 describe('MySQL Driver Configuration', () => {
   test('poolConfig with URL', async () => {
-    // 动态导入并模拟
-    const mod = await import('../../dist/drivers/sql/mysql-driver.js');
-    assert.ok(typeof mod.createMysqlDriver === 'function');
+    const { buildMysqlPoolConfig } = await import('../../dist/drivers/sql/mysql-driver.js');
+    const config = buildMysqlPoolConfig({
+      id: 'mysql',
+      engine: 'mysql',
+      url: 'mysql://user:password@localhost/db',
+    });
+
+    assert.equal(config.supportBigNumbers, true);
+    assert.equal(config.bigNumberStrings, true);
   });
 
   test('poolConfig with host/port', async () => {
-    const mod = await import('../../dist/drivers/sql/mysql-driver.js');
-    assert.ok(typeof mod.createMysqlDriver === 'function');
+    const { buildMysqlPoolConfig } = await import('../../dist/drivers/sql/mysql-driver.js');
+    const config = buildMysqlPoolConfig({
+      id: 'mysql',
+      engine: 'mysql',
+      host: 'localhost',
+      port: 3306,
+    });
+
+    assert.equal(config.supportBigNumbers, true);
+    assert.equal(config.bigNumberStrings, true);
   });
 });
 

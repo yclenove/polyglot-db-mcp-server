@@ -1,40 +1,175 @@
-/**
- * 跨 SQL 引擎的只读判断与危险语句拦截（启发式，与 mysql-mcp-server executor 对齐思路）
- */
+/** 跨 SQL 引擎的只读判断与危险语句拦截。 */
 
-function stripQuotedContentAndComments(sql: string): string {
-  return sql
-    .replace(/--.*$/gm, ' ')
-    .replace(/#.*$/gm, ' ')
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/'(?:''|[^'])*'/g, "''")
-    .replace(/"(?:\\"|[^"])*"/g, '""')
-    .replace(/`(?:``|[^`])*`/g, '``');
+import type { SqlEngine } from './types.js';
+
+interface SqlScanResult {
+  cleaned: string;
+  statements: string[];
+  executableComment: boolean;
+  unterminated: boolean;
 }
 
-export function isReadOnlyQuery(sql: string): boolean {
-  const t = sql.trim().toLowerCase();
-  if (
-    t.startsWith('select') ||
-    t.startsWith('show') ||
-    t.startsWith('describe') ||
-    t.startsWith('desc') ||
-    t.startsWith('explain')
-  ) {
+function scanSql(sql: string, engine: SqlEngine | 'generic' = 'generic'): SqlScanResult {
+  let cleaned = '';
+  let executableComment = false;
+  let unterminated = false;
+
+  const skipQuoted = (start: number, quote: string, doubledQuote: string): number => {
+    let i = start + 1;
+    while (i < sql.length) {
+      if (sql.startsWith(doubledQuote, i)) {
+        i += doubledQuote.length;
+        continue;
+      }
+      if (sql[i] === quote) return i + 1;
+      i++;
+    }
+    unterminated = true;
+    return sql.length;
+  };
+
+  for (let i = 0; i < sql.length; ) {
+    const mysqlStyleDashComment =
+      sql.startsWith('--', i) && (i + 2 === sql.length || /\s/.test(sql[i + 2]!));
+    if (
+      sql.startsWith('--', i) &&
+      ((engine !== 'mysql' && engine !== 'generic') || mysqlStyleDashComment)
+    ) {
+      const end = sql.indexOf('\n', i + 2);
+      cleaned += ' ';
+      i = end === -1 ? sql.length : end + 1;
+      continue;
+    }
+
+    if (engine === 'mysql' && sql[i] === '#') {
+      const end = sql.indexOf('\n', i + 1);
+      cleaned += ' ';
+      i = end === -1 ? sql.length : end + 1;
+      continue;
+    }
+
+    if (sql.startsWith('/*', i)) {
+      const marker = sql.slice(i + 2, i + 4).toLowerCase();
+      if (marker.startsWith('!') || marker === 'm!') executableComment = true;
+      const supportsNestedComments = engine === 'postgres' || engine === 'mssql';
+      let j: number;
+      if (supportsNestedComments) {
+        let depth = 1;
+        j = i + 2;
+        while (j < sql.length && depth > 0) {
+          if (sql.startsWith('/*', j)) {
+            depth++;
+            j += 2;
+          } else if (sql.startsWith('*/', j)) {
+            depth--;
+            j += 2;
+          } else {
+            j++;
+          }
+        }
+        if (depth > 0) unterminated = true;
+      } else {
+        const end = sql.indexOf('*/', i + 2);
+        if (end === -1) {
+          unterminated = true;
+          j = sql.length;
+        } else {
+          j = end + 2;
+        }
+      }
+      cleaned += ' ';
+      i = j;
+      continue;
+    }
+
+    const char = sql[i]!;
+    if (char === "'") {
+      cleaned += "''";
+      i = skipQuoted(i, "'", "''");
+      continue;
+    }
+    if (char === '"') {
+      cleaned += '""';
+      i = skipQuoted(i, '"', '""');
+      continue;
+    }
+    if (char === '`') {
+      cleaned += '``';
+      i = skipQuoted(i, '`', '``');
+      continue;
+    }
+    if (char === '[') {
+      const end = sql.indexOf(']', i + 1);
+      cleaned += '[]';
+      if (end === -1) {
+        unterminated = true;
+        i = sql.length;
+      } else {
+        i = end + 1;
+      }
+      continue;
+    }
+    if (engine === 'postgres' && char === '$') {
+      const match = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(i));
+      if (match) {
+        const delimiter = match[0];
+        const end = sql.indexOf(delimiter, i + delimiter.length);
+        cleaned += "''";
+        if (end === -1) {
+          unterminated = true;
+          i = sql.length;
+        } else {
+          i = end + delimiter.length;
+        }
+        continue;
+      }
+    }
+
+    cleaned += char.toLowerCase();
+    i++;
+  }
+
+  const statements = cleaned
+    .split(';')
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+  return { cleaned, statements, executableComment, unterminated };
+}
+
+function stripQuotedContentAndComments(sql: string, engine?: SqlEngine): string {
+  return scanSql(sql, engine).cleaned;
+}
+
+export function isReadOnlyQuery(sql: string, engine?: SqlEngine): boolean {
+  const scan = scanSql(sql, engine);
+  if (scan.executableComment || scan.unterminated || scan.statements.length !== 1) return false;
+
+  const statement = scan.statements[0]!;
+  const firstKeyword = /^([a-z]+)/.exec(statement)?.[1];
+  if (firstKeyword === 'show' || firstKeyword === 'describe' || firstKeyword === 'desc') {
     return true;
   }
-  if (t.startsWith('with')) {
-    if (/\b(insert|update|delete|merge|truncate|drop|alter)\b/i.test(t)) return false;
-    return true;
+  if (!['select', 'with', 'explain'].includes(firstKeyword ?? '')) return false;
+
+  const mutatingOrDynamic =
+    /\b(insert|update|delete|merge|truncate|drop|alter|create|grant|revoke|call|exec|execute|sp_executesql|xp_cmdshell|copy|attach|detach|vacuum|reindex|refresh|cluster)\b/;
+  if (mutatingOrDynamic.test(statement)) return false;
+  if (/\bselect\b[\s\S]*\binto\b/.test(statement)) return false;
+  if (/\bfor\s+(?:no\s+key\s+)?update\b|\bfor\s+(?:key\s+)?share\b/.test(statement)) {
+    return false;
   }
-  return false;
+  return true;
 }
 
 /**
  * 检测 SQL 注入模式
  */
-export function detectInjectionPatterns(sql: string): string | null {
-  const normalized = stripQuotedContentAndComments(sql).trim().toLowerCase();
+export function detectInjectionPatterns(sql: string, engine?: SqlEngine): string | null {
+  const scan = scanSql(sql, engine);
+  if (scan.executableComment) {
+    return '潜在 SQL 注入风险：可执行条件注释';
+  }
+  const normalized = scan.cleaned.trim().toLowerCase();
 
   // 检测常见的 SQL 注入模式
   const injectionPatterns = [
@@ -76,8 +211,8 @@ export function detectInjectionPatterns(sql: string): string | null {
   return null;
 }
 
-export function checkDangerousOperation(sql: string): string | null {
-  const normalized = stripQuotedContentAndComments(sql).trim().toLowerCase();
+export function checkDangerousOperation(sql: string, engine?: SqlEngine): string | null {
+  const normalized = stripQuotedContentAndComments(sql, engine).trim().toLowerCase();
 
   if (normalized.startsWith('truncate')) {
     return '危险操作：TRUNCATE 会清空整张表数据，拒绝执行';
@@ -96,7 +231,7 @@ export function checkDangerousOperation(sql: string): string | null {
   }
 
   // 检测注入模式
-  const injection = detectInjectionPatterns(sql);
+  const injection = detectInjectionPatterns(sql, engine);
   if (injection) {
     return injection;
   }

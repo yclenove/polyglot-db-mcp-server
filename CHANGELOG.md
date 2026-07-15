@@ -4,6 +4,16 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 修复
+- MySQL、Oracle 和 SQLite 大整数查询不再发生 JavaScript `number` 精度损失；超过安全整数范围的值以字符串返回。
+- SQLite 只读模式仅允许明确的元数据 PRAGMA，拒绝 `journal_mode`、`foreign_keys` 和 `writable_schema` 等状态修改。
+
+### 安全
+- 加固 `sql_query` 只读扫描，拒绝堆叠语句、可写 CTE、MySQL 可执行注释、SQL Server 动态执行、反斜杠引号差异及锁定/`SELECT INTO` 查询。
+- 新增 `DB_HTTP_ALLOWED_HOSTS` 并在所有 HTTP 路由前校验 Host，降低 DNS rebinding 和 Host 欺骗风险。
+
 ## [3.0.0] - 2026-07-10
 
 ### 新增

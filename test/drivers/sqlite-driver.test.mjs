@@ -143,6 +143,26 @@ describe('SQLite Driver Execute', () => {
     assert.ok(result.data.length >= 2, `Expected >=2 columns, got ${result.data.length}`);
   });
 
+  test('readonly mode rejects state-changing PRAGMA statements', async () => {
+    const { createSqliteDriver } = await import('../../dist/drivers/sql/sqlite-driver.js');
+    driver = await createSqliteDriver({ id: 't', engine: 'sqlite', url: ':memory:' });
+
+    for (const sql of [
+      'PRAGMA journal_mode = DELETE',
+      'PRAGMA foreign_keys = OFF',
+      'PRAGMA writable_schema = ON',
+    ]) {
+      const result = await driver.execute(sql, [], {
+        mode: 'readonly',
+        maxRows: 100,
+        queryTimeoutMs: 5000,
+        maxSqlLength: 10240,
+      });
+      assert.equal(result.success, false, `${sql} must be rejected in readonly mode`);
+      assert.match(result.error, /只读模式/);
+    }
+  });
+
   test('maxRows truncates results', async () => {
     const { createSqliteDriver } = await import('../../dist/drivers/sql/sqlite-driver.js');
     driver = await createSqliteDriver({ id: 't', engine: 'sqlite', url: ':memory:' });
@@ -175,6 +195,25 @@ describe('SQLite Driver Execute', () => {
     assert.equal(result.data.length, 3);
     assert.equal(result.truncated, true);
     assert.equal(result.totalRows, 5);
+  });
+
+  test('preserves integers larger than Number.MAX_SAFE_INTEGER', async () => {
+    const { createSqliteDriver } = await import('../../dist/drivers/sql/sqlite-driver.js');
+    driver = await createSqliteDriver({ id: 't', engine: 'sqlite', url: ':memory:' });
+
+    const result = await driver.execute(
+      "SELECT CAST('9007199254740993' AS INTEGER) AS value",
+      [],
+      {
+        mode: 'readonly',
+        maxRows: 100,
+        queryTimeoutMs: 5000,
+        maxSqlLength: 10240,
+      }
+    );
+
+    assert.equal(result.success, true);
+    assert.deepEqual(result.data[0], { value: '9007199254740993' });
   });
 
   test('connection readonly flag forces readonly', async () => {

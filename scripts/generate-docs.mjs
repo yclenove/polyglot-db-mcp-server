@@ -1001,6 +1001,7 @@ HTTP 安全默认值：
 - 默认监听 \`127.0.0.1\`。
 - 监听非本地地址时必须设置 \`DB_HTTP_API_KEY\`，除非显式 \`DB_HTTP_AUTH_DISABLED=true\`。
 - API key 支持 \`Authorization: Bearer <key>\` 和 \`x-api-key\`。
+- \`DB_HTTP_ALLOWED_HOSTS\` 是 Host allowlist；默认仅允许 \`localhost\`、\`127.0.0.1\` 和 \`::1\`，不匹配时返回 \`HTTP_001\`。
 - \`DB_HTTP_ORIGINS\` 是 Origin allowlist；请求带 Origin 且不匹配时返回 \`HTTP_001\`。
 
 ---

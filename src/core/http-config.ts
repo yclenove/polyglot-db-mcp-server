@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+import { URL } from 'node:url';
 import { withErrorCode } from './error-codes.js';
 
 export type TransportMode = 'stdio' | 'http';
@@ -10,6 +12,7 @@ export interface HttpTransportConfig {
   port: number;
   endpoint: string;
   origins: string[];
+  allowedHosts: string[];
   apiKey?: string;
   authDisabled: boolean;
   authMode: AuthMode;
@@ -28,6 +31,7 @@ type EnvLike = Record<string, string | undefined>;
 
 const DEFAULT_BODY_LIMIT_BYTES = 1024 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+export const DEFAULT_HTTP_ALLOWED_HOSTS = ['localhost', '127.0.0.1', '::1'];
 
 function parseBoolean(value: string | undefined, defaultValue = false): boolean {
   if (value === undefined || value.trim() === '') return defaultValue;
@@ -92,6 +96,53 @@ function parseOrigins(value: string | undefined): string[] {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function normalizeHttpHostname(value: string, allowPort: boolean): string {
+  const raw = value.trim().toLowerCase();
+  if (!raw || raw.includes(',') || raw.includes('*')) {
+    throw new Error('invalid host');
+  }
+
+  const unwrapped = raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw;
+  if (isIP(unwrapped)) return unwrapped;
+
+  const parsed = new URL(`http://${raw}`);
+  if (
+    parsed.username ||
+    parsed.password ||
+    parsed.pathname !== '/' ||
+    parsed.search ||
+    parsed.hash ||
+    (!allowPort && parsed.port)
+  ) {
+    throw new Error('invalid host');
+  }
+
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, '').replace(/\.+$/, '');
+  if (!hostname || hostname.includes('*')) throw new Error('invalid host');
+  return hostname;
+}
+
+function parseAllowedHosts(value: string | undefined): string[] {
+  const allowed = new Set(DEFAULT_HTTP_ALLOWED_HOSTS);
+  if (!value?.trim()) return [...allowed];
+
+  for (const item of value.split(',')) {
+    if (!item.trim()) continue;
+    try {
+      allowed.add(normalizeHttpHostname(item, false));
+    } catch {
+      throw new Error(
+        withErrorCode('CFG_005', `DB_HTTP_ALLOWED_HOSTS 包含无效主机: ${item.trim()}`),
+      );
+    }
+  }
+  return [...allowed];
+}
+
+export function normalizeHttpHostHeader(value: string): string {
+  return normalizeHttpHostname(value, true);
 }
 
 function assertEndpoint(endpoint: string): string {
@@ -181,6 +232,7 @@ export function parseHttpTransportConfig(
     port: parseIntRange('DB_HTTP_PORT', merged.DB_HTTP_PORT, 3000),
     endpoint: assertEndpoint(merged.DB_HTTP_ENDPOINT || '/mcp'),
     origins: parseOrigins(merged.DB_HTTP_ORIGINS),
+    allowedHosts: parseAllowedHosts(merged.DB_HTTP_ALLOWED_HOSTS),
     apiKey,
     authDisabled,
     authMode,
@@ -239,6 +291,7 @@ export function safeHttpConfig(config: HttpTransportConfig): Record<string, unkn
     port: config.port,
     endpoint: config.endpoint,
     origins: config.origins,
+    allowed_hosts: config.allowedHosts,
     auth: config.authDisabled ? 'disabled' : config.authMode,
     auth_issuer: config.authIssuer,
     auth_audience: config.authAudience,

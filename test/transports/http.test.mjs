@@ -9,6 +9,7 @@ const config = {
   port: 0,
   endpoint: '/mcp',
   origins: [],
+  allowedHosts: ['localhost', '127.0.0.1', '::1'],
   apiKey: undefined,
   authDisabled: true,
   bodyLimitBytes: 1024 * 1024,

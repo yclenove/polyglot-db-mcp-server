@@ -9,6 +9,7 @@ import { registerSqlTools } from '../dist/tools/sql.js';
 
 const SQL_ENGINES = ['mysql', 'postgres', 'mssql', 'oracle', 'sqlite', 'duckdb'];
 const REQUIRED_ENGINES = [...SQL_ENGINES, 'mongodb', 'redis'];
+const LARGE_INTEGER = '9007199254740993';
 const RW = { mode: 'readwrite', maxRows: 100, queryTimeoutMs: 30_000, maxSqlLength: 100_000 };
 const RO = { ...RW, mode: 'readonly' };
 
@@ -69,6 +70,14 @@ function sqlDialect(engine, table, view, procedure) {
     sqlite: null,
     duckdb: null,
   }[engine];
+  const largeIntegerQuery = {
+    mysql: `SELECT CAST('${LARGE_INTEGER}' AS UNSIGNED) AS big_value`,
+    postgres: `SELECT ${LARGE_INTEGER}::BIGINT AS big_value`,
+    mssql: `SELECT CAST('${LARGE_INTEGER}' AS BIGINT) AS big_value`,
+    oracle: `SELECT CAST(${LARGE_INTEGER} AS NUMBER(19, 0)) AS big_value FROM DUAL`,
+    sqlite: `SELECT CAST('${LARGE_INTEGER}' AS INTEGER) AS big_value`,
+    duckdb: `SELECT ${LARGE_INTEGER}::BIGINT AS big_value`,
+  }[engine];
 
   return {
     createTable: `CREATE TABLE ${table} (id ${idType} PRIMARY KEY, name ${nameType} NOT NULL, score ${idType})`,
@@ -78,6 +87,7 @@ function sqlDialect(engine, table, view, procedure) {
     deleteById: `DELETE FROM ${table} WHERE id = ${engine === 'postgres' ? '$1' : '?'}`,
     selectById: `SELECT id, name, score FROM ${table} WHERE id = ${selectPlaceholder}`,
     selectAll: `SELECT id, name, score FROM ${table} ORDER BY id`,
+    largeIntegerQuery,
     procedureDdl,
     procedureName:
       procedureDdl || engine === 'oracle'
@@ -111,6 +121,82 @@ async function executeOk(driver, sql, params = [], options = RW) {
   const result = await driver.execute(sql, params, options);
   assert.equal(result.success, true, `${driver.engine} SQL failed: ${sql}\n${result.error ?? ''}`);
   return result;
+}
+
+async function verifyReadonlyBypasses(server, driver, id, engine, table) {
+  const attacks = [
+    {
+      name: 'stacked statement',
+      sql: `SELECT 1; DELETE FROM ${table} WHERE id = 1`,
+    },
+  ];
+  if (engine === 'postgres') {
+    attacks.push({
+      name: 'writable CTE',
+      sql: `WITH deleted AS (DELETE FROM ${table} WHERE id = 1 RETURNING *) SELECT * FROM deleted`,
+    });
+    attacks.push({
+      name: 'backslash quote escape mismatch',
+      sql: `SELECT '\\'; DELETE FROM ${table} WHERE id = 1; --'`,
+    });
+  }
+  if (engine === 'mysql') {
+    attacks.push({
+      name: 'executable comment',
+      sql: `/*!50000 DELETE FROM ${table} WHERE id = 1 */`,
+    });
+    attacks.push(
+      {
+        name: 'PostgreSQL dollar quote confusion',
+        sql: `SELECT $tag$; DELETE FROM ${table} WHERE id = 1; $tag$`,
+      },
+      {
+        name: 'dash comment without required whitespace',
+        sql: `SELECT 1--x; DELETE FROM ${table} WHERE id = 1`,
+      },
+      {
+        name: 'nested comment confusion',
+        sql: `SELECT 1 /* outer /* nested */; DELETE FROM ${table} WHERE id = 1; */`,
+      },
+    );
+  }
+  if (engine === 'mssql') {
+    attacks.push({
+      name: 'dynamic EXEC',
+      sql: `EXEC('DELETE FROM ${table} WHERE id = 1')`,
+    });
+  }
+
+  for (const attack of attacks) {
+    const blocked = await callTool(
+      server,
+      'sql_query',
+      { connection_id: id, sql: attack.sql },
+      { allowError: true },
+    );
+    assert.equal(blocked.result.isError, true, `${engine} ${attack.name} was not rejected`);
+    assert.match(
+      resultText(blocked.result),
+      /SQL_002/,
+      `${engine} ${attack.name} was not rejected at the MCP readonly layer`,
+    );
+  }
+
+  const survivor = await executeOk(driver, `SELECT id FROM ${table} WHERE id = 1`, [], RO);
+  assert.equal(survivor.data?.length, 1, `${engine} readonly bypass changed protected data`);
+
+  if (engine === 'mysql') {
+    await callTool(server, 'sql_query', {
+      connection_id: id,
+      sql: '# comment\nSELECT 1 AS comment_value',
+    });
+  }
+  if (engine === 'postgres') {
+    await callTool(server, 'sql_query', {
+      connection_id: id,
+      sql: 'SELECT $$DELETE FROM users$$ AS message /* outer /* nested */ comment */',
+    });
+  }
 }
 
 async function verifySqlEngine(server, registry, id, engine, suffix) {
@@ -147,6 +233,19 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
     page_size: 2,
   });
   assert.equal(paged.value.data?.length, 2, `${engine} pagination returned wrong row count`);
+
+  const largeInteger = await callTool(server, 'sql_query', {
+    connection_id: id,
+    sql: sql.largeIntegerQuery,
+  });
+  const largeIntegerValue = Object.values(largeInteger.value.data?.[0] ?? {})[0];
+  assert.equal(
+    largeIntegerValue,
+    LARGE_INTEGER,
+    `${engine} lost BIGINT precision or did not serialize it as a string`,
+  );
+
+  await verifyReadonlyBypasses(server, driver, id, engine, table);
 
   await callTool(server, 'sql_execute', {
     connection_id: id,

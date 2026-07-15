@@ -254,8 +254,8 @@ export const ErrorDefinitions = {
   },
 
   HTTP_001: {
-    message: 'Origin 不被允许',
-    hint: '将 Origin 加入 DB_HTTP_ORIGINS 或关闭跨域调用',
+    message: 'HTTP 来源不被允许',
+    hint: '将 Host 加入 DB_HTTP_ALLOWED_HOSTS，或将 Origin 加入 DB_HTTP_ORIGINS',
     severity: 'error',
     retryable: false,
     applies_to: ['HTTP'],

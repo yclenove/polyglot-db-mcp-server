@@ -15,9 +15,13 @@ import { auditLog } from '../../core/audit.js';
  * SQLite 扩展的只读判断：在通用 isReadOnlyQuery 基础上增加 PRAGMA 支持。
  */
 function isSqliteReadOnlyQuery(sql: string): boolean {
-  if (isReadOnlyQuery(sql)) return true;
-  const t = sql.trim().toLowerCase();
-  return t.startsWith('pragma');
+  if (isReadOnlyQuery(sql, 'sqlite')) return true;
+  const normalized = sql.trim();
+  const introspectionWithTarget =
+    /^pragma\s+(?:table_info|table_xinfo|index_list|index_info|index_xinfo|foreign_key_list)\s*\(\s*[A-Za-z0-9_`".[\]]+\s*\)\s*;?$/i;
+  const introspectionWithoutTarget =
+    /^pragma\s+(?:database_list|compile_options|function_list|module_list|pragma_list|table_list)\s*;?$/i;
+  return introspectionWithTarget.test(normalized) || introspectionWithoutTarget.test(normalized);
 }
 
 /**
@@ -67,6 +71,24 @@ function ensureParentDir(filePath: string): void {
   }
 }
 
+function normalizeSqliteInteger(value: bigint): number | string {
+  if (value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER)) {
+    return Number(value);
+  }
+  return value.toString();
+}
+
+function normalizeSqliteValue(value: unknown): unknown {
+  if (typeof value === 'bigint') return normalizeSqliteInteger(value);
+  if (Array.isArray(value)) return value.map(normalizeSqliteValue);
+  if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, normalizeSqliteValue(entry)]),
+    );
+  }
+  return value;
+}
+
 /**
  * 将 better-sqlite3 的 Statement.run() 结果适配为 SqlExecuteResult。
  */
@@ -76,7 +98,7 @@ function adaptRunResult(info: Database.RunResult, executionTime: number): SqlExe
     affectedRows: Number(info.changes),
     insertId:
       typeof info.lastInsertRowid === 'bigint'
-        ? info.lastInsertRowid
+        ? normalizeSqliteInteger(info.lastInsertRowid)
         : Number(info.lastInsertRowid),
     executionTime,
   };
@@ -93,7 +115,7 @@ function adaptRowsResult(
   const truncated = rows.length > maxRows;
   return {
     success: true,
-    data: rows.slice(0, maxRows),
+    data: rows.slice(0, maxRows).map(normalizeSqliteValue),
     totalRows: rows.length,
     truncated,
     executionTime,
@@ -120,7 +142,7 @@ function executeOne(
     return { success: false, error: '只读模式仅允许 SELECT/SHOW/DESCRIBE/EXPLAIN' };
   }
   if (mode === 'readwrite') {
-    const d = checkDangerousOperation(sql);
+    const d = checkDangerousOperation(sql, 'sqlite');
     if (d) return { success: false, error: d };
   }
 
@@ -161,6 +183,7 @@ export async function createSqliteDriver(spec: ConnectionSpec): Promise<SqlDrive
   ensureParentDir(dbPath);
 
   const db = new Database(dbPath);
+  db.defaultSafeIntegers(true);
 
   // 默认开启 WAL 模式（提升并发读性能）
   db.pragma('journal_mode = WAL');

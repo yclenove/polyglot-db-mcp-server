@@ -15,6 +15,15 @@ describe('isReadOnlyQuery', () => {
     assert.equal(isReadOnlyQuery('SELECT id, name FROM users WHERE id = 1'), true);
   });
 
+  test('recognizes SELECT after regular comments', () => {
+    assert.equal(isReadOnlyQuery('-- comment\nSELECT 1'), true);
+    assert.equal(
+      isReadOnlyQuery('/* outer /* nested */ comment */ SELECT 1', 'postgres'),
+      true,
+    );
+    assert.equal(isReadOnlyQuery('# comment\nSELECT 1', 'mysql'), true);
+  });
+
   test('recognizes SHOW', () => {
     assert.equal(isReadOnlyQuery('SHOW TABLES'), true);
     assert.equal(isReadOnlyQuery('  show databases'), true);
@@ -86,6 +95,65 @@ describe('isReadOnlyQuery', () => {
 
   test('rejects empty string', () => {
     assert.equal(isReadOnlyQuery(''), false);
+    assert.equal(isReadOnlyQuery('-- comment only'), false);
+  });
+
+  test('rejects stacked statements even when each statement is read-only', () => {
+    assert.equal(isReadOnlyQuery('SELECT 1; SELECT 2'), false);
+    assert.equal(isReadOnlyQuery('SELECT 1; DELETE FROM users WHERE id = 1'), false);
+    assert.equal(isReadOnlyQuery('SELECT 1; EXEC(\'DELETE FROM users\')'), false);
+    assert.equal(isReadOnlyQuery('SELECT 1;'), true);
+  });
+
+  test('rejects executable MySQL and MariaDB comments', () => {
+    assert.equal(isReadOnlyQuery('SELECT 1; /*!50000 DELETE FROM users */'), false);
+    assert.equal(isReadOnlyQuery('SELECT 1; /*M! DELETE FROM users */'), false);
+    assert.equal(isReadOnlyQuery('/*!50000 SELECT 1 */'), false);
+  });
+
+  test('rejects dynamic execution and mutating SELECT forms', () => {
+    assert.equal(isReadOnlyQuery("EXEC('DELETE FROM users')"), false);
+    assert.equal(isReadOnlyQuery("WITH x AS (SELECT 1) EXEC('DELETE FROM users')"), false);
+    assert.equal(isReadOnlyQuery('SELECT * INTO copied_users FROM users'), false);
+    assert.equal(isReadOnlyQuery('SELECT * FROM users FOR UPDATE'), false);
+  });
+
+  test('ignores mutation keywords inside strings, identifiers, and dollar quotes', () => {
+    assert.equal(isReadOnlyQuery("SELECT 'DELETE FROM users' AS message"), true);
+    assert.equal(isReadOnlyQuery('SELECT "update" FROM users'), true);
+    assert.equal(isReadOnlyQuery('SELECT $$DROP TABLE users$$ AS message', 'postgres'), true);
+    assert.equal(isReadOnlyQuery('SHOW CREATE TABLE users'), true);
+  });
+
+  test('rejects malformed quoted content', () => {
+    assert.equal(isReadOnlyQuery("SELECT 'unterminated"), false);
+    assert.equal(isReadOnlyQuery('SELECT /* unterminated'), false);
+  });
+
+  test('does not treat backslash as a portable quote escape', () => {
+    assert.equal(
+      isReadOnlyQuery("SELECT '\\'; DELETE FROM users WHERE id = 1; --'"),
+      false,
+    );
+  });
+
+  test('keeps dialect-specific comments and quotes isolated', () => {
+    assert.equal(
+      isReadOnlyQuery('SELECT $tag$; DELETE FROM users; $tag$', 'mysql'),
+      false,
+    );
+    assert.equal(
+      isReadOnlyQuery('SELECT 1--x; DELETE FROM users WHERE id = 1', 'mysql'),
+      false,
+    );
+    assert.equal(
+      isReadOnlyQuery(
+        'SELECT 1 /* outer /* nested */; DELETE FROM users WHERE id = 1; */',
+        'mysql',
+      ),
+      false,
+    );
+    assert.equal(isReadOnlyQuery('SELECT 1 # 2', 'postgres'), true);
   });
 });
 
@@ -175,6 +243,17 @@ describe('detectInjectionPatterns', () => {
 
   test('ignores patterns inside block comments', () => {
     assert.equal(detectInjectionPatterns('SELECT * FROM t /* UNION SELECT */'), null);
+  });
+
+  test('detects executable conditional comments', () => {
+    assert.match(
+      detectInjectionPatterns('SELECT 1; /*!50000 DELETE FROM users */'),
+      /可执行条件注释/,
+    );
+  });
+
+  test('ignores executable comment markers inside quoted content', () => {
+    assert.equal(detectInjectionPatterns("SELECT '/*!50000 DELETE FROM users */'"), null);
   });
 });
 

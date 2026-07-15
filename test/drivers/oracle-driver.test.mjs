@@ -37,6 +37,20 @@ describe('Oracle Driver', () => {
   });
 });
 
+describe('Oracle number fetching', () => {
+  test('fetches NUMBER values as strings without dropping existing types', async () => {
+    const { configureOracleNumberFetching } = await import(
+      '../../dist/drivers/sql/oracle-driver.js'
+    );
+    const config = { NUMBER: 2010, fetchAsString: [2014] };
+
+    configureOracleNumberFetching(config);
+    configureOracleNumberFetching(config);
+
+    assert.deepEqual(config.fetchAsString, [2014, 2010]);
+  });
+});
+
 describe('Oracle Driver Interface', () => {
   test('SqlDriver interface shape', () => {
     // Verify the expected interface shape

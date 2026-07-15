@@ -41,14 +41,14 @@ export async function createPostgresDriver(spec: ConnectionSpec): Promise<SqlDri
       if (sql.length > maxSqlLength) {
         return { success: false, error: `SQL 超过长度限制（${maxSqlLength}）` };
       }
-      if (mode === 'readonly' && !isReadOnlyQuery(sql)) {
+      if (mode === 'readonly' && !isReadOnlyQuery(sql, 'postgres')) {
         return {
           success: false,
           error: '只读模式仅允许 SELECT/SHOW/DESCRIBE/EXPLAIN/WITH(SELECT)',
         };
       }
       if (mode === 'readwrite') {
-        const d = checkDangerousOperation(sql);
+        const d = checkDangerousOperation(sql, 'postgres');
         if (d) return { success: false, error: d };
       }
       const res: QueryResult = await withTimeout(client.query(sql, params ?? []), queryTimeoutMs);
@@ -111,11 +111,11 @@ export async function createPostgresDriver(spec: ConnectionSpec): Promise<SqlDri
     if (sql.length > maxSqlLength) {
       return { success: false, error: `SQL 超过长度限制（${maxSqlLength}）` };
     }
-    if (mode === 'readonly' && !isReadOnlyQuery(sql)) {
+    if (mode === 'readonly' && !isReadOnlyQuery(sql, 'postgres')) {
       return { success: false, error: '只读模式仅允许 SELECT/SHOW/DESCRIBE/EXPLAIN/WITH(SELECT)' };
     }
     if (mode === 'readwrite') {
-      const d = checkDangerousOperation(sql);
+      const d = checkDangerousOperation(sql, 'postgres');
       if (d) return { success: false, error: d };
     }
     const res: QueryResult = await withTimeout(pool.query(sql, params ?? []), queryTimeoutMs);

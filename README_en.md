@@ -80,6 +80,7 @@ Security defaults:
 - HTTP defaults to `DB_AUTH_MODE=bearer`; configure issuer/audience/JWKS and an RBAC policy.
 - API key fallback accepts `Authorization: Bearer <key>` or `x-api-key`, and is intended for development or migration only.
 - `DB_AUTH_DISABLED=true` disables HTTP auth explicitly for local development.
+- `DB_HTTP_ALLOWED_HOSTS` is the Host allowlist. Only `localhost`, `127.0.0.1`, and `::1` are allowed by default; remote deployments must add their hostname or IP explicitly.
 - `DB_HTTP_ORIGINS` is the Origin allowlist; unmatched Origin headers are rejected.
 - Use `DB_RBAC_POLICY_TEMPLATE=readonly-http` for a built-in readonly starter policy; production deployments should copy and tighten it as `DB_RBAC_POLICY_FILE`.
 - Custom RBAC policies can set `conditions.approvalRequired=true` to require an approval claim in verified bearer claims for write or admin actions.
@@ -245,7 +246,7 @@ When you **explicitly** pass `connection_id` on any tool, it must match a config
 | `DB_MCP_DEFAULT_CONNECTION_ID` | Optional; must match an `id` in the array |
 | `DB_MCP_TRANSPORT` | `stdio` by default, or `http` |
 | `DB_HTTP_HOST`, `DB_HTTP_PORT`, `DB_HTTP_ENDPOINT` | HTTP bind host, port, and MCP endpoint |
-| `DB_HTTP_API_KEY`, `DB_HTTP_AUTH_DISABLED`, `DB_HTTP_ORIGINS` | HTTP API key, explicit auth disable flag, and Origin allowlist |
+| `DB_HTTP_API_KEY`, `DB_HTTP_AUTH_DISABLED`, `DB_HTTP_ALLOWED_HOSTS`, `DB_HTTP_ORIGINS` | HTTP API key, explicit auth disable flag, and Host/Origin allowlists |
 | `DB_QUERY_TIMEOUT`, `DB_MAX_ROWS`, `DB_MAX_SQL_LENGTH`, `DB_RETRY_COUNT`, `DB_RETRY_DELAY_MS` | Global SQL limits (see `src/core/config.ts`) |
 | `DB_AUDIT_SINK`, `DB_AUDIT_FILE_PATH`, `DB_AUDIT_WEBHOOK_URL` | In-memory, file, or webhook audit sink |
 | `DB_ALERT_ENABLED`, `DB_ALERT_WEBHOOK_URL` | Explicit opt-in webhook alerts |

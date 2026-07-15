@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { request as httpRequest } from 'node:http';
 import { afterEach, describe, test } from 'node:test';
 
 const mockRegistry = {
@@ -28,6 +29,7 @@ const baseConfig = {
   port: 0,
   endpoint: '/mcp',
   origins: [],
+  allowedHosts: ['localhost', '127.0.0.1', '::1'],
   apiKey: undefined,
   authDisabled: true,
   bodyLimitBytes: 1024,
@@ -45,6 +47,23 @@ const fetchBlockedPorts = new Set([
 
 function isFetchBlockedPort(url) {
   return fetchBlockedPorts.has(Number(new URL(url).port));
+}
+
+function requestWithHost(url, host) {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(url, { headers: { host } }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode,
+          body: Buffer.concat(chunks).toString('utf8'),
+        });
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
 }
 
 describe('HTTP transport security', () => {
@@ -83,6 +102,24 @@ describe('HTTP transport security', () => {
     const ready = await fetch(server.url.replace('/mcp', '/readyz'));
     assert.equal(ready.status, 200);
     assert.equal((await ready.json()).status, 'ready');
+  });
+
+  test('rejects spoofed Host before routing and accepts explicit allowed hosts', async () => {
+    const server = await start({
+      allowedHosts: [...baseConfig.allowedHosts, 'mcp.internal'],
+    });
+
+    for (const path of ['/healthz', '/readyz', '/metrics', '/mcp', '/missing']) {
+      const response = await requestWithHost(server.url.replace('/mcp', path), 'attacker.example');
+      assert.equal(response.status, 403, `expected Host rejection for ${path}`);
+      assert.equal(JSON.parse(response.body).error.data.error_info.code, 'HTTP_001');
+    }
+
+    const allowed = await requestWithHost(
+      server.url.replace('/mcp', '/healthz'),
+      'MCP.INTERNAL:8080',
+    );
+    assert.equal(allowed.status, 200);
   });
 
   test('metrics endpoint returns Prometheus text when auth is disabled', async () => {

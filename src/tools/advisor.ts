@@ -143,7 +143,10 @@ export function registerAdvisorTools(server: McpServer, registry: ConnectionRegi
     },
     async ({ sql, connectionId }) => {
       try {
-        if (!isReadOnlyQuery(sql)) {
+        const engine = connectionId
+          ? registry.requireSql(registry.resolveConnectionId(connectionId)).engine
+          : undefined;
+        if (!isReadOnlyQuery(sql, engine)) {
           return {
             content: [{ type: 'text', text: '错误：query_optimize 仅支持 SELECT 类查询' }],
             isError: true,

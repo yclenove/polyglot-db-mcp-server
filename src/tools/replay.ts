@@ -66,7 +66,7 @@ export function registerReplayTools(server: McpServer, registry: ConnectionRegis
         const driver = registry.requireSql(id);
         const L = limits();
 
-        if (!isReadOnlyQuery(record.sql)) {
+        if (!isReadOnlyQuery(record.sql, driver.engine)) {
           return {
             content: [{ type: 'text', text: '安全限制：回放仅支持只读查询' }],
             isError: true,

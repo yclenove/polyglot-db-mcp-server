@@ -6,7 +6,11 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { ConnectionRegistry } from '../core/registry.js';
-import type { HttpTransportConfig } from '../core/http-config.js';
+import {
+  DEFAULT_HTTP_ALLOWED_HOSTS,
+  normalizeHttpHostHeader,
+  type HttpTransportConfig,
+} from '../core/http-config.js';
 import { createErrorPayload, maskErrorCredentials, type ErrorCode } from '../core/error-codes.js';
 import { logger } from '../core/logger.js';
 import { buildPrometheusMetrics } from '../core/observability.js';
@@ -102,6 +106,25 @@ function assertOriginAllowed(req: IncomingMessage, config: HttpTransportConfig):
   if (!origin) return;
   if (!config.origins.includes(origin)) {
     throw new HttpResponseError(403, 'HTTP_001', `Origin not allowed: ${origin}`);
+  }
+}
+
+function assertHostAllowed(req: IncomingMessage, config: HttpTransportConfig): void {
+  const hostHeader = getHeader(req, 'host');
+  if (!hostHeader) {
+    throw new HttpResponseError(403, 'HTTP_001', 'Host header is required');
+  }
+
+  let hostname: string;
+  try {
+    hostname = normalizeHttpHostHeader(hostHeader);
+  } catch {
+    throw new HttpResponseError(403, 'HTTP_001', 'Invalid Host header');
+  }
+
+  const allowedHosts = config.allowedHosts ?? DEFAULT_HTTP_ALLOWED_HOSTS;
+  if (!allowedHosts.includes(hostname)) {
+    throw new HttpResponseError(403, 'HTTP_001', `Host not allowed: ${hostname}`);
   }
 }
 
@@ -290,10 +313,8 @@ export async function startHttpTransport(options: {
 
   const nodeServer = http.createServer((req, res) => {
     void (async () => {
-      const requestUrl = new URL(
-        req.url ?? '/',
-        `http://${req.headers.host ?? `${config.host}:${config.port}`}`,
-      );
+      assertHostAllowed(req, config);
+      const requestUrl = new URL(req.url ?? '/', 'http://localhost');
       const pathname = requestUrl.pathname;
 
       if (req.method === 'GET' && pathname === '/healthz') {

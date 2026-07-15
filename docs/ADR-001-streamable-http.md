@@ -66,6 +66,7 @@ v1.8.0 采用 **双传输模式**：
 | `DB_HTTP_HOST` | `127.0.0.1` | HTTP 监听地址 |
 | `DB_HTTP_PORT` | `3000` | HTTP 监听端口 |
 | `DB_HTTP_ENDPOINT` | `/mcp` | MCP endpoint |
+| `DB_HTTP_ALLOWED_HOSTS` | `localhost,127.0.0.1,::1` | Host allowlist；远程部署显式加入服务域名或 IP |
 | `DB_HTTP_ORIGINS` | 空 | 逗号分隔 Origin allowlist；本地模式可允许无 Origin |
 | `DB_HTTP_API_KEY` | 空 | v1.8 轻量 API key；为空时仅允许 localhost 或显式禁用 |
 | `DB_HTTP_AUTH_DISABLED` | `false` | 显式关闭 HTTP 认证，仅建议本地开发 |

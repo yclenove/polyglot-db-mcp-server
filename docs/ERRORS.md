@@ -135,7 +135,7 @@
 
 | Code | Message | Hint | Retryable |
 |------|---------|------|-----------|
-| `HTTP_001` | Origin 不被允许 | 将 Origin 加入 `DB_HTTP_ORIGINS` 或关闭跨域调用 | false |
+| `HTTP_001` | HTTP 来源不被允许 | 将 Host 加入 `DB_HTTP_ALLOWED_HOSTS`，或将 Origin 加入 `DB_HTTP_ORIGINS` | false |
 | `HTTP_002` | 请求体过大 | 缩小请求或调整 body limit | false |
 | `HTTP_003` | HTTP method 不支持 | 使用 POST `/mcp`，GET/SSE 取决于实现版本 | false |
 | `HTTP_004` | Endpoint 不存在 | 检查 `DB_HTTP_ENDPOINT` | false |
@@ -217,5 +217,5 @@
 ### v1.8.0
 
 - [x] HTTP transport 使用 `AUTH_003`、`HTTP_001`、`HTTP_002`、`HTTP_003`、`HTTP_004` 返回结构化错误。
-- [x] HTTP Origin、API key、body limit 和 method 405 均有 transport 测试覆盖。
+- [x] HTTP Host、Origin、API key、body limit 和 method 405 均有 transport 测试覆盖。
 - [x] `sql_query` 通过 HTTP 调用时仍返回 `SQL_002` 拒绝写 SQL。

@@ -106,6 +106,7 @@ describe('HTTP bearer auth and RBAC', () => {
       port: 0,
       endpoint: '/mcp',
       origins: [],
+      allowedHosts: ['localhost', '127.0.0.1', '::1'],
       apiKey: undefined,
       authDisabled: false,
       authMode: 'bearer',

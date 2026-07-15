@@ -85,6 +85,7 @@ HTTP 模式提供：
 - HTTP 模式默认使用 `DB_AUTH_MODE=bearer`，需要配置 issuer/audience/JWKS 和 RBAC policy。
 - API key fallback 支持 `Authorization: Bearer <key>` 和 `x-api-key`，仅建议开发/过渡使用。
 - 显式 `DB_AUTH_DISABLED=true` 可关闭 HTTP 认证，仅限本地开发。
+- `DB_HTTP_ALLOWED_HOSTS` 是 Host allowlist；默认仅允许 `localhost`、`127.0.0.1` 和 `::1`，远程部署必须显式加入服务域名或 IP。
 - `DB_HTTP_ORIGINS` 非空时作为 Origin allowlist；带 Origin 且不匹配会被拒绝。
 - 可用 `DB_RBAC_POLICY_TEMPLATE=readonly-http` 快速启用内置只读模板；生产建议复制模板后改为 `DB_RBAC_POLICY_FILE`。
 - 自定义 RBAC policy 可通过 `conditions.approvalRequired=true` 要求 bearer claims 中存在审批声明，适合保护写入和管理动作。
@@ -316,7 +317,7 @@ docker compose up -d
 | `DB_MCP_DEFAULT_CONNECTION_ID` | 可选；须为数组中某条 `id` |
 | `DB_MCP_TRANSPORT` | `stdio`（默认）或 `http` |
 | `DB_HTTP_HOST`、`DB_HTTP_PORT`、`DB_HTTP_ENDPOINT` | HTTP 监听地址、端口和 MCP endpoint |
-| `DB_HTTP_API_KEY`、`DB_HTTP_AUTH_DISABLED`、`DB_HTTP_ORIGINS` | HTTP API key、显式关闭认证和 Origin allowlist |
+| `DB_HTTP_API_KEY`、`DB_HTTP_AUTH_DISABLED`、`DB_HTTP_ALLOWED_HOSTS`、`DB_HTTP_ORIGINS` | HTTP API key、显式关闭认证、Host 和 Origin allowlist |
 | `DB_QUERY_TIMEOUT`、`DB_MAX_ROWS`、`DB_MAX_SQL_LENGTH`、`DB_RETRY_COUNT`、`DB_RETRY_DELAY_MS` | 全局 SQL 限制（见 `src/core/config.ts`） |
 | `DB_MASKING_MODE` | 脱敏模式：`off`（默认）、`loose`、`strict`、`strict-v2` |
 | `DB_MASKING_EXCLUDE_FIELDS` | 白名单字段（逗号分隔），这些字段不脱敏 |

@@ -18,13 +18,15 @@ export function requiresTextProtocol(sql: string): boolean {
   return /^\s*(?:CREATE\s+(?:OR\s+REPLACE\s+)?PROCEDURE|CALL)\b/i.test(sql);
 }
 
-function poolConfig(spec: ConnectionSpec): mysql.PoolOptions {
+export function buildMysqlPoolConfig(spec: ConnectionSpec): mysql.PoolOptions {
   if (spec.url) {
     return {
       uri: spec.url,
       connectionLimit: 10,
       connectTimeout: 60000,
       enableKeepAlive: true,
+      supportBigNumbers: true,
+      bigNumberStrings: true,
     };
   }
   return {
@@ -36,11 +38,13 @@ function poolConfig(spec: ConnectionSpec): mysql.PoolOptions {
     connectionLimit: 10,
     connectTimeout: 60000,
     enableKeepAlive: true,
+    supportBigNumbers: true,
+    bigNumberStrings: true,
   };
 }
 
 export async function createMysqlDriver(spec: ConnectionSpec): Promise<SqlDriver> {
-  const pool: Pool = mysql.createPool(poolConfig(spec));
+  const pool: Pool = mysql.createPool(buildMysqlPoolConfig(spec));
   const engine = 'mysql' as const;
 
   async function beginTransaction(): Promise<import('../../core/types.js').SqlTransaction> {
@@ -59,11 +63,11 @@ export async function createMysqlDriver(spec: ConnectionSpec): Promise<SqlDriver
       if (sql.length > maxSqlLength) {
         return { success: false, error: `SQL 超过长度限制（${maxSqlLength}）` };
       }
-      if (mode === 'readonly' && !isReadOnlyQuery(sql)) {
+      if (mode === 'readonly' && !isReadOnlyQuery(sql, 'mysql')) {
         return { success: false, error: '只读模式仅允许 SELECT/SHOW/DESCRIBE/EXPLAIN' };
       }
       if (mode === 'readwrite') {
-        const d = checkDangerousOperation(sql);
+        const d = checkDangerousOperation(sql, 'mysql');
         if (d) return { success: false, error: d };
       }
       const statement = requiresTextProtocol(sql)
@@ -130,11 +134,11 @@ export async function createMysqlDriver(spec: ConnectionSpec): Promise<SqlDriver
     if (sql.length > maxSqlLength) {
       return { success: false, error: `SQL 超过长度限制（${maxSqlLength}）` };
     }
-    if (mode === 'readonly' && !isReadOnlyQuery(sql)) {
+    if (mode === 'readonly' && !isReadOnlyQuery(sql, 'mysql')) {
       return { success: false, error: '只读模式仅允许 SELECT/SHOW/DESCRIBE/EXPLAIN' };
     }
     if (mode === 'readwrite') {
-      const d = checkDangerousOperation(sql);
+      const d = checkDangerousOperation(sql, 'mysql');
       if (d) return { success: false, error: d };
     }
     const statement = requiresTextProtocol(sql)
