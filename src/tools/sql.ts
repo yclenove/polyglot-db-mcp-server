@@ -2,7 +2,11 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ConnectionRegistry } from '../core/registry.js';
 import { globalLimits } from '../core/config.js';
-import { isReadOnlyQuery } from '../core/sql-guards.js';
+import {
+  analyzeSqlPagination,
+  isReadOnlyQuery,
+  stripSqlStatementTerminators,
+} from '../core/sql-guards.js';
 import type { SqlEngine } from '../core/types.js';
 import { createQueryCacheFromEnv, cacheKey as makeCacheKey } from '../core/query-cache.js';
 import { createRateLimiterFromEnv } from '../core/rate-limiter.js';
@@ -289,7 +293,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
     'sql_query',
     {
       description:
-        '在 SQL 连接（mysql/postgres/mssql/oracle/sqlite/duckdb）上执行只读查询。connection_id 缺省为默认连接。MySQL 用 ? 占位；PostgreSQL 用 $1..；mssql/oracle 可用 ? 由服务端映射为命名绑定。支持分页：page（从 1 开始）和 page_size（默认 20）。',
+        '在 SQL 连接（mysql/postgres/mssql/oracle/sqlite/duckdb）上执行有界只读查询。connection_id 缺省为默认连接。MySQL 用 ? 占位；PostgreSQL 用 $1..；mssql/oracle 可用 ? 由服务端映射为命名绑定。支持分页：page（从 1 开始）和 page_size（默认 20）；totalRowsExact=false 表示 totalRows 只是已观察下界。',
       inputSchema: {
         connection_id: z.string().optional(),
         sql: z.string(),
@@ -320,6 +324,18 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         const driver = registry.requireSql(id);
         const L = limits();
 
+        if (!isReadOnlyQuery(sql, driver.engine)) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: codedErrorText('SQL_002', { tool: 'sql_query' }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
         // 查询缓存（仅对无分页的简单查询生效）
         const ck = makeCacheKey(id, sql, params ?? []);
         const cached = !page && !limit ? queryCache.get(ck) : undefined;
@@ -336,33 +352,44 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
 
         // 分页逻辑：自动追加 LIMIT/OFFSET
         const autoPagination = process.env.DB_AUTO_PAGINATION !== 'false';
+        const paginationPage = limit ? undefined : page;
         let finalSql = sql;
         let maxRows: number;
 
         if (limit) {
           // limit 参数优先
           maxRows = limit;
-        } else if (page && page_size) {
-          // 分页模式：自动追加 LIMIT/OFFSET（如果 SQL 中尚未包含 LIMIT）
-          maxRows = page_size;
-          if (autoPagination && !/LIMIT\s+\d+/i.test(sql)) {
-            const offset = (page - 1) * page_size;
+        } else if (paginationPage) {
+          const requestedPageSize = page_size ?? 20;
+          // 多取一行用于判断 has_next，驱动只向调用方返回 requestedPageSize 行。
+          const fetchSize = requestedPageSize + 1;
+          maxRows = requestedPageSize;
+          const pagination = analyzeSqlPagination(sql, driver.engine);
+          if (autoPagination && !pagination.hasTopLevelRowLimit) {
+            const offset = (paginationPage - 1) * requestedPageSize;
             const engine = driver.engine;
+            const baseSql = stripSqlStatementTerminators(sql, engine).trim();
             if (engine === 'mssql') {
               // MSSQL: OFFSET...FETCH 要求 ORDER BY
-              if (/ORDER\s+BY/i.test(sql)) {
-                finalSql = `${sql} OFFSET ${offset} ROWS FETCH NEXT ${page_size} ROWS ONLY`;
+              if (!pagination.hasTopLevelOrderBy) {
+                return {
+                  content: [
+                    {
+                      type: 'text',
+                      text: 'MSSQL 自动分页要求查询包含 ORDER BY，以保证分页顺序稳定',
+                    },
+                  ],
+                  isError: true,
+                };
               }
+              finalSql = `${baseSql}\nOFFSET ${offset} ROWS FETCH NEXT ${fetchSize} ROWS ONLY`;
             } else if (engine === 'oracle') {
-              finalSql = `${sql} OFFSET ${offset} ROWS FETCH NEXT ${page_size} ROWS ONLY`;
+              finalSql = `${baseSql}\nOFFSET ${offset} ROWS FETCH NEXT ${fetchSize} ROWS ONLY`;
             } else {
               // MySQL, PostgreSQL, SQLite, DuckDB 使用 LIMIT/OFFSET
-              finalSql = `${sql} LIMIT ${page_size} OFFSET ${offset}`;
+              finalSql = `${baseSql}\nLIMIT ${fetchSize} OFFSET ${offset}`;
             }
           }
-        } else if (page) {
-          // 只指定 page，使用默认 page_size
-          maxRows = page_size ?? 20;
         } else {
           maxRows = L.maxRows;
         }
@@ -389,25 +416,35 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
         }
 
         // 计算分页信息
-        const data = res.data ?? [];
-        const totalRows = res.totalRows ?? data.length;
-        const currentPage = page ?? 1;
-        const currentPageSize = page_size ?? data.length;
-        const totalPages = Math.ceil(totalRows / currentPageSize);
+        const rawData = res.data ?? [];
+        const data = rawData.slice(0, maxRows);
+        const observedRows = Math.max(res.totalRows ?? rawData.length, rawData.length);
+        const truncated = Boolean(res.truncated) || observedRows > maxRows;
+        const currentPage = paginationPage ?? 1;
+        const currentPageSize = paginationPage ? (page_size ?? 20) : data.length;
+        const pageOffset = paginationPage ? (currentPage - 1) * currentPageSize : 0;
+        const canInferTotalRows = !paginationPage || currentPage === 1 || observedRows > 0;
+        const totalRows = canInferTotalRows ? pageOffset + observedRows : undefined;
+        const totalRowsExact = (res.totalRowsExact ?? !truncated) && canInferTotalRows;
+        const totalPages =
+          paginationPage && totalRowsExact && totalRows !== undefined
+            ? Math.ceil(totalRows / currentPageSize)
+            : undefined;
 
         const result = {
           connection_id: id,
           engine: driver.engine,
           data,
           totalRows,
-          truncated: res.truncated,
+          totalRowsExact,
+          truncated,
           fields: res.fields,
-          pagination: page
+          pagination: paginationPage
             ? {
                 page: currentPage,
                 page_size: currentPageSize,
                 total_pages: totalPages,
-                has_next: currentPage < totalPages,
+                has_next: truncated,
                 has_prev: currentPage > 1,
               }
             : undefined,
@@ -492,6 +529,7 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
                 content_type: contentType,
                 row_count: rows.length,
                 totalRows: res.totalRows ?? rows.length,
+                totalRowsExact: res.totalRowsExact ?? !res.truncated,
                 truncated: res.truncated ?? false,
                 fields,
                 content,
@@ -564,6 +602,8 @@ export function registerSqlTools(server: McpServer, registry: ConnectionRegistry
                 schema,
                 sample_size_requested: sampleSize,
                 row_count: rows.length,
+                totalRows: res.totalRows ?? rows.length,
+                totalRowsExact: res.totalRowsExact ?? !res.truncated,
                 truncated: res.truncated ?? false,
                 columns: profileRows(rows, fields),
               }),

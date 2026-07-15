@@ -88,6 +88,7 @@ describe('SQL Tools', () => {
     process.env.DB_QUERY_TIMEOUT = '30000';
     process.env.DB_MAX_ROWS = '100';
     process.env.DB_MAX_SQL_LENGTH = '102400';
+    delete process.env.DB_AUTO_PAGINATION;
 
     const { registerSqlTools } = await import('../../dist/tools/sql.js');
     registerSqlTools(server, registry);
@@ -577,11 +578,17 @@ describe('SQL Tools', () => {
   });
 
   test('sql_query supports pagination', async () => {
-    mockDriver.execute = async () => ({
-      success: true,
-      data: [{ id: 1 }, { id: 2 }],
-      totalRows: 50,
-    });
+    mockDriver.execute = async (sql, _params, options) => {
+      assert.equal(sql, 'SELECT * FROM users\nLIMIT 11 OFFSET 10');
+      assert.equal(options.maxRows, 10);
+      return {
+        success: true,
+        data: Array.from({ length: 10 }, (_, index) => ({ id: index + 11 })),
+        totalRows: 11,
+        totalRowsExact: false,
+        truncated: true,
+      };
+    };
     const tool = server.tools.get('sql_query');
     const result = await tool.handler({
       sql: 'SELECT * FROM users',
@@ -593,6 +600,139 @@ describe('SQL Tools', () => {
     assert.ok(data.pagination);
     assert.equal(data.pagination.page, 2);
     assert.equal(data.pagination.page_size, 10);
+    assert.equal(data.pagination.has_next, true);
+    assert.equal(data.pagination.has_prev, true);
+    assert.equal(data.totalRows, 21);
+    assert.equal(data.totalRowsExact, false);
+    assert.equal('total_pages' in data.pagination, false);
+  });
+
+  test('sql_query limit takes priority and suppresses pagination metadata', async () => {
+    mockDriver.execute = async (sql, _params, options) => {
+      assert.equal(sql, 'SELECT * FROM users');
+      assert.equal(options.maxRows, 2);
+      return {
+        success: true,
+        data: [{ id: 1 }, { id: 2 }, { id: 3 }],
+        totalRows: 3,
+        totalRowsExact: true,
+      };
+    };
+    const result = await server.tools.get('sql_query').handler({
+      sql: 'SELECT * FROM users',
+      limit: 2,
+      page: 9,
+      page_size: 10,
+    });
+    const data = JSON.parse(result.content[0].text);
+    assert.deepEqual(data.data, [{ id: 1 }, { id: 2 }]);
+    assert.equal(data.truncated, true);
+    assert.equal(data.totalRows, 3);
+    assert.equal(data.totalRowsExact, true);
+    assert.equal('pagination' in data, false);
+  });
+
+  test('sql_query probes one extra row with the default page size', async () => {
+    mockDriver.execute = async (sql, _params, options) => {
+      assert.equal(sql, 'SELECT * FROM users ORDER BY id\nLIMIT 21 OFFSET 0');
+      assert.equal(options.maxRows, 20);
+      return {
+        success: true,
+        data: Array.from({ length: 20 }, (_, index) => ({ id: index + 1 })),
+        totalRows: 21,
+        totalRowsExact: false,
+        truncated: true,
+      };
+    };
+
+    const result = await server.tools.get('sql_query').handler({
+      sql: 'SELECT * FROM users ORDER BY id',
+      page: 1,
+    });
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.pagination.page_size, 20);
+    assert.equal(data.pagination.has_next, true);
+    assert.equal(data.totalRowsExact, false);
+  });
+
+  test('sql_query reports an exact last page and an unknown empty later page', async () => {
+    const tool = server.tools.get('sql_query');
+    mockDriver.execute = async () => ({
+      success: true,
+      data: Array.from({ length: 5 }, (_, index) => ({ id: index + 11 })),
+      totalRows: 5,
+      totalRowsExact: true,
+      truncated: false,
+    });
+    const lastPage = JSON.parse(
+      (await tool.handler({ sql: 'SELECT * FROM users', page: 2, page_size: 10 })).content[0]
+        .text,
+    );
+    assert.equal(lastPage.totalRows, 15);
+    assert.equal(lastPage.totalRowsExact, true);
+    assert.equal(lastPage.pagination.total_pages, 2);
+    assert.equal(lastPage.pagination.has_next, false);
+
+    mockDriver.execute = async () => ({
+      success: true,
+      data: [],
+      totalRows: 0,
+      totalRowsExact: true,
+      truncated: false,
+    });
+    const emptyPage = JSON.parse(
+      (await tool.handler({ sql: 'SELECT * FROM users', page: 3, page_size: 10 })).content[0]
+        .text,
+    );
+    assert.equal('totalRows' in emptyPage, false);
+    assert.equal(emptyPage.totalRowsExact, false);
+    assert.equal('total_pages' in emptyPage.pagination, false);
+  });
+
+  test('sql_query ignores nested and commented LIMIT when adding pagination', async () => {
+    const original =
+      "SELECT 'LIMIT 1' AS label, (SELECT id FROM nested LIMIT 1) AS nested_id; -- LIMIT 2";
+    mockDriver.execute = async (sql) => {
+      assert.equal(
+        sql,
+        "SELECT 'LIMIT 1' AS label, (SELECT id FROM nested LIMIT 1) AS nested_id  -- LIMIT 2\nLIMIT 6 OFFSET 5",
+      );
+      return { success: true, data: [], totalRows: 0, totalRowsExact: true };
+    };
+    const result = await server.tools.get('sql_query').handler({
+      sql: original,
+      page: 2,
+      page_size: 5,
+    });
+    assert.equal(result.isError, undefined);
+  });
+
+  test('sql_query preserves an existing outer pagination clause', async () => {
+    const original = 'SELECT * FROM users ORDER BY id LIMIT 5 OFFSET 5';
+    mockDriver.execute = async (sql, _params, options) => {
+      assert.equal(sql, original);
+      assert.equal(options.maxRows, 5);
+      return { success: true, data: [], totalRows: 0, totalRowsExact: true };
+    };
+    const result = await server.tools.get('sql_query').handler({
+      sql: original,
+      page: 2,
+      page_size: 5,
+    });
+    assert.equal(result.isError, undefined);
+  });
+
+  test('MSSQL automatic pagination requires an outer ORDER BY', async () => {
+    mockDriver.engine = 'mssql';
+    const tool = server.tools.get('sql_query');
+    for (const sql of [
+      'SELECT * FROM users',
+      'SELECT ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM users',
+    ]) {
+      const result = await tool.handler({ sql, page: 1, page_size: 10 });
+      assert.equal(result.isError, true);
+      assert.match(result.content[0].text, /ORDER BY/);
+    }
   });
 
   test('sql_query uses Oracle OFFSET FETCH pagination', async () => {
@@ -600,7 +740,7 @@ describe('SQL Tools', () => {
     mockDriver.execute = async (sql) => {
       assert.equal(
         sql,
-        'SELECT * FROM users ORDER BY id OFFSET 10 ROWS FETCH NEXT 10 ROWS ONLY',
+        'SELECT * FROM users ORDER BY id\nOFFSET 10 ROWS FETCH NEXT 11 ROWS ONLY',
       );
       return { success: true, data: [{ id: 11 }], totalRows: 1 };
     };

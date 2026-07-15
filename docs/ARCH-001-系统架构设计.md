@@ -268,7 +268,7 @@ services:
 | 风险 | 影响 | 缓解措施 |
 |------|------|----------|
 | SQL 注入绕过启发式检测 | 数据泄露或篡改 | 双层守卫 + 只读连接 + 参数化查询（driver 层强制） |
-| 大结果集 OOM | 进程崩溃 | DB_MAX_ROWS 截断 + 驱动层 LIMIT 强制 |
+| 大结果集 OOM | 进程崩溃 | `DB_MAX_ROWS` 有界配置 + PostgreSQL 游标、MySQL 会话限制/事件流、SQL Server 流式 cancel、Oracle `maxRows`、SQLite 迭代器、DuckDB chunk reader |
 | 连接泄漏 | 资源耗尽 | 连接池 + 事务超时自动回滚 + 优雅关闭 closeAll |
 | 审计日志同步写入 | 高吞吐下性能下降 | appendFileSync 非阻塞语义 + 审计失败不阻断主流程 |
 | Oracle optionalDep 安装失败 | 功能缺失 | oracledb 声明为 optionalDependencies，缺失时创建连接报错而非启动失败 |

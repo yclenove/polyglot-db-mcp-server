@@ -62,6 +62,20 @@ describe('SQLite Driver Execute', () => {
     assert.deepEqual(result.data[0], { value: 1 });
   });
 
+  test('reader metadata handles comments before SELECT', async () => {
+    const { createSqliteDriver } = await import('../../dist/drivers/sql/sqlite-driver.js');
+    driver = await createSqliteDriver({ id: 't', engine: 'sqlite', url: ':memory:' });
+
+    const result = await driver.execute('-- leading comment\nSELECT 1 AS value', [], {
+      mode: 'readonly',
+      maxRows: 100,
+      queryTimeoutMs: 5000,
+      maxSqlLength: 10240,
+    });
+    assert.equal(result.success, true, result.error);
+    assert.deepEqual(result.data, [{ value: 1 }]);
+  });
+
   test('CREATE TABLE and INSERT work', async () => {
     const { createSqliteDriver } = await import('../../dist/drivers/sql/sqlite-driver.js');
     driver = await createSqliteDriver({ id: 't', engine: 'sqlite', url: ':memory:' });
@@ -85,6 +99,14 @@ describe('SQLite Driver Execute', () => {
     assert.equal(insert.success, true);
     assert.equal(Number(insert.affectedRows), 1);
 
+    const cteInsert = await driver.execute(
+      'WITH value(name) AS (SELECT ?) INSERT INTO users (name) SELECT name FROM value',
+      ['Bob'],
+      opts
+    );
+    assert.equal(cteInsert.success, true, cteInsert.error);
+    assert.equal(Number(cteInsert.affectedRows), 1);
+
     // Query back
     const select = await driver.execute('SELECT * FROM users', [], {
       mode: 'readonly',
@@ -93,8 +115,32 @@ describe('SQLite Driver Execute', () => {
       maxSqlLength: 10240,
     });
     assert.equal(select.success, true);
-    assert.equal(select.data.length, 1);
+    assert.equal(select.data.length, 2);
     assert.equal(select.data[0].name, 'Alice');
+    assert.equal(select.data[1].name, 'Bob');
+  });
+
+  test('write statements with RETURNING still execute every affected row', async () => {
+    const { createSqliteDriver } = await import('../../dist/drivers/sql/sqlite-driver.js');
+    driver = await createSqliteDriver({ id: 't', engine: 'sqlite', url: ':memory:' });
+    const opts = { mode: 'readwrite', maxRows: 2, queryTimeoutMs: 5000, maxSqlLength: 10240 };
+
+    await driver.execute('CREATE TABLE returning_test (id INTEGER)', [], opts);
+    await driver.execute('INSERT INTO returning_test VALUES (1), (2), (3), (4)', [], opts);
+    const updated = await driver.execute(
+      'UPDATE returning_test SET id = id + 10 WHERE id > 0 RETURNING id',
+      [],
+      opts
+    );
+    assert.equal(updated.success, true, updated.error);
+    assert.equal(updated.affectedRows, 4);
+
+    const rows = await driver.execute('SELECT id FROM returning_test ORDER BY id', [], {
+      ...opts,
+      mode: 'readonly',
+      maxRows: 10,
+    });
+    assert.deepEqual(rows.data, [{ id: 11 }, { id: 12 }, { id: 13 }, { id: 14 }]);
   });
 
   test('readonly mode rejects write operations', async () => {
@@ -194,7 +240,29 @@ describe('SQLite Driver Execute', () => {
     assert.equal(result.success, true);
     assert.equal(result.data.length, 3);
     assert.equal(result.truncated, true);
-    assert.equal(result.totalRows, 5);
+    assert.equal(result.totalRows, 4);
+    assert.equal(result.totalRowsExact, false);
+  });
+
+  test('large readonly queries stop after the truncation probe row', async () => {
+    const { createSqliteDriver } = await import('../../dist/drivers/sql/sqlite-driver.js');
+    driver = await createSqliteDriver({ id: 't', engine: 'sqlite', url: ':memory:' });
+
+    const result = await driver.execute(
+      `WITH RECURSIVE numbers(n) AS (
+         SELECT 1
+         UNION ALL
+         SELECT n + 1 FROM numbers WHERE n < 100000
+       ) SELECT n FROM numbers`,
+      [],
+      { mode: 'readonly', maxRows: 2, queryTimeoutMs: 5000, maxSqlLength: 10240 },
+    );
+
+    assert.equal(result.success, true, result.error);
+    assert.deepEqual(result.data, [{ n: 1 }, { n: 2 }]);
+    assert.equal(result.totalRows, 3);
+    assert.equal(result.totalRowsExact, false);
+    assert.equal(result.truncated, true);
   });
 
   test('preserves integers larger than Number.MAX_SAFE_INTEGER', async () => {

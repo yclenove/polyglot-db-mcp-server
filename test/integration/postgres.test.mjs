@@ -57,6 +57,58 @@ describe('PostgreSQL Integration', () => {
     assert.ok(Array.isArray(result.data));
   });
 
+  integrationTest('bounded cursor reads support parameters and connection reuse', async () => {
+    const options = {
+      mode: 'readonly',
+      maxRows: 2,
+      queryTimeoutMs: 5000,
+      maxSqlLength: 10240,
+    };
+    const result = await driver.execute(
+      'SELECT value FROM generate_series(1, $1::int) AS value ORDER BY value',
+      [100000],
+      options,
+    );
+    assert.equal(result.success, true, result.error);
+    assert.equal(result.data.length, 2);
+    assert.equal(result.totalRows, 3);
+    assert.equal(result.totalRowsExact, false);
+    assert.equal(result.truncated, true);
+
+    const followUp = await driver.execute('SELECT 42 AS value', [], options);
+    assert.equal(followUp.success, true, followUp.error);
+    assert.equal(followUp.data[0].value, 42);
+  });
+
+  integrationTest('bounded cursor reads keep transactions reusable', async () => {
+    const tx = await driver.beginTransaction();
+    try {
+      const truncated = await tx.execute(
+        'SELECT value FROM generate_series(1, 1000) AS value ORDER BY value',
+        [],
+        {
+          mode: 'readonly',
+          maxRows: 2,
+          queryTimeoutMs: 5000,
+          maxSqlLength: 10240,
+        },
+      );
+      assert.equal(truncated.success, true, truncated.error);
+      assert.equal(truncated.totalRows, 3);
+
+      const followUp = await tx.execute('SELECT 7 AS value', [], {
+        mode: 'readonly',
+        maxRows: 10,
+        queryTimeoutMs: 5000,
+        maxSqlLength: 10240,
+      });
+      assert.equal(followUp.success, true, followUp.error);
+      assert.equal(followUp.data[0].value, 7);
+    } finally {
+      await tx.rollback();
+    }
+  });
+
   integrationTest('readonly mode blocks INSERT', async () => {
     const result = await driver.execute('INSERT INTO nonexistent VALUES (1)', [], {
       mode: 'readonly',

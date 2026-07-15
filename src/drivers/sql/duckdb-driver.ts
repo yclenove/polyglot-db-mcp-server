@@ -2,9 +2,8 @@ import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import {
   DuckDBInstance,
-  ResultReturnType,
   type DuckDBConnection,
-  type DuckDBMaterializedResult,
+  type DuckDBResultReader,
   type DuckDBValue,
 } from '@duckdb/node-api';
 import type {
@@ -85,7 +84,7 @@ function toDuckDbValue(value: unknown): DuckDBValue {
 }
 
 function adaptRowsResult(
-  result: DuckDBMaterializedResult,
+  result: DuckDBResultReader,
   rows: Record<string, unknown>[],
   maxRows: number,
   executionTime: number,
@@ -95,6 +94,7 @@ function adaptRowsResult(
     success: true,
     data: rows.slice(0, maxRows),
     totalRows: rows.length,
+    totalRowsExact: result.done,
     truncated,
     executionTime,
     fields: result.columnNames().map((name, index) => ({
@@ -147,18 +147,24 @@ async function executeOne(
   const start = Date.now();
   try {
     const values = (params ?? []).map(toDuckDbValue);
+    if (isReadOnlyQuery(sql, 'duckdb')) {
+      const reader = await runWithQueryTimeout(
+        connection,
+        connection.streamAndReadUntil(sql, Math.max(1, maxRows) + 1, values),
+        queryTimeoutMs,
+      );
+      const executionTime = Date.now() - start;
+      const rows = reader.getRowObjectsJson() as Record<string, unknown>[];
+      auditLog({ engine: 'duckdb', sql, success: true, executionTime });
+      return adaptRowsResult(reader, rows, maxRows, executionTime);
+    }
+
     const result = await runWithQueryTimeout(
       connection,
       connection.run(sql, values),
       queryTimeoutMs,
     );
     const executionTime = Date.now() - start;
-
-    if (result.returnType === ResultReturnType.QUERY_RESULT) {
-      const rows = (await result.getRowObjectsJson()) as Record<string, unknown>[];
-      auditLog({ engine: 'duckdb', sql, success: true, executionTime });
-      return adaptRowsResult(result, rows, maxRows, executionTime);
-    }
 
     auditLog({
       engine: 'duckdb',

@@ -215,6 +215,35 @@ describe('globalLimits', () => {
     delete process.env.DB_RETRY_COUNT;
     delete process.env.DB_RETRY_DELAY_MS;
   });
+
+  test('keeps DB_MAX_ROWS finite and bounded', () => {
+    for (const value of ['invalid', '100oops', '0', '-1']) {
+      process.env.DB_MAX_ROWS = value;
+      assert.equal(globalLimits().maxRows, 100);
+    }
+
+    process.env.DB_MAX_ROWS = '50000';
+    assert.equal(globalLimits().maxRows, 10000);
+    delete process.env.DB_MAX_ROWS;
+  });
+
+  test('normalizes malformed and excessive global limits', () => {
+    process.env.DB_QUERY_TIMEOUT = 'invalid';
+    process.env.DB_MAX_SQL_LENGTH = '0';
+    process.env.DB_RETRY_COUNT = '999';
+    process.env.DB_RETRY_DELAY_MS = '-1';
+
+    const limits = globalLimits();
+    assert.equal(limits.queryTimeoutMs, 30000);
+    assert.equal(limits.maxSqlLength, 102400);
+    assert.equal(limits.retryCount, 10);
+    assert.equal(limits.retryDelayMs, 200);
+
+    delete process.env.DB_QUERY_TIMEOUT;
+    delete process.env.DB_MAX_SQL_LENGTH;
+    delete process.env.DB_RETRY_COUNT;
+    delete process.env.DB_RETRY_DELAY_MS;
+  });
 });
 
 describe('mongoLimits', () => {

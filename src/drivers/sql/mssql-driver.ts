@@ -3,7 +3,6 @@ import type { ConnectionSpec } from '../../core/types.js';
 import type { SqlDriver, SqlExecuteResult, SqlExecutionMode } from '../../core/types.js';
 import { checkDangerousOperation, isReadOnlyQuery } from '../../core/sql-guards.js';
 import { auditLog } from '../../core/audit.js';
-import { withTimeout } from './timeout.js';
 
 function inferSqlType(val: unknown) {
   if (val === null || val === undefined) return sql.NVarChar(sql.MAX);
@@ -30,6 +29,132 @@ function bindQuestionMarks(
     request.input(name, inferSqlType(v as unknown) as never, v as never);
     return `@${name}`;
   });
+}
+
+interface StreamedMssqlResult {
+  rows: unknown[];
+  observedRows: number;
+  rowsAffected?: number;
+  fields: { name: string }[];
+  hasRecordset: boolean;
+  exact: boolean;
+}
+
+async function queryStreamed(
+  request: sql.Request,
+  text: string,
+  maxRows: number,
+  queryTimeoutMs: number,
+  cancelOnLimit: boolean,
+): Promise<StreamedMssqlResult> {
+  return new Promise((resolve, reject) => {
+    const rows: unknown[] = [];
+    const fetchLimit = Math.max(1, maxRows) + 1;
+    let observedRows = 0;
+    let fields: { name: string }[] = [];
+    let hasRecordset = false;
+    let rowsAffected: number | undefined;
+    let canceledForLimit = false;
+    let pendingError: unknown;
+    let settled = false;
+    let cancelFallback: ReturnType<typeof setTimeout> | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      if (cancelFallback) clearTimeout(cancelFallback);
+      if (pendingError) {
+        reject(pendingError);
+        return;
+      }
+      resolve({
+        rows,
+        observedRows,
+        rowsAffected,
+        fields,
+        hasRecordset,
+        exact: !canceledForLimit,
+      });
+    };
+
+    request.stream = true;
+    request.on('recordset', (columns: Record<string, unknown>) => {
+      hasRecordset = true;
+      if (fields.length === 0) fields = Object.keys(columns).map((name) => ({ name }));
+    });
+    request.on('row', (row: unknown) => {
+      observedRows++;
+      if (rows.length < fetchLimit) rows.push(row);
+      if (cancelOnLimit && observedRows >= fetchLimit && !canceledForLimit) {
+        canceledForLimit = true;
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = undefined;
+        }
+        request.cancel();
+        cancelFallback = setTimeout(finish, 5000);
+      }
+    });
+    request.on('rowsaffected', (count: number) => {
+      rowsAffected = (rowsAffected ?? 0) + count;
+    });
+    request.on('error', (error: unknown) => {
+      const code = (error as { code?: string })?.code;
+      const message = error instanceof Error ? error.message : String(error);
+      const expectedCancel =
+        canceledForLimit && (code === 'ECANCEL' || /\bcancel(?:ed|led)?\b/i.test(message));
+      if (!expectedCancel) pendingError ??= error;
+    });
+    request.on('done', (result: { rowsAffected?: number[] }) => {
+      if (rowsAffected === undefined && result.rowsAffected?.length) {
+        rowsAffected = result.rowsAffected.reduce((sum, count) => sum + count, 0);
+      }
+      finish();
+    });
+
+    if (queryTimeoutMs > 0) {
+      timeout = setTimeout(() => {
+        pendingError = new Error(`查询超时（>${queryTimeoutMs}ms）`);
+        request.cancel();
+        cancelFallback = setTimeout(finish, 5000);
+      }, queryTimeoutMs);
+    }
+
+    void request.query(text).catch((error: unknown) => {
+      const code = (error as { code?: string })?.code;
+      const message = error instanceof Error ? error.message : String(error);
+      const expectedCancel =
+        canceledForLimit && (code === 'ECANCEL' || /\bcancel(?:ed|led)?\b/i.test(message));
+      if (!expectedCancel) pendingError ??= error;
+      finish();
+    });
+  });
+}
+
+function adaptStreamedResult(
+  result: StreamedMssqlResult,
+  maxRows: number,
+  executionTime: number,
+): SqlExecuteResult {
+  if (result.hasRecordset) {
+    const truncated = result.observedRows > maxRows;
+    return {
+      success: true,
+      data: result.rows.slice(0, maxRows),
+      totalRows: result.observedRows,
+      totalRowsExact: result.exact,
+      truncated,
+      fields: result.fields,
+      executionTime,
+    };
+  }
+  return {
+    success: true,
+    affectedRows: result.rowsAffected,
+    executionTime,
+  };
 }
 
 export async function createMssqlDriver(spec: ConnectionSpec): Promise<SqlDriver> {
@@ -77,24 +202,15 @@ export async function createMssqlDriver(spec: ConnectionSpec): Promise<SqlDriver
       }
       const request = new sql.Request(transaction);
       const text = bindQuestionMarks(request, sqlText, params);
-      const result = await withTimeout(request.query(text), queryTimeoutMs);
+      const result = await queryStreamed(
+        request,
+        text,
+        maxRows,
+        queryTimeoutMs,
+        mode === 'readonly',
+      );
       const executionTime = Date.now() - start;
-      if (result.recordset) {
-        const rows = result.recordset as unknown[];
-        const data = rows.slice(0, maxRows);
-        return {
-          success: true,
-          data,
-          totalRows: rows.length,
-          truncated: rows.length > maxRows,
-          executionTime,
-        };
-      }
-      return {
-        success: true,
-        affectedRows: result.rowsAffected?.[0],
-        executionTime,
-      };
+      return adaptStreamedResult(result, maxRows, executionTime);
     }
 
     return {
@@ -142,26 +258,23 @@ export async function createMssqlDriver(spec: ConnectionSpec): Promise<SqlDriver
       try {
         const request = pool.request();
         const text = bindQuestionMarks(request, sqlText, params);
-        const result = await withTimeout(request.query(text), options.queryTimeoutMs);
+        const result = await queryStreamed(
+          request,
+          text,
+          options.maxRows,
+          options.queryTimeoutMs,
+          options.mode === 'readonly',
+        );
         const executionTime = Date.now() - start;
-        if (result.recordset) {
-          const rows = result.recordset as unknown[];
-          const data = rows.slice(0, options.maxRows);
-          auditLog({ engine, sql: sqlText, success: true, executionTime });
-          return {
-            success: true,
-            data,
-            totalRows: rows.length,
-            truncated: rows.length > options.maxRows,
-            executionTime,
-          };
-        }
-        auditLog({ engine, sql: sqlText, success: true, executionTime });
-        return {
+        const adapted = adaptStreamedResult(result, options.maxRows, executionTime);
+        auditLog({
+          engine,
+          sql: sqlText,
           success: true,
-          affectedRows: result.rowsAffected?.[0],
           executionTime,
-        };
+          affectedRows: adapted.affectedRows,
+        });
+        return adapted;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         auditLog({ engine, sql: sqlText, success: false, error: msg });

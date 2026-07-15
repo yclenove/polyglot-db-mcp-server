@@ -111,6 +111,7 @@ export function registerReplayTools(server: McpServer, registry: ConnectionRegis
                 engine: driver.engine,
                 data: res.data,
                 totalRows: res.totalRows,
+                totalRowsExact: res.totalRowsExact ?? !res.truncated,
                 truncated: res.truncated,
                 executionTime: duration,
               }),

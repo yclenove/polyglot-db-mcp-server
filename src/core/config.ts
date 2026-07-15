@@ -133,13 +133,26 @@ export function getDefaultConnectionId(specs: ConnectionSpec[]): string {
   return specs[0]!.id;
 }
 
+function boundedIntegerEnv(
+  name: string,
+  fallback: number,
+  minimum: number,
+  maximum = Number.MAX_SAFE_INTEGER,
+): number {
+  const raw = (process.env[name] ?? String(fallback)).trim();
+  if (!/^\d+$/.test(raw)) return fallback;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < minimum) return fallback;
+  return Math.min(value, maximum);
+}
+
 export function globalLimits() {
   return {
-    queryTimeoutMs: parseInt(process.env.DB_QUERY_TIMEOUT || '30000', 10),
-    maxRows: parseInt(process.env.DB_MAX_ROWS || '100', 10),
-    maxSqlLength: parseInt(process.env.DB_MAX_SQL_LENGTH || '102400', 10),
-    retryCount: parseInt(process.env.DB_RETRY_COUNT || '2', 10),
-    retryDelayMs: parseInt(process.env.DB_RETRY_DELAY_MS || '200', 10),
+    queryTimeoutMs: boundedIntegerEnv('DB_QUERY_TIMEOUT', 30_000, 0, 2_147_483_647),
+    maxRows: boundedIntegerEnv('DB_MAX_ROWS', 100, 1, 10_000),
+    maxSqlLength: boundedIntegerEnv('DB_MAX_SQL_LENGTH', 102_400, 1),
+    retryCount: boundedIntegerEnv('DB_RETRY_COUNT', 2, 0, 10),
+    retryDelayMs: boundedIntegerEnv('DB_RETRY_DELAY_MS', 200, 0, 2_147_483_647),
   };
 }
 

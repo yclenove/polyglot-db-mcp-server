@@ -1,8 +1,15 @@
-import mysql, { type Pool, type RowDataPacket, type ResultSetHeader } from 'mysql2/promise';
+import mysql, {
+  type Pool,
+  type PoolConnection,
+  type RowDataPacket,
+  type ResultSetHeader,
+} from 'mysql2/promise';
+import type { FieldPacket, Query as MysqlQuery } from 'mysql2';
 import type { ConnectionSpec } from '../../core/types.js';
 import type { SqlDriver, SqlExecuteResult, SqlExecutionMode } from '../../core/types.js';
 import { checkDangerousOperation, isReadOnlyQuery } from '../../core/sql-guards.js';
 import { auditLog } from '../../core/audit.js';
+import { globalLimits } from '../../core/config.js';
 import { sleep, withTimeout } from './timeout.js';
 
 const RETRIABLE = new Set([
@@ -43,6 +50,87 @@ export function buildMysqlPoolConfig(spec: ConnectionSpec): mysql.PoolOptions {
   };
 }
 
+interface MysqlCoreConnection {
+  query(options: { sql: string; timeout?: number }, values?: unknown[]): MysqlQuery;
+}
+
+async function streamLimitedQuery(
+  core: MysqlCoreConnection,
+  sql: string,
+  params: unknown[] | undefined,
+  maxRows: number,
+  queryTimeoutMs: number,
+): Promise<{ rows: RowDataPacket[]; fields: FieldPacket[]; observedRows: number }> {
+  return new Promise((resolve, reject) => {
+    const rows: RowDataPacket[] = [];
+    let fields: FieldPacket[] = [];
+    let observedRows = 0;
+    let settled = false;
+    const finish = (
+      error?: unknown,
+      value?: { rows: RowDataPacket[]; fields: FieldPacket[]; observedRows: number },
+    ): void => {
+      if (settled) return;
+      settled = true;
+      if (error) reject(error);
+      else resolve(value!);
+    };
+
+    const query = core.query(
+      {
+        sql,
+        ...(queryTimeoutMs > 0 ? { timeout: queryTimeoutMs } : {}),
+      },
+      params,
+    );
+    query.on('fields', (value) => {
+      if (Array.isArray(value) && fields.length === 0) fields = value;
+    });
+    query.on('result', (row) => {
+      observedRows++;
+      if (rows.length < Math.max(1, maxRows) + 1) rows.push(row as RowDataPacket);
+    });
+    query.on('error', (error) => finish(error));
+    query.on('end', () => finish(undefined, { rows, fields, observedRows }));
+  });
+}
+
+async function executeLimitedRead(
+  connection: PoolConnection,
+  sql: string,
+  params: unknown[] | undefined,
+  maxRows: number,
+  queryTimeoutMs: number,
+  executionStartedAt: number,
+): Promise<SqlExecuteResult> {
+  const fetchLimit = Math.max(1, maxRows) + 1;
+  await connection.query(`SET SESSION sql_select_limit = ${fetchLimit}`);
+  try {
+    const core = (connection as unknown as { connection: MysqlCoreConnection }).connection;
+    const streamed = await streamLimitedQuery(core, sql, params, maxRows, queryTimeoutMs);
+    const executionTime = Date.now() - executionStartedAt;
+    const truncated = streamed.observedRows > maxRows;
+    return {
+      success: true,
+      data: streamed.rows.slice(0, maxRows),
+      totalRows: streamed.observedRows,
+      totalRowsExact: !truncated,
+      truncated,
+      fields: streamed.fields.map((field) => ({
+        name: field.name,
+        dataTypeID: field.columnType,
+      })),
+      executionTime,
+    };
+  } finally {
+    try {
+      await connection.query('SET SESSION sql_select_limit = DEFAULT');
+    } catch {
+      connection.destroy();
+    }
+  }
+}
+
 export async function createMysqlDriver(spec: ConnectionSpec): Promise<SqlDriver> {
   const pool: Pool = mysql.createPool(buildMysqlPoolConfig(spec));
   const engine = 'mysql' as const;
@@ -70,6 +158,9 @@ export async function createMysqlDriver(spec: ConnectionSpec): Promise<SqlDriver
         const d = checkDangerousOperation(sql, 'mysql');
         if (d) return { success: false, error: d };
       }
+      if (isReadOnlyQuery(sql, 'mysql')) {
+        return executeLimitedRead(conn, sql, params, maxRows, queryTimeoutMs, start);
+      }
       const statement = requiresTextProtocol(sql)
         ? conn.query(sql, (params ?? []) as never)
         : conn.execute(sql, (params ?? []) as never);
@@ -81,6 +172,7 @@ export async function createMysqlDriver(spec: ConnectionSpec): Promise<SqlDriver
           success: true,
           data,
           totalRows: (rows as RowDataPacket[]).length,
+          totalRowsExact: true,
           truncated: (rows as RowDataPacket[]).length > maxRows,
           executionTime,
         };
@@ -141,6 +233,23 @@ export async function createMysqlDriver(spec: ConnectionSpec): Promise<SqlDriver
       const d = checkDangerousOperation(sql, 'mysql');
       if (d) return { success: false, error: d };
     }
+    if (isReadOnlyQuery(sql, 'mysql')) {
+      const connection = await pool.getConnection();
+      try {
+        const result = await executeLimitedRead(
+          connection,
+          sql,
+          params,
+          maxRows,
+          queryTimeoutMs,
+          start,
+        );
+        auditLog({ engine, sql, success: true, executionTime: result.executionTime });
+        return result;
+      } finally {
+        connection.release();
+      }
+    }
     const statement = requiresTextProtocol(sql)
       ? pool.query(sql, (params ?? []) as never)
       : pool.execute(sql, (params ?? []) as never);
@@ -156,6 +265,7 @@ export async function createMysqlDriver(spec: ConnectionSpec): Promise<SqlDriver
         success: true,
         data,
         totalRows: (rows as RowDataPacket[]).length,
+        totalRowsExact: true,
         truncated: (rows as RowDataPacket[]).length > maxRows,
         executionTime,
       };
@@ -178,8 +288,7 @@ export async function createMysqlDriver(spec: ConnectionSpec): Promise<SqlDriver
     queryTimeoutMs: number,
     maxSqlLength: number,
   ): Promise<SqlExecuteResult> {
-    const retryCount = parseInt(process.env.DB_RETRY_COUNT || '2', 10);
-    const retryDelayMs = parseInt(process.env.DB_RETRY_DELAY_MS || '200', 10);
+    const { retryCount, retryDelayMs } = globalLimits();
     const attempts = Math.max(0, retryCount) + 1;
     for (let i = 0; i < attempts; i++) {
       try {

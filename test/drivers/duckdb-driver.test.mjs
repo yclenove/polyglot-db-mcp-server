@@ -100,6 +100,26 @@ describe('DuckDB Driver', () => {
     assert.equal(result.truncated, true);
   });
 
+  test('large readonly queries use bounded streaming reads', async () => {
+    const { createDuckDbDriver } = await import('../../dist/drivers/sql/duckdb-driver.js');
+    driver = await createDuckDbDriver({ id: 'duck', engine: 'duckdb', url: ':memory:' });
+
+    const result = await driver.execute('SELECT range AS id FROM range(100000)', [], {
+      ...RO_OPTS,
+      maxRows: 2,
+    });
+
+    assert.equal(result.success, true, result.error);
+    assert.deepEqual(result.data, [{ id: '0' }, { id: '1' }]);
+    assert.equal(result.truncated, true);
+    assert.equal(result.totalRowsExact, false);
+    assert.ok(result.totalRows < 100000, `expected bounded read, observed ${result.totalRows}`);
+
+    const followUp = await driver.execute('SELECT 42 AS value', [], RO_OPTS);
+    assert.equal(followUp.success, true, followUp.error);
+    assert.deepEqual(followUp.data, [{ value: 42 }]);
+  });
+
   test('read_csv_auto can read files inside allowlist', async () => {
     const { createDuckDbDriver } = await import('../../dist/drivers/sql/duckdb-driver.js');
     const dir = await mkdtemp(join(tmpdir(), 'duckdb-allow-'));

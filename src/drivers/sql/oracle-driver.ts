@@ -108,8 +108,8 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
       const execOpts: Record<string, unknown> = {
         outFormat: oracledb.OUT_FORMAT_OBJECT,
       };
-      if (mode === 'readonly') {
-        execOpts.maxRows = Math.min(maxRows, 10_000);
+      if (isReadOnlyQuery(sqlText, 'oracle')) {
+        execOpts.maxRows = Math.max(1, maxRows) + 1;
       }
       const result = (await withTimeout(conn.execute(text, binds, execOpts), queryTimeoutMs)) as {
         rows?: unknown[];
@@ -118,11 +118,13 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
       const executionTime = Date.now() - start;
       if (result.rows && Array.isArray(result.rows)) {
         const rows = result.rows as unknown[];
+        const truncated = rows.length > maxRows;
         return {
           success: true,
-          data: rows,
+          data: rows.slice(0, maxRows),
           totalRows: rows.length,
-          truncated: rows.length > maxRows,
+          totalRowsExact: !truncated,
+          truncated,
           executionTime,
         };
       }
@@ -217,8 +219,8 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
         const execOpts: Record<string, unknown> = {
           outFormat: oracledb.OUT_FORMAT_OBJECT,
         };
-        if (options.mode === 'readonly') {
-          execOpts.maxRows = Math.min(options.maxRows, 10_000);
+        if (isReadOnlyQuery(sqlText, 'oracle')) {
+          execOpts.maxRows = Math.max(1, options.maxRows) + 1;
         }
         const result = (await withTimeout(
           conn.execute(text, binds, execOpts),
@@ -230,12 +232,14 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
         const executionTime = Date.now() - start;
         if (result.rows && Array.isArray(result.rows)) {
           const rows = result.rows as unknown[];
+          const truncated = rows.length > options.maxRows;
           auditLog({ engine, sql: sqlText, success: true, executionTime });
           return {
             success: true,
-            data: rows,
+            data: rows.slice(0, options.maxRows),
             totalRows: rows.length,
-            truncated: rows.length > options.maxRows,
+            totalRowsExact: !truncated,
+            truncated,
             executionTime,
           };
         }

@@ -87,6 +87,21 @@ function sqlDialect(engine, table, view, procedure) {
     sqlite: `SELECT CAST('${LARGE_INTEGER}' AS INTEGER) AS big_value`,
     duckdb: `SELECT ${LARGE_INTEGER}::BIGINT AS big_value`,
   }[engine];
+  const boundedReadQuery = {
+    mysql: `WITH RECURSIVE seq(n) AS (
+      SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 1000
+    ) SELECT n FROM seq ORDER BY n`,
+    postgres: 'SELECT value FROM generate_series(1, 100000) AS value ORDER BY value',
+    mssql: `WITH seq(n) AS (
+      SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 100000
+    ) SELECT n FROM seq ORDER BY n OPTION (MAXRECURSION 0)`,
+    oracle: 'SELECT LEVEL AS n FROM dual CONNECT BY LEVEL <= 100000',
+    sqlite: `WITH RECURSIVE seq(n) AS (
+      VALUES (1) UNION ALL SELECT n + 1 FROM seq WHERE n < 100000
+    ) SELECT n FROM seq ORDER BY n`,
+    duckdb: 'SELECT range AS n FROM range(100000)',
+  }[engine];
+  const probeQuery = engine === 'oracle' ? 'SELECT 42 AS value FROM dual' : 'SELECT 42 AS value';
 
   return {
     createTable: `CREATE TABLE ${table} (id ${idType} PRIMARY KEY, name ${nameType} NOT NULL, score ${idType})`,
@@ -97,6 +112,8 @@ function sqlDialect(engine, table, view, procedure) {
     selectById: `SELECT id, name, score FROM ${table} WHERE id = ${selectPlaceholder}`,
     selectAll: `SELECT id, name, score FROM ${table} ORDER BY id`,
     largeIntegerQuery,
+    boundedReadQuery,
+    probeQuery,
     procedureDdl,
     procedureName:
       procedureDdl || engine === 'oracle'
@@ -105,6 +122,46 @@ function sqlDialect(engine, table, view, procedure) {
           ? 'abs'
           : null,
   };
+}
+
+async function verifyBoundedReads(driver, engine, boundedReadQuery, probeQuery) {
+  const options = { ...RO, maxRows: 2 };
+  const assertBounded = (result, context) => {
+    assert.equal(result.success, true, `${engine} ${context} failed: ${result.error ?? ''}`);
+    assert.equal(result.data?.length, 2, `${engine} ${context} returned the wrong row count`);
+    assert.equal(result.truncated, true, `${engine} ${context} was not marked truncated`);
+    assert.equal(result.totalRowsExact, false, `${engine} ${context} total was marked exact`);
+    assert.ok(result.totalRows >= 3, `${engine} ${context} did not observe the probe row`);
+    const observedUpperBound = engine === 'duckdb' ? 4096 : engine === 'mssql' ? 1000 : 3;
+    assert.ok(
+      result.totalRows <= observedUpperBound,
+      `${engine} ${context} read too many rows: ${result.totalRows}`,
+    );
+  };
+
+  const result = await driver.execute(boundedReadQuery, [], options);
+  assertBounded(result, 'bounded read');
+  const followUp = await executeOk(driver, probeQuery, [], RO);
+  assert.equal(followUp.data?.length, 1, `${engine} connection was not reusable after truncation`);
+
+  const tx = await driver.beginTransaction();
+  try {
+    const transactionResult = await tx.execute(boundedReadQuery, [], options);
+    assertBounded(transactionResult, 'transaction bounded read');
+    const transactionFollowUp = await tx.execute(probeQuery, [], RO);
+    assert.equal(
+      transactionFollowUp.success,
+      true,
+      `${engine} transaction was not reusable: ${transactionFollowUp.error ?? ''}`,
+    );
+    assert.equal(
+      transactionFollowUp.data?.length,
+      1,
+      `${engine} transaction follow-up returned the wrong row count`,
+    );
+  } finally {
+    await tx.rollback();
+  }
 }
 
 async function provisionOracleProcedure(spec, procedure) {
@@ -244,6 +301,7 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
     statements: [
       { sql: sql.insert, params: [1, 'alpha', 10] },
       { sql: sql.insert, params: [2, 'beta', 20] },
+      { sql: sql.insert, params: [5, 'gamma', 50] },
     ],
   });
 
@@ -261,6 +319,24 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
     page_size: 2,
   });
   assert.equal(paged.value.data?.length, 2, `${engine} pagination returned wrong row count`);
+  assert.equal(paged.value.pagination?.has_next, true, `${engine} missed the next page`);
+  assert.equal(paged.value.totalRowsExact, false, `${engine} first page total should be inexact`);
+  assert.equal(
+    'total_pages' in (paged.value.pagination ?? {}),
+    false,
+    `${engine} exposed total_pages before the total was known`,
+  );
+  const lastPage = await callTool(server, 'sql_query', {
+    connection_id: id,
+    sql: sql.selectAll,
+    page: 2,
+    page_size: 2,
+  });
+  assert.equal(lastPage.value.data?.length, 1, `${engine} last page returned wrong row count`);
+  assert.equal(lastPage.value.pagination?.has_next, false, `${engine} last page has_next mismatch`);
+  assert.equal(lastPage.value.totalRows, 3, `${engine} exact paginated row count mismatch`);
+  assert.equal(lastPage.value.totalRowsExact, true, `${engine} last page total was not exact`);
+  assert.equal(lastPage.value.pagination?.total_pages, 2, `${engine} total_pages mismatch`);
 
   const largeInteger = await callTool(server, 'sql_query', {
     connection_id: id,
@@ -272,6 +348,8 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
     LARGE_INTEGER,
     `${engine} lost BIGINT precision or did not serialize it as a string`,
   );
+
+  await verifyBoundedReads(driver, engine, sql.boundedReadQuery, sql.probeQuery);
 
   await verifyReadonlyBypasses(server, driver, id, engine, table);
   await verifyDangerousDdlBlocked(server, driver, id, engine, table);

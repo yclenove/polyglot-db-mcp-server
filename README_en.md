@@ -220,13 +220,15 @@ When you **explicitly** pass `connection_id` on any tool, it must match a config
 
 **SQL** (MySQL / PostgreSQL / SQL Server / Oracle / SQLite / DuckDB)
 
-- `sql_query` — read-only queries only (validated before execution)
+- `sql_query` — bounded read-only queries (validated before execution), with `page`/`page_size` pagination
 - `sql_export_query` — export read-only query results as JSON/CSV/Markdown after masking and row limiting
 - `sql_sample_table` — read-only table sampling with field types, null ratios, unique counts, and examples
 - `sql_execute` — write-capable SQL (blocked when connection is `readonly`)
 - `sql_list_tables` — list tables (optional `schema` for PostgreSQL)
 - `sql_describe_table` — column metadata for a table
 - `schema_export`, `schema_diff` — export or compare SQL schemas
+
+All six SQL drivers cap results while reading from the database or cursor instead of materializing the full result first. Pagination probes one extra row for `has_next`; when `totalRowsExact` is `false`, `totalRows` is only an observed lower bound and `total_pages` is omitted.
 
 **MongoDB**
 

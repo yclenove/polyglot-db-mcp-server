@@ -89,7 +89,7 @@ const tools = [
   {
     name: 'sql_query',
     category: 'SQL',
-    description: '在 SQL 连接（mysql/postgres/mssql/oracle/sqlite/duckdb）上执行只读查询。支持分页。',
+    description: '在 SQL 连接（mysql/postgres/mssql/oracle/sqlite/duckdb）上执行有界只读查询。分页会多探测一行；totalRowsExact=false 表示 totalRows 只是已观察下界。',
     params: [
       { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
       { name: 'sql', type: 'string', required: true, description: 'SQL 查询语句' },

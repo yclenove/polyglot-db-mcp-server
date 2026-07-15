@@ -1,6 +1,6 @@
 # polyglot-db-mcp-server API 文档
 
-> 自动生成于 2026-07-15T15:48:15.200Z
+> 自动生成于 2026-07-15T18:45:04.679Z
 
 ## 目录
 
@@ -186,7 +186,7 @@ HTTP 安全默认值：
 
 ### `sql_query`
 
-在 SQL 连接（mysql/postgres/mssql/oracle/sqlite/duckdb）上执行只读查询。支持分页。
+在 SQL 连接（mysql/postgres/mssql/oracle/sqlite/duckdb）上执行有界只读查询。分页会多探测一行；totalRowsExact=false 表示 totalRows 只是已观察下界。
 
 **参数：**
 

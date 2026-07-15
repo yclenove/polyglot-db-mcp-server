@@ -250,7 +250,7 @@ docker compose up -d
 
 **SQL**（MySQL / PostgreSQL / SQL Server / Oracle / SQLite / DuckDB）
 
-- `sql_query` — 仅只读查询（执行前校验），支持分页（`page`、`page_size` 参数）
+- `sql_query` — 有界只读查询（执行前校验），支持分页（`page`、`page_size` 参数）
 - `sql_export_query` — 只读查询结果导出为 JSON/CSV/Markdown，导出前执行脱敏并限制最大行数
 - `sql_sample_table` — 对表执行只读采样，返回字段类型、空值率、唯一值数量和示例值
 - `sql_execute` — 可写 SQL（连接 `readonly=true` 时拒绝）
@@ -261,6 +261,8 @@ docker compose up -d
 - `sql_commit` — 提交事务
 - `sql_rollback` — 回滚事务
 - `sql_batch_execute` — 批量执行多条 SQL（在同一事务中）
+
+六个 SQL 驱动会在数据库/游标读取层限制结果，而不是先加载完整结果再截断。分页会多探测一行来计算 `has_next`；`totalRowsExact=false` 时 `totalRows` 只是已观察到的下界，`total_pages` 仅在总数可精确推导时返回。
 
 **MongoDB**
 

@@ -31,6 +31,8 @@ export interface SqlExecuteResult {
   executionTime?: number;
   truncated?: boolean;
   totalRows?: number;
+  /** `false` means totalRows is only the number observed before a hard fetch cap. */
+  totalRowsExact?: boolean;
   fields?: { name: string; dataTypeID?: number }[];
 }
 

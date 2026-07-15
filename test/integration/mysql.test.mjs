@@ -46,6 +46,65 @@ describe('MySQL Integration', () => {
     assert.ok(Array.isArray(result.data));
   });
 
+  integrationTest('bounded reads support parameters and connection reuse', async () => {
+    const query = `WITH RECURSIVE seq(n) AS (
+      SELECT 1
+      UNION ALL
+      SELECT n + 1 FROM seq WHERE n < ?
+    ) SELECT n FROM seq ORDER BY n`;
+    const result = await driver.execute(query, [100], {
+      mode: 'readonly',
+      maxRows: 2,
+      queryTimeoutMs: 5000,
+      maxSqlLength: 10240,
+    });
+    assert.equal(result.success, true, result.error);
+    assert.equal(result.data.length, 2);
+    assert.equal(result.totalRows, 3);
+    assert.equal(result.totalRowsExact, false);
+    assert.equal(result.truncated, true);
+
+    const followUp = await driver.execute(query, [5], {
+      mode: 'readonly',
+      maxRows: 10,
+      queryTimeoutMs: 5000,
+      maxSqlLength: 10240,
+    });
+    assert.equal(followUp.success, true, followUp.error);
+    assert.equal(followUp.data.length, 5);
+    assert.equal(followUp.totalRowsExact, true);
+  });
+
+  integrationTest('bounded reads reset the session limit inside transactions', async () => {
+    const tx = await driver.beginTransaction();
+    const query = `WITH RECURSIVE seq(n) AS (
+      SELECT 1
+      UNION ALL
+      SELECT n + 1 FROM seq WHERE n < 5
+    ) SELECT n FROM seq ORDER BY n`;
+    try {
+      const truncated = await tx.execute(query, [], {
+        mode: 'readonly',
+        maxRows: 2,
+        queryTimeoutMs: 5000,
+        maxSqlLength: 10240,
+      });
+      assert.equal(truncated.success, true, truncated.error);
+      assert.equal(truncated.totalRows, 3);
+
+      const followUp = await tx.execute(query, [], {
+        mode: 'readonly',
+        maxRows: 10,
+        queryTimeoutMs: 5000,
+        maxSqlLength: 10240,
+      });
+      assert.equal(followUp.success, true, followUp.error);
+      assert.equal(followUp.data.length, 5);
+    } finally {
+      await tx.rollback();
+    }
+  });
+
   integrationTest('readonly mode blocks INSERT', async () => {
     const result = await driver.execute('INSERT INTO nonexistent VALUES (1)', [], {
       mode: 'readonly',

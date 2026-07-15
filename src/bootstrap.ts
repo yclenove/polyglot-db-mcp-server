@@ -1,7 +1,7 @@
 import type { BuiltinEngine, ConnectionSpec, RuntimeHandle } from './core/types.js';
 import { closeRuntime, pingRuntime } from './core/handle-runtime.js';
 import { ConnectionRegistry } from './core/registry.js';
-import { getDefaultConnectionId, parseConnectionSpecs } from './core/config.js';
+import { getDefaultConnectionId, globalLimits, parseConnectionSpecs } from './core/config.js';
 import { parseAuditPersistenceConfig, safeAuditPersistenceConfig } from './core/audit.js';
 import { parseAlertConfig, safeAlertConfig } from './core/alerts.js';
 import { parseTelemetryConfig, safeTelemetryConfig } from './core/telemetry.js';
@@ -155,14 +155,15 @@ export function logStartupDiagnostics(
 ): void {
   const specs = registry.getSpecs();
   const defaultId = registry.getDefaultId();
+  const limits = globalLimits();
 
   const summary = {
     total_connections: specs.length,
     default_connection: defaultId,
     engines: {} as Record<string, number>,
     config: {
-      query_timeout_ms: parseInt(process.env.DB_QUERY_TIMEOUT || '30000', 10),
-      max_rows: parseInt(process.env.DB_MAX_ROWS || '100', 10),
+      query_timeout_ms: limits.queryTimeoutMs,
+      max_rows: limits.maxRows,
       log_level: process.env.LOG_LEVEL || 'info',
       log_format: process.env.LOG_FORMAT || 'human',
       audit: safeAuditPersistenceConfig(parseAuditPersistenceConfig()),

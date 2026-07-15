@@ -117,9 +117,24 @@ function adaptRowsResult(
     success: true,
     data: rows.slice(0, maxRows).map(normalizeSqliteValue),
     totalRows: rows.length,
+    totalRowsExact: !truncated,
     truncated,
     executionTime,
   };
+}
+
+function readLimitedRows(
+  statement: Database.Statement,
+  params: unknown[],
+  maxRows: number,
+): unknown[] {
+  const rows: unknown[] = [];
+  const fetchLimit = Math.max(1, maxRows) + 1;
+  for (const row of statement.iterate(...params)) {
+    rows.push(row);
+    if (rows.length >= fetchLimit) break;
+  }
+  return rows;
 }
 
 /**
@@ -149,17 +164,8 @@ function executeOne(
   const start = Date.now();
   try {
     const stmt = db.prepare(sql);
-    const trimmed = sql.trim().toLowerCase();
-
-    // 判断是否为查询语句（返回行的）
-    const isQuery =
-      trimmed.startsWith('select') ||
-      trimmed.startsWith('pragma') ||
-      trimmed.startsWith('explain') ||
-      trimmed.startsWith('with');
-
-    if (isQuery) {
-      const rows = stmt.all(...params) as unknown[];
+    if (stmt.reader && isSqliteReadOnlyQuery(sql)) {
+      const rows = readLimitedRows(stmt, params, maxRows);
       const executionTime = Date.now() - start;
       auditLog({ engine, sql, success: true, executionTime });
       return adaptRowsResult(rows, maxRows, executionTime);

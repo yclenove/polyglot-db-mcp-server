@@ -109,12 +109,14 @@ DB_MCP_DEFAULT_CONNECTION_ID=local
 |----------|--------|------|
 | `DB_QUERY_TIMEOUT` | `30000` | 查询超时，毫秒 |
 | `DB_MONGO_MAX_TIME_MS` | `30000` | MongoDB `find`、`aggregate`、`count` 的服务端 `maxTimeMS`；未设置时回退 `DB_QUERY_TIMEOUT`，`0` 表示关闭 |
-| `DB_MAX_ROWS` | `100` | 单次结果最大行数 |
+| `DB_MAX_ROWS` | `100` | 单次结果最大行数；有效范围 `1..10000`，无效值回退到 `100` |
 | `DB_MAX_SQL_LENGTH` | `102400` | SQL 最大长度 |
 | `DB_RETRY_COUNT` | `2` | SQL 驱动重试次数 |
 | `DB_RETRY_DELAY_MS` | `200` | 重试间隔 |
 | `DB_AUTO_PAGINATION` | `true` | `sql_query` 是否自动追加分页 |
 | `DB_TRANSACTION_TIMEOUT_MS` | `300000` | SQL 事务超时自动回滚 |
+
+自动分页只识别可执行外层 SQL 的 `LIMIT`、`OFFSET`、`FETCH`（SQL Server 还包括 `TOP`），不会被字符串、注释、子查询或窗口函数中的同名关键字误导。SQL Server 自动分页要求外层 `ORDER BY`。设置 `DB_AUTO_PAGINATION=false` 或自行提供外层分页子句时，服务端不会重写 SQL。
 
 ### 5.3 缓存、限流、回放和建议
 

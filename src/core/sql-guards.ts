@@ -5,12 +5,14 @@ import type { SqlEngine } from './types.js';
 interface SqlScanResult {
   cleaned: string;
   statements: string[];
+  terminatorIndexes: number[];
   executableComment: boolean;
   unterminated: boolean;
 }
 
 function scanSql(sql: string, engine: SqlEngine | 'generic' = 'generic'): SqlScanResult {
   let cleaned = '';
+  const terminatorIndexes: number[] = [];
   let executableComment = false;
   let unterminated = false;
 
@@ -83,6 +85,7 @@ function scanSql(sql: string, engine: SqlEngine | 'generic' = 'generic'): SqlSca
     }
 
     const char = sql[i]!;
+    if (char === ';') terminatorIndexes.push(i);
     if (char === "'") {
       cleaned += "''";
       i = skipQuoted(i, "'", "''");
@@ -133,11 +136,41 @@ function scanSql(sql: string, engine: SqlEngine | 'generic' = 'generic'): SqlSca
     .split(';')
     .map((statement) => statement.trim())
     .filter(Boolean);
-  return { cleaned, statements, executableComment, unterminated };
+  return { cleaned, statements, terminatorIndexes, executableComment, unterminated };
 }
 
 function stripQuotedContentAndComments(sql: string, engine?: SqlEngine): string {
   return scanSql(sql, engine).cleaned;
+}
+
+function topLevelKeywords(scan: SqlScanResult): string[] {
+  if (scan.executableComment || scan.unterminated || scan.statements.length !== 1) return [];
+
+  const keywords: string[] = [];
+  const statement = scan.statements[0]!;
+  let depth = 0;
+  for (let i = 0; i < statement.length; ) {
+    const char = statement[i]!;
+    if (char === '(') {
+      depth++;
+      i++;
+      continue;
+    }
+    if (char === ')') {
+      depth = Math.max(0, depth - 1);
+      i++;
+      continue;
+    }
+    if (depth === 0 && /[a-z_]/.test(char)) {
+      let end = i + 1;
+      while (end < statement.length && /[a-z0-9_$]/.test(statement[end]!)) end++;
+      keywords.push(statement.slice(i, end));
+      i = end;
+      continue;
+    }
+    i++;
+  }
+  return keywords;
 }
 
 export function isReadOnlyQuery(sql: string, engine?: SqlEngine): boolean {
@@ -159,6 +192,44 @@ export function isReadOnlyQuery(sql: string, engine?: SqlEngine): boolean {
     return false;
   }
   return true;
+}
+
+export function firstSqlKeyword(sql: string, engine?: SqlEngine): string | undefined {
+  const scan = scanSql(sql, engine);
+  if (scan.executableComment || scan.unterminated || scan.statements.length !== 1) {
+    return undefined;
+  }
+  return /^([a-z]+)/.exec(scan.statements[0]!)?.[1];
+}
+
+export interface SqlPaginationAnalysis {
+  hasTopLevelOrderBy: boolean;
+  hasTopLevelRowLimit: boolean;
+}
+
+/** Inspect only executable, outer-query keywords used by automatic pagination. */
+export function analyzeSqlPagination(sql: string, engine?: SqlEngine): SqlPaginationAnalysis {
+  const keywords = topLevelKeywords(scanSql(sql, engine));
+  const hasTopLevelOrderBy = keywords.some(
+    (keyword, index) => keyword === 'order' && keywords[index + 1] === 'by',
+  );
+  const rowLimitKeywords = new Set(['limit', 'offset', 'fetch']);
+  if (engine === 'mssql') rowLimitKeywords.add('top');
+  return {
+    hasTopLevelOrderBy,
+    hasTopLevelRowLimit: keywords.some((keyword) => rowLimitKeywords.has(keyword)),
+  };
+}
+
+/** Remove statement terminators while preserving quoted/commented semicolons. */
+export function stripSqlStatementTerminators(sql: string, engine?: SqlEngine): string {
+  const scan = scanSql(sql, engine);
+  if (scan.executableComment || scan.unterminated) return sql;
+  const terminators = new Set(scan.terminatorIndexes);
+  return sql
+    .split('')
+    .map((char, index) => (terminators.has(index) ? ' ' : char))
+    .join('');
 }
 
 /**

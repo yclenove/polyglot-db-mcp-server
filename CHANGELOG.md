@@ -14,6 +14,15 @@
 - 多连接启动中任一驱动创建失败时，会关闭其他已成功创建的驱动，避免连接池和后台定时器泄漏。
 - Docker 集成测试使用 Node 原生 skip 统计，并支持 `TEST_INTEGRATION_REQUIRED=true` 强制环境缺失时失败，不再把未执行用例计为通过。
 - `schema_export`/`schema_diff` 兼容 Oracle 大写元数据键和 `Y`/`N` 可空标记，并补齐 Oracle、SQL Server 主键识别，避免导出错误表名或遗漏主键。
+- `sql_query` 自动分页改为词法识别外层 `LIMIT`/`OFFSET`/`FETCH`/`TOP` 与 `ORDER BY`，不再被字符串、注释、子查询或窗口排序误导；尾部分号和行注释可安全追加分页。
+- 分页多取一行计算 `has_next`，并新增 `totalRowsExact` 区分精确总数与已观察下界；无法推导总数的空后续页不再返回错误的 `total_pages`。
+- `limit` 与分页参数同时出现时严格由 `limit` 接管且不再返回伪分页元数据；MCP 返回层会再次截断不守约驱动的超量数据。
+- SQLite 使用 statement reader 元数据区分返回行与写语句，修复前导注释查询及 `WITH ... INSERT` 的执行分支。
+- 全局 SQL 数值限制执行严格整数校验；`DB_MAX_ROWS` 固定在 `1..10000`，避免无效或负配置绕过结果上限。
+
+### 性能
+- MySQL、PostgreSQL、SQL Server、Oracle、SQLite 和 DuckDB 查询改为数据库原生限制、游标或流式/chunk 读取，不再先完整物化大结果后执行 `slice(maxRows)`。
+- PostgreSQL 游标和 SQL Server/MySQL 流式截断在普通连接及事务内均执行资源清理，截断后连接可继续复用。
 
 ### 安全
 - 加固 `sql_query` 只读扫描，拒绝堆叠语句、可写 CTE、MySQL 可执行注释、SQL Server 动态执行、反斜杠引号差异及锁定/`SELECT INTO` 查询。

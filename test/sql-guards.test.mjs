@@ -4,6 +4,9 @@ import {
   isReadOnlyQuery,
   detectInjectionPatterns,
   checkDangerousOperation,
+  analyzeSqlPagination,
+  firstSqlKeyword,
+  stripSqlStatementTerminators,
 } from '../dist/core/sql-guards.js';
 
 // ── isReadOnlyQuery ──────────────────────────────────────────
@@ -154,6 +157,50 @@ describe('isReadOnlyQuery', () => {
       false,
     );
     assert.equal(isReadOnlyQuery('SELECT 1 # 2', 'postgres'), true);
+  });
+});
+
+describe('SQL lexical helpers', () => {
+  test('finds the first executable keyword across dialect comments', () => {
+    assert.equal(firstSqlKeyword('-- comment\nWITH x AS (SELECT 1) SELECT * FROM x'), 'with');
+    assert.equal(firstSqlKeyword('# comment\nSELECT 1', 'mysql'), 'select');
+    assert.equal(firstSqlKeyword('SELECT 1; SELECT 2'), undefined);
+  });
+
+  test('strips only executable statement terminators', () => {
+    assert.equal(
+      stripSqlStatementTerminators("SELECT ';' AS value; -- keep ; in comment", 'postgres'),
+      "SELECT ';' AS value  -- keep ; in comment",
+    );
+    assert.equal(
+      stripSqlStatementTerminators('SELECT $$a;b$$ AS value;', 'postgres'),
+      'SELECT $$a;b$$ AS value ',
+    );
+    assert.equal(
+      stripSqlStatementTerminators("SELECT '\u{1F600}' AS value;", 'postgres'),
+      "SELECT '\u{1F600}' AS value ",
+    );
+  });
+
+  test('finds only outer pagination and ordering clauses', () => {
+    assert.deepEqual(analyzeSqlPagination('SELECT * FROM users ORDER BY id'), {
+      hasTopLevelOrderBy: true,
+      hasTopLevelRowLimit: false,
+    });
+    assert.deepEqual(
+      analyzeSqlPagination(
+        "SELECT 'LIMIT 1' AS label, (SELECT id FROM nested ORDER BY id LIMIT 1) AS nested_id",
+      ),
+      { hasTopLevelOrderBy: false, hasTopLevelRowLimit: false },
+    );
+    assert.deepEqual(
+      analyzeSqlPagination('SELECT * FROM users ORDER BY id OFFSET 10 ROWS FETCH NEXT 5 ROWS ONLY'),
+      { hasTopLevelOrderBy: true, hasTopLevelRowLimit: true },
+    );
+    assert.deepEqual(analyzeSqlPagination('SELECT TOP 5 * FROM users', 'mssql'), {
+      hasTopLevelOrderBy: false,
+      hasTopLevelRowLimit: true,
+    });
   });
 });
 
