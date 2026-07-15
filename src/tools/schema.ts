@@ -43,24 +43,45 @@ function getSchemaSql(engine: SqlEngine, database?: string): { sql: string; para
     case 'mssql':
       return {
         sql: `SELECT
-          TABLE_NAME as table_name,
-          COLUMN_NAME as column_name,
-          DATA_TYPE as data_type,
-          IS_NULLABLE as is_nullable,
-          COLUMN_DEFAULT as column_default
-        FROM INFORMATION_SCHEMA.COLUMNS
-        ORDER BY TABLE_NAME, ORDINAL_POSITION`,
+          c.TABLE_NAME as table_name,
+          c.COLUMN_NAME as column_name,
+          c.DATA_TYPE as data_type,
+          c.IS_NULLABLE as is_nullable,
+          CASE WHEN EXISTS (
+            SELECT 1
+            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+            JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
+              ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+             AND tc.TABLE_SCHEMA = ku.TABLE_SCHEMA
+             AND tc.TABLE_NAME = ku.TABLE_NAME
+            WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+              AND ku.TABLE_SCHEMA = c.TABLE_SCHEMA
+              AND ku.TABLE_NAME = c.TABLE_NAME
+              AND ku.COLUMN_NAME = c.COLUMN_NAME
+          ) THEN 'YES' ELSE 'NO' END as column_key,
+          c.COLUMN_DEFAULT as column_default
+        FROM INFORMATION_SCHEMA.COLUMNS c
+        ORDER BY c.TABLE_NAME, c.ORDINAL_POSITION`,
       };
     case 'oracle':
       return {
         sql: `SELECT
-          table_name,
-          column_name,
-          data_type,
-          nullable as is_nullable,
-          data_default as column_default
-        FROM user_tab_columns
-        ORDER BY table_name, column_id`,
+          c.table_name,
+          c.column_name,
+          c.data_type,
+          c.nullable as is_nullable,
+          CASE WHEN EXISTS (
+            SELECT 1
+            FROM user_constraints uc
+            JOIN user_cons_columns ucc
+              ON uc.constraint_name = ucc.constraint_name
+            WHERE uc.constraint_type = 'P'
+              AND ucc.table_name = c.table_name
+              AND ucc.column_name = c.column_name
+          ) THEN 'YES' ELSE 'NO' END as column_key,
+          c.data_default as column_default
+        FROM user_tab_columns c
+        ORDER BY c.table_name, c.column_id`,
       };
     case 'sqlite':
       return {
@@ -113,6 +134,8 @@ interface ColumnInfo {
   extra?: string;
 }
 
+type SchemaRow = Record<string, unknown>;
+
 interface TableSchema {
   name: string;
   columns: Array<{
@@ -140,21 +163,53 @@ interface SchemaDiff {
   }>;
 }
 
-function buildSchemaFromRows(rows: ColumnInfo[]): TableSchema[] {
+function schemaField(row: SchemaRow, name: string): unknown {
+  return row[name] ?? row[name.toUpperCase()];
+}
+
+function requiredSchemaField(row: SchemaRow, name: string): string {
+  const value = schemaField(row, name);
+  if (value === undefined || value === null || String(value).trim() === '') {
+    throw new Error(`Schema 元数据缺少字段 ${name}`);
+  }
+  return String(value);
+}
+
+function normalizeColumnInfo(row: SchemaRow): ColumnInfo {
+  const defaultValue = schemaField(row, 'column_default');
+  const extraValue = schemaField(row, 'extra');
+  return {
+    table_name: requiredSchemaField(row, 'table_name'),
+    column_name: requiredSchemaField(row, 'column_name'),
+    data_type: requiredSchemaField(row, 'data_type'),
+    is_nullable: requiredSchemaField(row, 'is_nullable'),
+    column_key: schemaField(row, 'column_key')?.toString(),
+    column_default:
+      defaultValue === undefined || defaultValue === null ? undefined : String(defaultValue),
+    extra: extraValue === undefined || extraValue === null ? undefined : String(extraValue),
+  };
+}
+
+function buildSchemaFromRows(rows: SchemaRow[]): TableSchema[] {
   const tables = new Map<string, TableSchema>();
 
-  for (const row of rows) {
+  for (const rawRow of rows) {
+    const row = normalizeColumnInfo(rawRow);
     let table = tables.get(row.table_name);
     if (!table) {
       table = { name: row.table_name, columns: [] };
       tables.set(row.table_name, table);
     }
 
+    const nullable = row.is_nullable.trim().toUpperCase();
+    const primaryKey = row.column_key?.trim().toUpperCase();
     table.columns.push({
       name: row.column_name,
       type: row.data_type,
-      nullable: row.is_nullable === 'YES',
-      primaryKey: row.column_key === 'PRI' || row.column_key === 'YES',
+      nullable: ['YES', 'Y', 'TRUE', '1'].includes(nullable),
+      primaryKey:
+        primaryKey !== undefined &&
+        ['PRI', 'YES', 'Y', 'TRUE', '1', 'PRIMARY KEY'].includes(primaryKey),
       default: row.column_default,
     });
   }
@@ -246,7 +301,7 @@ async function loadSqlSchema(
     throw new Error(res.error ?? 'Schema 查询失败');
   }
 
-  const rows = (res.data ?? []) as ColumnInfo[];
+  const rows = (res.data ?? []) as SchemaRow[];
   return { engine: driver.engine, tables: buildSchemaFromRows(rows), columnCount: rows.length };
 }
 

@@ -92,7 +92,11 @@ export interface MongoDriver {
     filter: Record<string, unknown>,
     options: { limit: number; skip?: number },
   ): Promise<unknown[]>;
-  aggregate(collection: string, pipeline: unknown[]): Promise<unknown[]>;
+  aggregate(
+    collection: string,
+    pipeline: unknown[],
+    options?: { limit?: number },
+  ): Promise<unknown[]>;
   count(collection: string, filter: Record<string, unknown>): Promise<number>;
   insertOne(collection: string, document: Record<string, unknown>): Promise<MongoInsertResult>;
   insertMany(collection: string, documents: Record<string, unknown>[]): Promise<MongoInsertResult>;

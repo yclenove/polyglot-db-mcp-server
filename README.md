@@ -267,6 +267,8 @@ docker compose up -d
 - `mongo_list_collections`、`mongo_find`、`mongo_aggregate`、`mongo_count`
 - `mongo_insert_one`、`mongo_insert_many`、`mongo_update_one`、`mongo_delete_one`
 - `mongo_begin_transaction`、`mongo_execute_in_transaction`、`mongo_commit`、`mongo_rollback`
+- 文档、filter 和 pipeline 参数支持 canonical Extended JSON，例如 `{"id":{"$numberLong":"9007199254740993"}}`。
+- `mongo_aggregate` 是只读工具，拒绝 `$out`/`$merge`，并对 `$lookup`、`$graphLookup`、`$unionWith` 执行集合 allowlist 校验。
 
 **Redis**
 
@@ -319,6 +321,7 @@ docker compose up -d
 | `DB_HTTP_HOST`、`DB_HTTP_PORT`、`DB_HTTP_ENDPOINT` | HTTP 监听地址、端口和 MCP endpoint |
 | `DB_HTTP_API_KEY`、`DB_HTTP_AUTH_DISABLED`、`DB_HTTP_ALLOWED_HOSTS`、`DB_HTTP_ORIGINS` | HTTP API key、显式关闭认证、Host 和 Origin allowlist |
 | `DB_QUERY_TIMEOUT`、`DB_MAX_ROWS`、`DB_MAX_SQL_LENGTH`、`DB_RETRY_COUNT`、`DB_RETRY_DELAY_MS` | 全局 SQL 限制（见 `src/core/config.ts`） |
+| `DB_MONGO_MAX_TIME_MS` | MongoDB `find`/`aggregate`/`count` 服务端超时；默认 `30000`，`0` 表示关闭 |
 | `DB_MASKING_MODE` | 脱敏模式：`off`（默认）、`loose`、`strict`、`strict-v2` |
 | `DB_MASKING_EXCLUDE_FIELDS` | 白名单字段（逗号分隔），这些字段不脱敏 |
 | `DB_MASKING_EXCLUDE_CONNECTIONS` | 排除脱敏的连接 ID（逗号分隔） |

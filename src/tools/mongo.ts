@@ -3,6 +3,17 @@ import { z } from 'zod';
 import type { ConnectionRegistry } from '../core/registry.js';
 import { createErrorPayload, type ErrorCode } from '../core/error-codes.js';
 import type { MongoTransaction, MongoTransactionOperation } from '../core/types.js';
+import {
+  parseMongoEjsonArray,
+  parseMongoEjsonObject as parseJsonObject,
+  parseMongoEjsonObjectArray as parseJsonObjectArray,
+  isMongoBsonValue,
+  stringifyMongoResult,
+} from '../core/mongo-ejson.js';
+import {
+  detectNoSqlInjection,
+  findDisallowedMongoPipelineCollection,
+} from '../core/mongo-guards.js';
 import { maskResultRows } from './result-masking.js';
 
 const activeMongoTransactions = new Map<
@@ -24,7 +35,17 @@ function analyzeDocument(
 ): void {
   for (const [key, value] of Object.entries(obj)) {
     const path = prefix ? `${prefix}.${key}` : key;
-    const type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
+    const bsonType = isMongoBsonValue(value) ? value._bsontype : undefined;
+    const type =
+      typeof bsonType === 'string'
+        ? `bson:${bsonType}`
+        : value instanceof Date
+          ? 'date'
+          : value === null
+            ? 'null'
+            : Array.isArray(value)
+              ? 'array'
+              : typeof value;
     if (!fieldMap.has(path)) fieldMap.set(path, new Set());
     fieldMap.get(path)!.add(type);
 
@@ -32,33 +53,6 @@ function analyzeDocument(
       analyzeDocument(value as Record<string, unknown>, path, fieldMap);
     }
   }
-}
-
-/** 检测 NoSQL 注入：递归检查对象中是否包含危险操作符 */
-function detectNoSqlInjection(obj: unknown, path = ''): string | null {
-  if (obj === null || typeof obj !== 'object') return null;
-
-  const dangerousTopLevel = ['$where', '$accumulator', '$function'];
-  const dangerousInFilter = ['$expr', '$regex'];
-
-  if (!Array.isArray(obj)) {
-    for (const key of Object.keys(obj as Record<string, unknown>)) {
-      const currentPath = path ? `${path}.${key}` : key;
-
-      if (dangerousTopLevel.includes(key)) {
-        return `潜在 NoSQL 注入风险：字段「${currentPath}」使用了危险操作符 ${key}`;
-      }
-      if (dangerousInFilter.includes(key)) {
-        return `潜在 NoSQL 注入风险：字段「${currentPath}」使用了 ${key}，可能被利用执行恶意逻辑`;
-      }
-
-      // 递归检查嵌套对象
-      const nested = detectNoSqlInjection((obj as Record<string, unknown>)[key], currentPath);
-      if (nested) return nested;
-    }
-  }
-
-  return null;
 }
 
 function codedMongoErrorText(code: ErrorCode, detail: string): string {
@@ -84,34 +78,6 @@ function ensureMongoTransactionCleanup(): void {
       }
     }
   }, 60_000).unref();
-}
-
-function parseJsonObject(raw: string | undefined, fieldName: string): Record<string, unknown> {
-  if (raw === undefined) {
-    throw new Error(`${fieldName} 为必填 JSON 对象字符串`);
-  }
-  const parsed = JSON.parse(raw) as unknown;
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new Error(`${fieldName} 须为 JSON 对象`);
-  }
-  return parsed as Record<string, unknown>;
-}
-
-function parseJsonObjectArray(
-  raw: string | undefined,
-  fieldName: string,
-): Record<string, unknown>[] {
-  if (raw === undefined) {
-    throw new Error(`${fieldName} 为必填 JSON 数组字符串`);
-  }
-  const parsed = JSON.parse(raw) as unknown;
-  if (!Array.isArray(parsed)) {
-    throw new Error(`${fieldName} 须为 JSON 数组`);
-  }
-  if (!parsed.every((item) => typeof item === 'object' && item !== null && !Array.isArray(item))) {
-    throw new Error(`${fieldName} 的每一项都必须是 JSON 对象`);
-  }
-  return parsed as Record<string, unknown>[];
 }
 
 function buildMongoTransactionOperation(input: {
@@ -185,7 +151,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         const names = await d.listCollections();
         return {
           content: [
-            { type: 'text', text: JSON.stringify({ connection_id: id, collections: names }) },
+            { type: 'text', text: stringifyMongoResult({ connection_id: id, collections: names }) },
           ],
         };
       } catch (e) {
@@ -237,7 +203,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           content: [
             {
               type: 'text',
-              text: JSON.stringify({ transaction_id: transactionId, connection_id: id }),
+              text: stringifyMongoResult({ transaction_id: transactionId, connection_id: id }),
             },
           ],
         };
@@ -310,7 +276,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           content: [
             {
               type: 'text',
-              text: JSON.stringify({
+              text: stringifyMongoResult({
                 transaction_id,
                 connection_id: entry.connectionId,
                 ...result,
@@ -346,7 +312,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         activeMongoTransactions.delete(transaction_id);
         return {
           content: [
-            { type: 'text', text: JSON.stringify({ transaction_id, status: 'committed' }) },
+            { type: 'text', text: stringifyMongoResult({ transaction_id, status: 'committed' }) },
           ],
         };
       } catch (e) {
@@ -379,7 +345,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         activeMongoTransactions.delete(transaction_id);
         return {
           content: [
-            { type: 'text', text: JSON.stringify({ transaction_id, status: 'rolled_back' }) },
+            { type: 'text', text: stringifyMongoResult({ transaction_id, status: 'rolled_back' }) },
           ],
         };
       } catch (e) {
@@ -394,24 +360,21 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
   server.registerTool(
     'mongo_insert_one',
     {
-      description: '向集合插入单个文档。document_json 为 JSON 对象字符串。',
+      description: '向集合插入单个文档。document_json 支持 JSON 和 MongoDB Extended JSON。',
       inputSchema: {
         connection_id: z.string().optional(),
         collection: z.string(),
-        document_json: z.string().describe('JSON 对象字符串'),
+        document_json: z.string().describe('JSON/EJSON 对象字符串'),
       },
     },
     async ({ connection_id, collection, document_json }) => {
       try {
         const id = registry.resolveConnectionId(connection_id);
         const d = registry.requireMongo(id);
-        const document = JSON.parse(document_json) as Record<string, unknown>;
-        if (typeof document !== 'object' || document === null || Array.isArray(document)) {
-          throw new Error('document_json 须为 JSON 对象');
-        }
+        const document = parseJsonObject(document_json, 'document_json');
         const result = await d.insertOne(collection, document);
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, ...result }) }],
+          content: [{ type: 'text', text: stringifyMongoResult({ connection_id: id, ...result }) }],
         };
       } catch (e) {
         return {
@@ -425,24 +388,21 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
   server.registerTool(
     'mongo_insert_many',
     {
-      description: '向集合插入多个文档。documents_json 为 JSON 数组字符串。',
+      description: '向集合插入多个文档。documents_json 支持 JSON 和 MongoDB Extended JSON。',
       inputSchema: {
         connection_id: z.string().optional(),
         collection: z.string(),
-        documents_json: z.string().describe('JSON 数组字符串'),
+        documents_json: z.string().describe('JSON/EJSON 数组字符串'),
       },
     },
     async ({ connection_id, collection, documents_json }) => {
       try {
         const id = registry.resolveConnectionId(connection_id);
         const d = registry.requireMongo(id);
-        const documents = JSON.parse(documents_json) as unknown;
-        if (!Array.isArray(documents)) {
-          throw new Error('documents_json 须为 JSON 数组');
-        }
-        const result = await d.insertMany(collection, documents as Record<string, unknown>[]);
+        const documents = parseJsonObjectArray(documents_json, 'documents_json');
+        const result = await d.insertMany(collection, documents);
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, ...result }) }],
+          content: [{ type: 'text', text: stringifyMongoResult({ connection_id: id, ...result }) }],
         };
       } catch (e) {
         return {
@@ -469,11 +429,8 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
       try {
         const id = registry.resolveConnectionId(connection_id);
         const d = registry.requireMongo(id);
-        const filter = JSON.parse(filter_json) as Record<string, unknown>;
-        const update = JSON.parse(update_json) as Record<string, unknown>;
-        if (typeof filter !== 'object' || filter === null || Array.isArray(filter)) {
-          throw new Error('filter_json 须为 JSON 对象');
-        }
+        const filter = parseJsonObject(filter_json, 'filter_json');
+        const update = parseJsonObject(update_json, 'update_json');
         const injection = detectNoSqlInjection(filter);
         if (injection) {
           return {
@@ -481,12 +438,9 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
             isError: true,
           };
         }
-        if (typeof update !== 'object' || update === null || Array.isArray(update)) {
-          throw new Error('update_json 须为 JSON 对象');
-        }
         const result = await d.updateOne(collection, filter, update, { upsert });
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, ...result }) }],
+          content: [{ type: 'text', text: stringifyMongoResult({ connection_id: id, ...result }) }],
         };
       } catch (e) {
         return {
@@ -511,15 +465,12 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
       try {
         const id = registry.resolveConnectionId(connection_id);
         const d = registry.requireMongo(id);
-        const filter = JSON.parse(filter_json) as Record<string, unknown>;
-        if (typeof filter !== 'object' || filter === null || Array.isArray(filter)) {
-          throw new Error('filter_json 须为 JSON 对象');
-        }
+        const filter = parseJsonObject(filter_json, 'filter_json');
         const injection = detectNoSqlInjection(filter);
         if (injection) throw new Error(injection);
         const result = await d.deleteOne(collection, filter);
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, ...result }) }],
+          content: [{ type: 'text', text: stringifyMongoResult({ connection_id: id, ...result }) }],
         };
       } catch (e) {
         return {
@@ -533,11 +484,11 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
   server.registerTool(
     'mongo_find',
     {
-      description: '在集合上执行 find。filter 为 JSON 对象；limit 默认 50，最大 500。',
+      description: '在集合上执行 find。filter 支持 JSON/EJSON；limit 默认 50，最大 500。',
       inputSchema: {
         connection_id: z.string().optional(),
         collection: z.string(),
-        filter_json: z.string().optional().describe('JSON 对象字符串，默认 {}'),
+        filter_json: z.string().optional().describe('JSON/EJSON 对象字符串，默认 {}'),
         limit: z.number().int().min(1).max(500).optional(),
         skip: z.number().int().min(0).optional(),
       },
@@ -546,10 +497,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
       try {
         const id = registry.resolveConnectionId(connection_id);
         const d = registry.requireMongo(id);
-        const filter = filter_json ? (JSON.parse(filter_json) as Record<string, unknown>) : {};
-        if (typeof filter !== 'object' || filter === null || Array.isArray(filter)) {
-          throw new Error('filter_json 须为 JSON 对象');
-        }
+        const filter = filter_json ? parseJsonObject(filter_json, 'filter_json') : {};
         const injection = detectNoSqlInjection(filter);
         if (injection) {
           return {
@@ -560,7 +508,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         const lim = limit ?? 50;
         const rows = maskResultRows(await d.find(collection, filter, { limit: lim, skip }));
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, rows }) }],
+          content: [{ type: 'text', text: stringifyMongoResult({ connection_id: id, rows }) }],
         };
       } catch (e) {
         return {
@@ -574,28 +522,68 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
   server.registerTool(
     'mongo_aggregate',
     {
-      description: '对集合执行聚合管道。pipeline_json 为 JSON 数组字符串。',
+      description: '执行只读聚合管道。支持 JSON/EJSON，拒绝 $out/$merge；limit 默认 50，最大 500。',
       inputSchema: {
         connection_id: z.string().optional(),
         collection: z.string(),
         pipeline_json: z.string(),
+        limit: z.number().int().min(1).max(500).optional(),
       },
     },
-    async ({ connection_id, collection, pipeline_json }) => {
+    async ({ connection_id, collection, pipeline_json, limit }) => {
       try {
         const id = registry.resolveConnectionId(connection_id);
-        const d = registry.requireMongo(id);
-        const pipeline = JSON.parse(pipeline_json) as unknown;
-        if (!Array.isArray(pipeline)) {
-          throw new Error('pipeline_json 须为 JSON 数组');
+        const h = registry.require(id);
+        if (h.kind !== 'mongo') {
+          return {
+            content: [
+              { type: 'text', text: codedMongoErrorText('MONGO_001', `当前连接类型: ${h.kind}`) },
+            ],
+            isError: true,
+          };
         }
-        for (const stage of pipeline) {
-          const injection = detectNoSqlInjection(stage);
-          if (injection) throw new Error(injection);
+        const pipeline = parseMongoEjsonArray(pipeline_json, 'pipeline_json');
+        const injection = detectNoSqlInjection(pipeline);
+        if (injection) {
+          return {
+            content: [{ type: 'text', text: codedMongoErrorText('MONGO_003', injection) }],
+            isError: true,
+          };
         }
-        const rows = maskResultRows(await d.aggregate(collection, pipeline));
+        const disallowedCollection = findDisallowedMongoPipelineCollection(
+          pipeline,
+          h.spec.allowlist,
+        );
+        if (disallowedCollection) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: codedMongoErrorText(
+                  'MONGO_002',
+                  `聚合管道引用了未授权集合「${disallowedCollection}」`,
+                ),
+              },
+            ],
+            isError: true,
+          };
+        }
+        const maxRows = limit ?? 50;
+        const rows = maskResultRows(
+          await h.driver.aggregate(collection, pipeline, { limit: maxRows }),
+        );
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, rows }) }],
+          content: [
+            {
+              type: 'text',
+              text: stringifyMongoResult({
+                connection_id: id,
+                rows,
+                returnedRows: rows.length,
+                limit: maxRows,
+              }),
+            },
+          ],
         };
       } catch (e) {
         return {
@@ -620,15 +608,12 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
       try {
         const id = registry.resolveConnectionId(connection_id);
         const d = registry.requireMongo(id);
-        const filter = filter_json ? (JSON.parse(filter_json) as Record<string, unknown>) : {};
-        if (typeof filter !== 'object' || filter === null || Array.isArray(filter)) {
-          throw new Error('filter_json 须为 JSON 对象');
-        }
+        const filter = filter_json ? parseJsonObject(filter_json, 'filter_json') : {};
         const injection = detectNoSqlInjection(filter);
         if (injection) throw new Error(injection);
         const n = await d.count(collection, filter);
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, count: n }) }],
+          content: [{ type: 'text', text: stringifyMongoResult({ connection_id: id, count: n }) }],
         };
       } catch (e) {
         return {
@@ -657,7 +642,10 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         const indexes = await d.listIndexes(collection);
         return {
           content: [
-            { type: 'text', text: JSON.stringify({ connection_id: id, collection, indexes }) },
+            {
+              type: 'text',
+              text: stringifyMongoResult({ connection_id: id, collection, indexes }),
+            },
           ],
         };
       } catch (e) {
@@ -696,7 +684,10 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         const indexName = await d.createIndex(collection, keys, { name, unique, sparse });
         return {
           content: [
-            { type: 'text', text: JSON.stringify({ connection_id: id, collection, indexName }) },
+            {
+              type: 'text',
+              text: stringifyMongoResult({ connection_id: id, collection, indexName }),
+            },
           ],
         };
       } catch (e) {
@@ -725,19 +716,13 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
       try {
         const id = registry.resolveConnectionId(connection_id);
         const d = registry.requireMongo(id);
-        const filter = JSON.parse(filter_json) as Record<string, unknown>;
-        const update = JSON.parse(update_json) as Record<string, unknown>;
-        if (typeof filter !== 'object' || filter === null || Array.isArray(filter)) {
-          throw new Error('filter_json 须为 JSON 对象');
-        }
+        const filter = parseJsonObject(filter_json, 'filter_json');
+        const update = parseJsonObject(update_json, 'update_json');
         const injection = detectNoSqlInjection(filter);
         if (injection) throw new Error(injection);
-        if (typeof update !== 'object' || update === null || Array.isArray(update)) {
-          throw new Error('update_json 须为 JSON 对象');
-        }
         const result = await d.updateMany(collection, filter, update);
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, ...result }) }],
+          content: [{ type: 'text', text: stringifyMongoResult({ connection_id: id, ...result }) }],
         };
       } catch (e) {
         return {
@@ -762,15 +747,12 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
       try {
         const id = registry.resolveConnectionId(connection_id);
         const d = registry.requireMongo(id);
-        const filter = JSON.parse(filter_json) as Record<string, unknown>;
-        if (typeof filter !== 'object' || filter === null || Array.isArray(filter)) {
-          throw new Error('filter_json 须为 JSON 对象');
-        }
+        const filter = parseJsonObject(filter_json, 'filter_json');
         const injection = detectNoSqlInjection(filter);
         if (injection) throw new Error(injection);
         const result = await d.deleteMany(collection, filter);
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, ...result }) }],
+          content: [{ type: 'text', text: stringifyMongoResult({ connection_id: id, ...result }) }],
         };
       } catch (e) {
         return {
@@ -801,23 +783,17 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
       try {
         const id = registry.resolveConnectionId(connection_id);
         const d = registry.requireMongo(id);
-        const filter = JSON.parse(filter_json) as Record<string, unknown>;
-        const update = JSON.parse(update_json) as Record<string, unknown>;
-        if (typeof filter !== 'object' || filter === null || Array.isArray(filter)) {
-          throw new Error('filter_json 须为 JSON 对象');
-        }
+        const filter = parseJsonObject(filter_json, 'filter_json');
+        const update = parseJsonObject(update_json, 'update_json');
         const injection = detectNoSqlInjection(filter);
         if (injection) throw new Error(injection);
-        if (typeof update !== 'object' || update === null || Array.isArray(update)) {
-          throw new Error('update_json 须为 JSON 对象');
-        }
         const result = await d.findOneAndUpdate(collection, filter, update, {
           upsert,
           returnDocument,
         });
         return {
           content: [
-            { type: 'text', text: JSON.stringify({ connection_id: id, document: result }) },
+            { type: 'text', text: stringifyMongoResult({ connection_id: id, document: result }) },
           ],
         };
       } catch (e) {
@@ -843,16 +819,13 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
       try {
         const id = registry.resolveConnectionId(connection_id);
         const d = registry.requireMongo(id);
-        const filter = JSON.parse(filter_json) as Record<string, unknown>;
-        if (typeof filter !== 'object' || filter === null || Array.isArray(filter)) {
-          throw new Error('filter_json 须为 JSON 对象');
-        }
+        const filter = parseJsonObject(filter_json, 'filter_json');
         const injection = detectNoSqlInjection(filter);
         if (injection) throw new Error(injection);
         const result = await d.findOneAndDelete(collection, filter);
         return {
           content: [
-            { type: 'text', text: JSON.stringify({ connection_id: id, document: result }) },
+            { type: 'text', text: stringifyMongoResult({ connection_id: id, document: result }) },
           ],
         };
       } catch (e) {
@@ -899,7 +872,7 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
           content: [
             {
               type: 'text',
-              text: JSON.stringify({
+              text: stringifyMongoResult({
                 connection_id: id,
                 collection,
                 sampleSize: docs.length,
@@ -934,7 +907,9 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         const d = registry.requireMongo(id);
         const result = await d.dropCollection(collection);
         return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, dropped: result }) }],
+          content: [
+            { type: 'text', text: stringifyMongoResult({ connection_id: id, dropped: result }) },
+          ],
         };
       } catch (e) {
         return {
@@ -962,7 +937,10 @@ export function registerMongoTools(server: McpServer, registry: ConnectionRegist
         const result = await d.renameCollection(collection, newName);
         return {
           content: [
-            { type: 'text', text: JSON.stringify({ connection_id: id, collectionName: result }) },
+            {
+              type: 'text',
+              text: stringifyMongoResult({ connection_id: id, collectionName: result }),
+            },
           ],
         };
       } catch (e) {

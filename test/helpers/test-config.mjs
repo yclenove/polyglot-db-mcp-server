@@ -49,34 +49,56 @@ export async function checkTestEnv(engine) {
         database: conn.database,
         connectTimeout: 3000,
       });
-      await pool.query('SELECT 1');
-      await pool.end();
-      return true;
+      try {
+        await pool.query('SELECT 1');
+        return true;
+      } finally {
+        await pool.end().catch(() => {});
+      }
     }
     if (engine === 'postgres') {
       const pg = await import('pg');
-      const client = new pg.Client({ connectionString: conn.url });
-      await client.connect();
-      await client.query('SELECT 1');
-      await client.end();
-      return true;
+      const client = new pg.Client({ connectionString: conn.url, connectionTimeoutMillis: 3000 });
+      try {
+        await client.connect();
+        await client.query('SELECT 1');
+        return true;
+      } finally {
+        await client.end().catch(() => {});
+      }
     }
     if (engine === 'redis') {
       const { Redis } = await import('ioredis');
-      const redis = new Redis(conn.url);
-      await redis.ping();
-      redis.disconnect();
-      return true;
+      const redis = new Redis(conn.url, { connectTimeout: 3000, maxRetriesPerRequest: 1 });
+      redis.on('error', () => {});
+      try {
+        await redis.ping();
+        return true;
+      } finally {
+        redis.disconnect();
+      }
     }
     if (engine === 'mongodb') {
       const { MongoClient } = await import('mongodb');
-      const client = new MongoClient(conn.url);
-      await client.connect();
-      await client.db().admin().ping();
-      await client.close();
-      return true;
+      const client = new MongoClient(conn.url, {
+        connectTimeoutMS: 3000,
+        serverSelectionTimeoutMS: 3000,
+      });
+      try {
+        await client.connect();
+        await client.db().admin().ping();
+        return true;
+      } finally {
+        await client.close().catch(() => {});
+      }
     }
-  } catch {
+  } catch (error) {
+    if (process.env.TEST_INTEGRATION_REQUIRED === 'true') {
+      throw new Error(
+        `${engine} integration environment is required but unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
     return false;
   }
   return false;

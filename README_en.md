@@ -232,6 +232,8 @@ When you **explicitly** pass `connection_id` on any tool, it must match a config
 
 - `mongo_list_collections`, `mongo_find`, `mongo_aggregate`, `mongo_count`
 - `mongo_begin_transaction`, `mongo_execute_in_transaction`, `mongo_commit`, `mongo_rollback`
+- Document, filter, and pipeline inputs accept canonical Extended JSON, for example `{"id":{"$numberLong":"9007199254740993"}}`.
+- `mongo_aggregate` is read-only: `$out`/`$merge` are rejected and `$lookup`, `$graphLookup`, and `$unionWith` must stay inside the collection allowlist.
 
 **Redis**
 
@@ -248,6 +250,7 @@ When you **explicitly** pass `connection_id` on any tool, it must match a config
 | `DB_HTTP_HOST`, `DB_HTTP_PORT`, `DB_HTTP_ENDPOINT` | HTTP bind host, port, and MCP endpoint |
 | `DB_HTTP_API_KEY`, `DB_HTTP_AUTH_DISABLED`, `DB_HTTP_ALLOWED_HOSTS`, `DB_HTTP_ORIGINS` | HTTP API key, explicit auth disable flag, and Host/Origin allowlists |
 | `DB_QUERY_TIMEOUT`, `DB_MAX_ROWS`, `DB_MAX_SQL_LENGTH`, `DB_RETRY_COUNT`, `DB_RETRY_DELAY_MS` | Global SQL limits (see `src/core/config.ts`) |
+| `DB_MONGO_MAX_TIME_MS` | Server-side timeout for MongoDB `find`/`aggregate`/`count`; defaults to `30000`, `0` disables it |
 | `DB_AUDIT_SINK`, `DB_AUDIT_FILE_PATH`, `DB_AUDIT_WEBHOOK_URL` | In-memory, file, or webhook audit sink |
 | `DB_ALERT_ENABLED`, `DB_ALERT_WEBHOOK_URL` | Explicit opt-in webhook alerts |
 | `DB_OTEL_ENABLED`, `DB_OTEL_OTLP_ENDPOINT` | Explicit opt-in OpenTelemetry trace exporter |

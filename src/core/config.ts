@@ -143,6 +143,16 @@ export function globalLimits() {
   };
 }
 
+export function mongoLimits() {
+  const configured = parseInt(
+    process.env.DB_MONGO_MAX_TIME_MS || process.env.DB_QUERY_TIMEOUT || '30000',
+    10,
+  );
+  return {
+    maxTimeMs: Number.isFinite(configured) && configured >= 0 ? configured : 30_000,
+  };
+}
+
 export function maskingLimits() {
   return {
     mode: (process.env.DB_MASKING_MODE ?? 'off') as 'off' | 'loose' | 'strict',

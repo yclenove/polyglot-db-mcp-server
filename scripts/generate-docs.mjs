@@ -222,11 +222,11 @@ const tools = [
   {
     name: 'mongo_find',
     category: 'MongoDB',
-    description: '在集合上执行 find。filter 为 JSON 对象；limit 默认 50，最大 500。',
+    description: '在集合上执行 find。filter 支持 JSON/EJSON；limit 默认 50，最大 500。',
     params: [
       { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
       { name: 'collection', type: 'string', required: true, description: '集合名称' },
-      { name: 'filter_json', type: 'string', required: false, description: 'JSON 对象字符串，默认 {}' },
+      { name: 'filter_json', type: 'string', required: false, description: 'JSON/EJSON 对象字符串，默认 {}' },
       { name: 'limit', type: 'number', required: false, description: '最大返回行数，默认 50' },
       { name: 'skip', type: 'number', required: false, description: '跳过行数' },
     ],
@@ -234,11 +234,12 @@ const tools = [
   {
     name: 'mongo_aggregate',
     category: 'MongoDB',
-    description: '对集合执行聚合管道。pipeline_json 为 JSON 数组字符串。',
+    description: '执行只读聚合管道。支持 JSON/EJSON，拒绝 $out/$merge；limit 默认 50，最大 500。',
     params: [
       { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
       { name: 'collection', type: 'string', required: true, description: '集合名称' },
-      { name: 'pipeline_json', type: 'string', required: true, description: 'JSON 数组字符串' },
+      { name: 'pipeline_json', type: 'string', required: true, description: 'JSON/EJSON 数组字符串' },
+      { name: 'limit', type: 'number', required: false, description: '最大返回文档数，默认 50，最大 500' },
     ],
   },
   {
@@ -254,17 +255,17 @@ const tools = [
   {
     name: 'mongo_insert_one',
     category: 'MongoDB',
-    description: '向集合插入单个文档。document_json 为 JSON 对象字符串。',
+    description: '向集合插入单个文档。document_json 支持 JSON 和 MongoDB Extended JSON。',
     params: [
       { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
       { name: 'collection', type: 'string', required: true, description: '集合名称' },
-      { name: 'document_json', type: 'string', required: true, description: 'JSON 对象字符串' },
+      { name: 'document_json', type: 'string', required: true, description: 'JSON/EJSON 对象字符串' },
     ],
   },
   {
     name: 'mongo_insert_many',
     category: 'MongoDB',
-    description: '向集合插入多个文档。documents_json 为 JSON 数组字符串。',
+    description: '向集合插入多个文档。documents_json 支持 JSON 和 MongoDB Extended JSON。',
     params: [
       { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
       { name: 'collection', type: 'string', required: true, description: '集合名称' },

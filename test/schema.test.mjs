@@ -298,6 +298,52 @@ describe('Schema tools integration', () => {
     assert.deepEqual(driver.queries[0].params, ['analytics']);
   });
 
+  test('schema_export normalizes Oracle metadata keys and preserves nullability and primary keys', async () => {
+    const server = new MockMcpServer();
+    const registry = new MockSchemaRegistry();
+    const driver = new MockSchemaDriver('oracle', [
+      {
+        TABLE_NAME: 'USERS',
+        COLUMN_NAME: 'ID',
+        DATA_TYPE: 'NUMBER',
+        IS_NULLABLE: 'N',
+        COLUMN_KEY: 'YES',
+        COLUMN_DEFAULT: null,
+      },
+      {
+        TABLE_NAME: 'USERS',
+        COLUMN_NAME: 'NAME',
+        DATA_TYPE: 'VARCHAR2',
+        IS_NULLABLE: 'Y',
+        COLUMN_KEY: 'NO',
+        COLUMN_DEFAULT: "'anonymous'",
+      },
+    ]);
+    registry.drivers.set('source', driver);
+
+    const { registerSchemaTools } = await import('../dist/tools/schema.js');
+    registerSchemaTools(server, registry);
+
+    const jsonResult = await server.tools.get('schema_export').handler({
+      connection_id: 'source',
+      format: 'json',
+    });
+    const data = JSON.parse(jsonResult.content[0].text);
+    assert.equal(data.table_count, 1);
+    assert.equal(data.tables[0].name, 'USERS');
+    assert.equal(data.tables[0].columns[0].primaryKey, true);
+    assert.equal(data.tables[0].columns[0].nullable, false);
+    assert.equal(data.tables[0].columns[1].nullable, true);
+    assert.match(driver.queries[0].sql, /user_constraints/);
+
+    const ddlResult = await server.tools.get('schema_export').handler({
+      connection_id: 'source',
+      format: 'sql',
+    });
+    assert.match(ddlResult.content[0].text, /CREATE TABLE USERS/);
+    assert.match(ddlResult.content[0].text, /PRIMARY KEY \(ID\)/);
+  });
+
   test('schema_diff reports table and column differences', async () => {
     const server = new MockMcpServer();
     const registry = new MockSchemaRegistry();

@@ -108,6 +108,7 @@ DB_MCP_DEFAULT_CONNECTION_ID=local
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
 | `DB_QUERY_TIMEOUT` | `30000` | 查询超时，毫秒 |
+| `DB_MONGO_MAX_TIME_MS` | `30000` | MongoDB `find`、`aggregate`、`count` 的服务端 `maxTimeMS`；未设置时回退 `DB_QUERY_TIMEOUT`，`0` 表示关闭 |
 | `DB_MAX_ROWS` | `100` | 单次结果最大行数 |
 | `DB_MAX_SQL_LENGTH` | `102400` | SQL 最大长度 |
 | `DB_RETRY_COUNT` | `2` | SQL 驱动重试次数 |

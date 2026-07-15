@@ -8,10 +8,16 @@
 
 ### 修复
 - MySQL、Oracle 和 SQLite 大整数查询不再发生 JavaScript `number` 精度损失；超过安全整数范围的值以字符串返回。
+- MongoDB 工具支持 canonical Extended JSON，`Long`、`ObjectId`、`Decimal128` 等 BSON 类型不再被普通 JSON 序列化破坏。
 - SQLite 只读模式仅允许明确的元数据 PRAGMA，拒绝 `journal_mode`、`foreign_keys` 和 `writable_schema` 等状态修改。
+- MongoDB `find`、`aggregate`、`count` 使用服务端 `maxTimeMS`；聚合默认限制 50 条、最大 500 条结果。
+- 多连接启动中任一驱动创建失败时，会关闭其他已成功创建的驱动，避免连接池和后台定时器泄漏。
+- Docker 集成测试使用 Node 原生 skip 统计，并支持 `TEST_INTEGRATION_REQUIRED=true` 强制环境缺失时失败，不再把未执行用例计为通过。
+- `schema_export`/`schema_diff` 兼容 Oracle 大写元数据键和 `Y`/`N` 可空标记，并补齐 Oracle、SQL Server 主键识别，避免导出错误表名或遗漏主键。
 
 ### 安全
 - 加固 `sql_query` 只读扫描，拒绝堆叠语句、可写 CTE、MySQL 可执行注释、SQL Server 动态执行、反斜杠引号差异及锁定/`SELECT INTO` 查询。
+- 加固 MongoDB 查询 guard：递归扫描数组中的危险 operator，拒绝伪造 `_bsontype` 跳过扫描和聚合 `$out`/`$merge` 写入阶段，并阻止 `$lookup`、`$graphLookup`、`$unionWith` 绕过集合 allowlist。
 - 新增 `DB_HTTP_ALLOWED_HOSTS` 并在所有 HTTP 路由前校验 Host，降低 DNS rebinding 和 Host 欺骗风险。
 
 ## [3.0.0] - 2026-07-10

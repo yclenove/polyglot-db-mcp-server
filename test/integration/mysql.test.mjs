@@ -20,20 +20,22 @@ describe('MySQL Integration', () => {
     if (driver) await driver.close();
   });
 
-  test('ping succeeds', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  function integrationTest(name, handler) {
+    test(name, async (t) => {
+      if (!isAvailable) {
+        t.skip(SKIP_REASON);
+        return;
+      }
+      await handler();
+    });
+  }
+
+  integrationTest('ping succeeds', async () => {
     const result = await driver.ping();
     assert.equal(result.ok, true);
   });
 
-  test('execute SELECT 1', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('execute SELECT 1', async () => {
     const result = await driver.execute('SELECT 1 AS val', [], {
       mode: 'readonly',
       maxRows: 10,
@@ -44,11 +46,7 @@ describe('MySQL Integration', () => {
     assert.ok(Array.isArray(result.data));
   });
 
-  test('readonly mode blocks INSERT', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('readonly mode blocks INSERT', async () => {
     const result = await driver.execute('INSERT INTO nonexistent VALUES (1)', [], {
       mode: 'readonly',
       maxRows: 10,
@@ -59,11 +57,7 @@ describe('MySQL Integration', () => {
     assert.ok(result.error);
   });
 
-  test('SQL length limit enforced', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('SQL length limit enforced', async () => {
     const longSql = 'SELECT ' + 'x'.repeat(100000);
     const result = await driver.execute(longSql, [], {
       mode: 'readonly',
@@ -75,11 +69,7 @@ describe('MySQL Integration', () => {
     assert.ok(result.error.includes('长度限制'));
   });
 
-  test('beginTransaction returns transaction object', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('beginTransaction returns transaction object', async () => {
     const tx = await driver.beginTransaction();
     assert.ok(typeof tx.execute === 'function');
     assert.ok(typeof tx.commit === 'function');
@@ -87,11 +77,7 @@ describe('MySQL Integration', () => {
     await tx.rollback();
   });
 
-  test('transaction rollback works', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('transaction rollback works', async () => {
     const tx = await driver.beginTransaction();
     // Execute a safe query in transaction
     const result = await tx.execute('SELECT 1 AS val', [], {

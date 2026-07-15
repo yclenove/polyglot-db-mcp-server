@@ -20,20 +20,22 @@ describe('PostgreSQL Integration', () => {
     if (driver) await driver.close();
   });
 
-  test('ping succeeds', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  function integrationTest(name, handler) {
+    test(name, async (t) => {
+      if (!isAvailable) {
+        t.skip(SKIP_REASON);
+        return;
+      }
+      await handler();
+    });
+  }
+
+  integrationTest('ping succeeds', async () => {
     const result = await driver.ping();
     assert.equal(result.ok, true);
   });
 
-  test('execute SELECT 1', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('execute SELECT 1', async () => {
     const result = await driver.execute('SELECT 1 AS val', [], {
       mode: 'readonly',
       maxRows: 10,
@@ -44,11 +46,7 @@ describe('PostgreSQL Integration', () => {
     assert.ok(Array.isArray(result.data));
   });
 
-  test('execute with parameters', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('execute with parameters', async () => {
     const result = await driver.execute('SELECT $1::int AS val', [42], {
       mode: 'readonly',
       maxRows: 10,
@@ -59,11 +57,7 @@ describe('PostgreSQL Integration', () => {
     assert.ok(Array.isArray(result.data));
   });
 
-  test('readonly mode blocks INSERT', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('readonly mode blocks INSERT', async () => {
     const result = await driver.execute('INSERT INTO nonexistent VALUES (1)', [], {
       mode: 'readonly',
       maxRows: 10,
@@ -74,11 +68,7 @@ describe('PostgreSQL Integration', () => {
     assert.ok(result.error);
   });
 
-  test('SQL length limit enforced', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('SQL length limit enforced', async () => {
     const longSql = 'SELECT ' + 'x'.repeat(100000);
     const result = await driver.execute(longSql, [], {
       mode: 'readonly',
@@ -90,11 +80,7 @@ describe('PostgreSQL Integration', () => {
     assert.ok(result.error.includes('长度限制'));
   });
 
-  test('beginTransaction returns transaction object', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('beginTransaction returns transaction object', async () => {
     const tx = await driver.beginTransaction();
     assert.ok(typeof tx.execute === 'function');
     assert.ok(typeof tx.commit === 'function');
@@ -102,11 +88,7 @@ describe('PostgreSQL Integration', () => {
     await tx.rollback();
   });
 
-  test('transaction commit and rollback', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('transaction commit and rollback', async () => {
     // Rollback test
     const tx = await driver.beginTransaction();
     const result = await tx.execute('SELECT $1::text AS greeting', ['hello'], {
@@ -119,12 +101,8 @@ describe('PostgreSQL Integration', () => {
     await tx.rollback();
   });
 
-  test('returns field metadata', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
-    const result = await driver.execute('SELECT 1 AS id, \'test\' AS name', [], {
+  integrationTest('returns field metadata', async () => {
+    const result = await driver.execute("SELECT 1 AS id, 'test' AS name", [], {
       mode: 'readonly',
       maxRows: 10,
       queryTimeoutMs: 5000,

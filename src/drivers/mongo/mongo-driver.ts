@@ -2,6 +2,11 @@ import { MongoClient, type Db } from 'mongodb';
 import type { ConnectionSpec } from '../../core/types.js';
 import type { MongoDriver, MongoTransactionOperation } from '../../core/types.js';
 import { auditLog } from '../../core/audit.js';
+import { mongoLimits } from '../../core/config.js';
+import {
+  detectNoSqlInjection,
+  getMongoPipelineReferencedCollections,
+} from '../../core/mongo-guards.js';
 
 type MongoCreateIndexOptions = NonNullable<Parameters<MongoDriver['createIndex']>[2]>;
 
@@ -28,6 +33,8 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
   const client = new MongoClient(url);
   await client.connect();
   const db = dbFromClient(client, spec);
+  const { maxTimeMs } = mongoLimits();
+  const readOptions = maxTimeMs > 0 ? { maxTimeMS: maxTimeMs } : {};
 
   function assertCollectionAllowed(name: string): void {
     if (!spec.allowlist?.length) return;
@@ -42,6 +49,11 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
     }
   }
 
+  function assertSafeQuery(value: unknown): void {
+    const violation = detectNoSqlInjection(value);
+    if (violation) throw new Error(violation);
+  }
+
   return {
     async ping() {
       try {
@@ -52,7 +64,7 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
       }
     },
     async listCollections() {
-      const cols = await db.listCollections().toArray();
+      const cols = await db.listCollections({}, readOptions).toArray();
       const names = cols.map((c) => c.name).filter((n) => !n.startsWith('system.'));
       if (spec.allowlist?.length) {
         return names.filter((n) => spec.allowlist!.includes(n));
@@ -61,24 +73,34 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
     },
     async find(collection, filter, options) {
       assertCollectionAllowed(collection);
-      const cur = db.collection(collection).find(filter).limit(options.limit);
-      if (options.skip) cur.skip(options.skip);
+      assertSafeQuery(filter);
+      const cur = db.collection(collection).find(filter, {
+        ...readOptions,
+        limit: options.limit,
+        skip: options.skip,
+      });
       const rows = await cur.toArray();
       auditLog({ engine: 'mongodb', op: 'find', collection, n: rows.length });
       return rows;
     },
-    async aggregate(collection, pipeline) {
+    async aggregate(collection, pipeline, options) {
       assertCollectionAllowed(collection);
+      assertSafeQuery(pipeline);
+      for (const referenced of getMongoPipelineReferencedCollections(pipeline)) {
+        assertCollectionAllowed(referenced);
+      }
+      const limit = Math.max(1, Math.min(options?.limit ?? 500, 500));
       const rows = await db
         .collection(collection)
-        .aggregate(pipeline as [])
+        .aggregate([...pipeline, { $limit: limit }] as import('mongodb').Document[], readOptions)
         .toArray();
       auditLog({ engine: 'mongodb', op: 'aggregate', collection, n: rows.length });
       return rows;
     },
     async count(collection, filter) {
       assertCollectionAllowed(collection);
-      return db.collection(collection).countDocuments(filter);
+      assertSafeQuery(filter);
+      return db.collection(collection).countDocuments(filter, readOptions);
     },
     async insertOne(collection, document) {
       assertCollectionAllowed(collection);
@@ -105,6 +127,7 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
     async updateOne(collection, filter, update, options) {
       assertCollectionAllowed(collection);
       assertNotReadonly();
+      assertSafeQuery(filter);
       const result = await db.collection(collection).updateOne(filter, update, options);
       auditLog({ engine: 'mongodb', op: 'updateOne', collection });
       return {
@@ -117,6 +140,7 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
     async deleteOne(collection, filter) {
       assertCollectionAllowed(collection);
       assertNotReadonly();
+      assertSafeQuery(filter);
       const result = await db.collection(collection).deleteOne(filter);
       auditLog({ engine: 'mongodb', op: 'deleteOne', collection });
       return {
@@ -127,6 +151,7 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
     async updateMany(collection, filter, update) {
       assertCollectionAllowed(collection);
       assertNotReadonly();
+      assertSafeQuery(filter);
       const result = await db.collection(collection).updateMany(filter, update);
       auditLog({
         engine: 'mongodb',
@@ -145,6 +170,7 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
     async deleteMany(collection, filter) {
       assertCollectionAllowed(collection);
       assertNotReadonly();
+      assertSafeQuery(filter);
       const result = await db.collection(collection).deleteMany(filter);
       auditLog({ engine: 'mongodb', op: 'deleteMany', collection, deleted: result.deletedCount });
       return {
@@ -155,6 +181,7 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
     async findOneAndUpdate(collection, filter, update, options) {
       assertCollectionAllowed(collection);
       assertNotReadonly();
+      assertSafeQuery(filter);
       const result = await db.collection(collection).findOneAndUpdate(filter, update, {
         upsert: options?.upsert,
         returnDocument: options?.returnDocument === 'after' ? 'after' : 'before',
@@ -165,6 +192,7 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
     async findOneAndDelete(collection, filter) {
       assertCollectionAllowed(collection);
       assertNotReadonly();
+      assertSafeQuery(filter);
       const result = await db.collection(collection).findOneAndDelete(filter);
       auditLog({ engine: 'mongodb', op: 'findOneAndDelete', collection });
       return result;
@@ -185,7 +213,7 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
     },
     async listIndexes(collection) {
       assertCollectionAllowed(collection);
-      const indexes = await db.collection(collection).listIndexes().toArray();
+      const indexes = await db.collection(collection).listIndexes(readOptions).toArray();
       auditLog({ engine: 'mongodb', op: 'listIndexes', collection });
       return indexes;
     },
@@ -239,6 +267,7 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
               if (!operation.filter || !operation.update) {
                 throw new Error('update_one 需要 filter 和 update');
               }
+              assertSafeQuery(operation.filter);
               const r = await collection.updateOne(operation.filter, operation.update, {
                 ...operation.options,
                 session,
@@ -255,6 +284,7 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
               if (!operation.filter || !operation.update) {
                 throw new Error('update_many 需要 filter 和 update');
               }
+              assertSafeQuery(operation.filter);
               const r = await collection.updateMany(operation.filter, operation.update, {
                 session,
               });
@@ -270,6 +300,7 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
               if (!operation.filter) {
                 throw new Error('delete_one 需要 filter');
               }
+              assertSafeQuery(operation.filter);
               const r = await collection.deleteOne(operation.filter, { session });
               result = {
                 acknowledged: r.acknowledged,
@@ -281,6 +312,7 @@ export async function createMongoDriver(spec: ConnectionSpec): Promise<MongoDriv
               if (!operation.filter) {
                 throw new Error('delete_many 需要 filter');
               }
+              assertSafeQuery(operation.filter);
               const r = await collection.deleteMany(operation.filter, { session });
               result = {
                 acknowledged: r.acknowledged,

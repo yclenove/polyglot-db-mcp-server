@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { test, describe } from 'node:test';
-import { parseConnectionSpecs, getDefaultConnectionId, globalLimits } from '../dist/core/config.js';
+import {
+  parseConnectionSpecs,
+  getDefaultConnectionId,
+  globalLimits,
+  mongoLimits,
+} from '../dist/core/config.js';
 
 describe('parseConnectionSpecs', () => {
   test('parses valid MySQL connection with host', () => {
@@ -209,5 +214,27 @@ describe('globalLimits', () => {
     delete process.env.DB_MAX_SQL_LENGTH;
     delete process.env.DB_RETRY_COUNT;
     delete process.env.DB_RETRY_DELAY_MS;
+  });
+});
+
+describe('mongoLimits', () => {
+  test('uses a 30 second server-side timeout by default', () => {
+    delete process.env.DB_MONGO_MAX_TIME_MS;
+    delete process.env.DB_QUERY_TIMEOUT;
+    assert.equal(mongoLimits().maxTimeMs, 30000);
+  });
+
+  test('supports Mongo-specific override and global timeout fallback', () => {
+    process.env.DB_QUERY_TIMEOUT = '7000';
+    assert.equal(mongoLimits().maxTimeMs, 7000);
+
+    process.env.DB_MONGO_MAX_TIME_MS = '2500';
+    assert.equal(mongoLimits().maxTimeMs, 2500);
+
+    process.env.DB_MONGO_MAX_TIME_MS = 'invalid';
+    assert.equal(mongoLimits().maxTimeMs, 30000);
+
+    delete process.env.DB_MONGO_MAX_TIME_MS;
+    delete process.env.DB_QUERY_TIMEOUT;
   });
 });

@@ -90,6 +90,38 @@ async function createHandle(
   return validatePluginHandle(spec, handle);
 }
 
+async function closeHandles(handles: readonly RuntimeHandle[]): Promise<void> {
+  await Promise.allSettled(handles.map((handle) => closeRuntime(handle)));
+}
+
+export async function createRegistryFromSpecs(
+  specs: ConnectionSpec[],
+  defaultId: string,
+  handleFactory: (spec: ConnectionSpec) => Promise<RuntimeHandle>,
+): Promise<ConnectionRegistry> {
+  const results = await Promise.allSettled(specs.map((spec) => handleFactory(spec)));
+  const handles = results
+    .filter(
+      (result): result is PromiseFulfilledResult<RuntimeHandle> => result.status === 'fulfilled',
+    )
+    .map((result) => result.value);
+  const failure = results.find(
+    (result): result is PromiseRejectedResult => result.status === 'rejected',
+  );
+
+  if (failure) {
+    await closeHandles(handles);
+    throw failure.reason;
+  }
+
+  try {
+    return new ConnectionRegistry(specs, defaultId, handles);
+  } catch (error) {
+    await closeHandles(handles);
+    throw error;
+  }
+}
+
 export async function createRegistryFromEnv(): Promise<ConnectionRegistry> {
   const discoveredPlugins = discoverPlugins();
   const specs = parseConnectionSpecs(undefined, {
@@ -97,8 +129,7 @@ export async function createRegistryFromEnv(): Promise<ConnectionRegistry> {
   });
   const defaultId = getDefaultConnectionId(specs);
   const loadedPlugins = await loadPlugins(discoveredPlugins);
-  const handles = await Promise.all(specs.map((spec) => createHandle(spec, loadedPlugins)));
-  return new ConnectionRegistry(specs, defaultId, handles);
+  return createRegistryFromSpecs(specs, defaultId, (spec) => createHandle(spec, loadedPlugins));
 }
 
 export async function pingAll(

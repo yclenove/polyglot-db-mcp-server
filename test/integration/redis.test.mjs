@@ -32,40 +32,34 @@ describe('Redis Integration', () => {
     }
   });
 
-  test('ping succeeds', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  function integrationTest(name, handler) {
+    test(name, async (t) => {
+      if (!isAvailable) {
+        t.skip(SKIP_REASON);
+        return;
+      }
+      await handler();
+    });
+  }
+
+  integrationTest('ping succeeds', async () => {
     const result = await driver.ping();
     assert.equal(result.ok, true);
   });
 
-  test('set and get string value', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('set and get string value', async () => {
     const key = `${testPrefix}string`;
     await driver.set(key, 'hello');
     const value = await driver.get(key);
     assert.equal(value, 'hello');
   });
 
-  test('get returns null for missing key', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('get returns null for missing key', async () => {
     const value = await driver.get(`${testPrefix}missing`);
     assert.equal(value, null);
   });
 
-  test('del deletes key', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('del deletes key', async () => {
     const key = `${testPrefix}to_delete`;
     await driver.set(key, 'value');
     const deleted = await driver.del(key);
@@ -74,11 +68,7 @@ describe('Redis Integration', () => {
     assert.equal(value, null);
   });
 
-  test('scan returns matching keys', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('scan returns matching keys', async () => {
     // 插入测试数据
     await driver.set(`${testPrefix}scan:1`, 'a');
     await driver.set(`${testPrefix}scan:2`, 'b');
@@ -88,11 +78,7 @@ describe('Redis Integration', () => {
     assert.ok(result.keys.length >= 2);
   });
 
-  test('hset and hget hash operations', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('hset and hget hash operations', async () => {
     const key = `${testPrefix}hash`;
     await driver.hset(key, 'field1', 'value1');
     await driver.hset(key, 'field2', 'value2');
@@ -104,11 +90,7 @@ describe('Redis Integration', () => {
     assert.equal(value2, 'value2');
   });
 
-  test('hgetall returns all hash fields', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('hgetall returns all hash fields', async () => {
     const key = `${testPrefix}hashall`;
     await driver.hset(key, 'a', '1');
     await driver.hset(key, 'b', '2');
@@ -117,11 +99,7 @@ describe('Redis Integration', () => {
     assert.deepEqual(all, { a: '1', b: '2' });
   });
 
-  test('hdel deletes hash field', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('hdel deletes hash field', async () => {
     const key = `${testPrefix}hashdel`;
     await driver.hset(key, 'field', 'value');
     const deleted = await driver.hdel(key, 'field');
@@ -130,11 +108,7 @@ describe('Redis Integration', () => {
     assert.equal(value, null);
   });
 
-  test('set with TTL expires', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('set with TTL expires', async () => {
     const key = `${testPrefix}ttl`;
     await driver.set(key, 'temp', 1); // 1 second TTL
 
@@ -143,7 +117,7 @@ describe('Redis Integration', () => {
     assert.equal(value, 'temp');
 
     // 等待过期
-    await new Promise(resolve => setTimeout(resolve, 1100));
+    await new Promise((resolve) => setTimeout(resolve, 1100));
     const expired = await driver.get(key);
     assert.equal(expired, null);
   });

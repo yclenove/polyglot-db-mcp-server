@@ -35,6 +35,15 @@ function parseResult(result) {
   }
 }
 
+function containsIdentifier(value, expected) {
+  const needle = expected.toLowerCase();
+  if (Array.isArray(value)) return value.some((item) => containsIdentifier(item, expected));
+  if (value && typeof value === 'object') {
+    return Object.values(value).some((item) => containsIdentifier(item, expected));
+  }
+  return typeof value === 'string' && value.toLowerCase() === needle;
+}
+
 async function callTool(server, name, args = {}, options = {}) {
   const tool = server.tools.get(name);
   assert.ok(tool, `tool not registered: ${name}`);
@@ -199,6 +208,25 @@ async function verifyReadonlyBypasses(server, driver, id, engine, table) {
   }
 }
 
+async function verifyDangerousDdlBlocked(server, driver, id, engine, table) {
+  for (const sql of [
+    `ALTER TABLE ${table} ADD blocked_column INTEGER`,
+    `TRUNCATE TABLE ${table}`,
+    `DROP TABLE ${table}`,
+  ]) {
+    const blocked = await callTool(
+      server,
+      'sql_execute',
+      { connection_id: id, sql },
+      { allowError: true },
+    );
+    assert.equal(blocked.result.isError, true, `${engine} dangerous DDL was not rejected: ${sql}`);
+  }
+
+  const survivor = await executeOk(driver, `SELECT id FROM ${table} WHERE id = 1`, [], RO);
+  assert.equal(survivor.data?.length, 1, `${engine} blocked DDL changed the protected table`);
+}
+
 async function verifySqlEngine(server, registry, id, engine, suffix) {
   const driver = registry.requireSql(id);
   const table = `rt_${engine}_${suffix}`;
@@ -246,6 +274,7 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
   );
 
   await verifyReadonlyBypasses(server, driver, id, engine, table);
+  await verifyDangerousDdlBlocked(server, driver, id, engine, table);
 
   await callTool(server, 'sql_execute', {
     connection_id: id,
@@ -293,14 +322,26 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
   });
   const indexes = await callTool(server, 'sql_list_indexes', { connection_id: id, table });
   assert.ok(Array.isArray(indexes.value.indexes), `${engine} index listing is not an array`);
+  assert.ok(
+    containsIdentifier(indexes.value.indexes, index),
+    `${engine} index listing did not contain created index ${index}`,
+  );
 
   await callTool(server, 'sql_execute', { connection_id: id, sql: sql.createView });
   const views = await callTool(server, 'sql_list_views', { connection_id: id });
   assert.ok(Array.isArray(views.value.views), `${engine} view listing is not an array`);
+  assert.ok(
+    containsIdentifier(views.value.views, view),
+    `${engine} view listing did not contain created view ${view}`,
+  );
   await callTool(server, 'sql_describe_view', { connection_id: id, view });
 
   const tables = await callTool(server, 'sql_list_tables', { connection_id: id });
   assert.ok(Array.isArray(tables.value.tables), `${engine} table listing is not an array`);
+  assert.ok(
+    containsIdentifier(tables.value.tables, table),
+    `${engine} table listing did not contain created table ${table}`,
+  );
   const described = await callTool(server, 'sql_describe_table', { connection_id: id, table });
   assert.ok(described.value.columns?.length >= 3, `${engine} table description missed columns`);
   await callTool(server, 'sql_generate_types', { connection_id: id, table });
@@ -344,6 +385,12 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
     Array.isArray(suggested.value.suggestions),
     `${engine} query_suggest returned no suggestions`,
   );
+  assert.ok(
+    suggested.value.suggestions.some((item) => String(item.message).includes('SELECT *')),
+    `${engine} query_suggest did not detect SELECT *`,
+  );
+  assert.equal(suggested.value.analyzedWithSchema, true, `${engine} schema analysis was not used`);
+  assert.ok(suggested.value.tableCount >= 1, `${engine} query_suggest loaded no table metadata`);
   const optimized = await callTool(server, 'query_optimize', {
     connectionId: id,
     sql: sql.selectAll,
@@ -352,6 +399,22 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
     Array.isArray(optimized.value.suggestions),
     `${engine} query_optimize returned no suggestions`,
   );
+  assert.ok(
+    optimized.value.tableInfo?.some((item) => item.name.toLowerCase() === table.toLowerCase()),
+    `${engine} query_optimize loaded no metadata for ${table}`,
+  );
+  if (engine === 'mssql') {
+    assert.match(
+      optimized.value.planError ?? '',
+      /MSSQL EXPLAIN/,
+      'MSSQL query_optimize must report the documented EXPLAIN limitation',
+    );
+  } else {
+    assert.ok(
+      Array.isArray(optimized.value.executionPlan),
+      `${engine} query_optimize returned no execution plan`,
+    );
+  }
 
   const schemaJson = await callTool(server, 'schema_export', {
     connection_id: id,
@@ -366,6 +429,11 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
     String(schemaSql.value),
     /CREATE TABLE/i,
     `${engine} DDL export returned no CREATE TABLE`,
+  );
+  assert.match(
+    String(schemaSql.value),
+    new RegExp(`CREATE TABLE\\s+${table}`, 'i'),
+    `${engine} DDL export did not contain created table ${table}`,
   );
 
   if (sql.procedureDdl) {
@@ -393,7 +461,13 @@ async function verifyMongo(server, id, suffix) {
   await callTool(server, 'mongo_insert_one', {
     connection_id: id,
     collection,
-    document_json: JSON.stringify({ id: 1, name: 'alpha', group: 'a', score: 10 }),
+    document_json: JSON.stringify({
+      id: 1,
+      name: 'alpha',
+      group: 'a',
+      score: 10,
+      big_value: { $numberLong: LARGE_INTEGER },
+    }),
   });
   await callTool(server, 'mongo_insert_many', {
     connection_id: id,
@@ -403,18 +477,52 @@ async function verifyMongo(server, id, suffix) {
       { id: 3, name: 'gamma', group: 'b', score: 30 },
     ]),
   });
-  await callTool(server, 'mongo_find', {
+  const exactInt64 = await callTool(server, 'mongo_find', {
     connection_id: id,
     collection,
-    filter_json: JSON.stringify({ group: 'a' }),
+    filter_json: JSON.stringify({ big_value: { $numberLong: LARGE_INTEGER } }),
     limit: 10,
   });
+  assert.deepEqual(
+    exactInt64.value.rows?.[0]?.big_value,
+    { $numberLong: LARGE_INTEGER },
+    'MongoDB Extended JSON Int64 lost precision',
+  );
   await callTool(server, 'mongo_count', { connection_id: id, collection });
-  await callTool(server, 'mongo_aggregate', {
+  const aggregated = await callTool(server, 'mongo_aggregate', {
     connection_id: id,
     collection,
     pipeline_json: JSON.stringify([{ $group: { _id: '$group', total: { $sum: '$score' } } }]),
   });
+  assert.equal(aggregated.value.limit, 50, 'MongoDB aggregate default limit was not enforced');
+
+  for (const [name, pipeline] of [
+    ['out', [{ $out: `blocked_out_${suffix}` }]],
+    ['merge', [{ $merge: { into: `blocked_merge_${suffix}` } }]],
+  ]) {
+    const blocked = await callTool(
+      server,
+      'mongo_aggregate',
+      {
+        connection_id: id,
+        collection,
+        pipeline_json: JSON.stringify(pipeline),
+      },
+      { allowError: true },
+    );
+    assert.equal(blocked.result.isError, true, `MongoDB $${name} write stage was not rejected`);
+    assert.equal(blocked.value.error_info?.code, 'MONGO_003');
+  }
+  const collectionsAfterBlockedWrites = await callTool(server, 'mongo_list_collections', {
+    connection_id: id,
+  });
+  assert.equal(
+    collectionsAfterBlockedWrites.value.collections.some(
+      (name) => name === `blocked_out_${suffix}` || name === `blocked_merge_${suffix}`,
+    ),
+    false,
+    'MongoDB blocked aggregation created a collection',
+  );
   await callTool(server, 'mongo_update_one', {
     connection_id: id,
     collection,

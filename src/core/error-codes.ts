@@ -117,7 +117,7 @@ export const ErrorDefinitions = {
   },
   MONGO_003: {
     message: 'NoSQL 注入风险被拦截',
-    hint: '移除 $where、$function、$accumulator、$expr、$regex 等危险 operator',
+    hint: '移除 $where、$function、$accumulator、$expr、$regex、$out、$merge 等危险 operator',
     severity: 'error',
     retryable: false,
     applies_to: ['MongoDB'],

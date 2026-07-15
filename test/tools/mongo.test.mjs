@@ -23,8 +23,8 @@ class MockMongoDriver {
     this.operations.push({ op: 'find', collection, filter, options });
     return [{ id: 1, name: 'test' }];
   }
-  async aggregate(collection, pipeline) {
-    this.operations.push({ op: 'aggregate', collection, pipeline });
+  async aggregate(collection, pipeline, options) {
+    this.operations.push({ op: 'aggregate', collection, pipeline, options });
     return [{ _id: null, count: 10 }];
   }
   async count(collection, filter) {
@@ -194,6 +194,10 @@ describe('MongoDB Tools', () => {
     assert.ok(server.tools.has('mongo_create_index'));
   });
 
+  test('mongo_schema_analysis tool is registered', () => {
+    assert.ok(server.tools.has('mongo_schema_analysis'));
+  });
+
   test('mongo transaction tools are registered', () => {
     assert.ok(server.tools.has('mongo_begin_transaction'));
     assert.ok(server.tools.has('mongo_execute_in_transaction'));
@@ -264,6 +268,40 @@ describe('MongoDB Tools', () => {
     assert.match(data.detail, /\$where/);
   });
 
+  test('mongo_find rejects dangerous operators hidden inside arrays', async () => {
+    const tool = server.tools.get('mongo_find');
+    const result = await tool.handler({
+      collection: 'users',
+      filter_json: '{"$and":[{"name":"safe"},{"nested":[{"$where":"return true"}]}]}',
+    });
+    assert.equal(result.isError, true);
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.error_info.code, 'MONGO_003');
+    assert.equal(
+      mockDriver.operations.some((operation) => operation.op === 'find'),
+      false,
+    );
+  });
+
+  test('mongo_find accepts canonical Extended JSON and preserves Int64 output', async () => {
+    const { Long } = await import('mongodb');
+    mockDriver.find = async (collection, filter, options) => {
+      mockDriver.operations.push({ op: 'find', collection, filter, options });
+      return [{ id: Long.fromString('9007199254740993') }];
+    };
+
+    const tool = server.tools.get('mongo_find');
+    const result = await tool.handler({
+      collection: 'users',
+      filter_json: '{"id":{"$numberLong":"9007199254740993"}}',
+    });
+    assert.notEqual(result.isError, true);
+    const operation = mockDriver.operations.find((item) => item.op === 'find');
+    assert.equal(operation.filter.id.toString(), '9007199254740993');
+    const data = JSON.parse(result.content[0].text);
+    assert.deepEqual(data.rows[0].id, { $numberLong: '9007199254740993' });
+  });
+
   test('mongo_aggregate returns aggregated results', async () => {
     const tool = server.tools.get('mongo_aggregate');
     const result = await tool.handler({
@@ -274,6 +312,51 @@ describe('MongoDB Tools', () => {
     const data = JSON.parse(result.content[0].text);
     assert.equal(data.connection_id, 'mdb');
     assert.ok(Array.isArray(data.rows));
+    assert.equal(data.limit, 50);
+    assert.equal(mockDriver.operations.at(-1).options.limit, 50);
+  });
+
+  test('mongo_aggregate rejects write stages before driver execution', async () => {
+    const tool = server.tools.get('mongo_aggregate');
+    for (const pipeline_json of ['[{"$out":"leaked"}]', '[{"$merge":{"into":"leaked"}}]']) {
+      const result = await tool.handler({ collection: 'users', pipeline_json });
+      assert.equal(result.isError, true);
+      const data = JSON.parse(result.content[0].text);
+      assert.equal(data.error_info.code, 'MONGO_003');
+    }
+    assert.equal(
+      mockDriver.operations.some((operation) => operation.op === 'aggregate'),
+      false,
+    );
+  });
+
+  test('mongo_aggregate enforces allowlist for referenced collections', async () => {
+    registry.handles.get('mdb').spec.allowlist = ['users'];
+    const tool = server.tools.get('mongo_aggregate');
+    const result = await tool.handler({
+      collection: 'users',
+      pipeline_json:
+        '[{"$lookup":{"from":"secrets","localField":"secretId","foreignField":"_id","as":"secret"}}]',
+    });
+    assert.equal(result.isError, true);
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.error_info.code, 'MONGO_002');
+    assert.match(data.detail, /secrets/);
+    assert.equal(
+      mockDriver.operations.some((operation) => operation.op === 'aggregate'),
+      false,
+    );
+  });
+
+  test('mongo_aggregate passes an explicit result limit to the driver', async () => {
+    const tool = server.tools.get('mongo_aggregate');
+    const result = await tool.handler({
+      collection: 'users',
+      pipeline_json: '[]',
+      limit: 7,
+    });
+    assert.notEqual(result.isError, true);
+    assert.equal(mockDriver.operations.at(-1).options.limit, 7);
   });
 
   test('mongo_count returns count', async () => {
@@ -393,6 +476,29 @@ describe('MongoDB Tools', () => {
     const data = JSON.parse(result.content[0].text);
     assert.equal(data.connection_id, 'mdb');
     assert.equal(data.indexName, 'index_name');
+  });
+
+  test('mongo_schema_analysis treats BSON values as scalar types', async () => {
+    const { Long } = await import('mongodb');
+    mockDriver.find = async () => [
+      {
+        big_value: Long.fromString('9007199254740993'),
+        created_at: new Date('2026-07-16T00:00:00.000Z'),
+      },
+    ];
+
+    const tool = server.tools.get('mongo_schema_analysis');
+    const result = await tool.handler({ collection: 'users', sample_size: 10 });
+    assert.notEqual(result.isError, true);
+    const data = JSON.parse(result.content[0].text);
+    const bigValue = data.fields.find((field) => field.path === 'big_value');
+    const createdAt = data.fields.find((field) => field.path === 'created_at');
+    assert.deepEqual(bigValue.types, ['bson:Long']);
+    assert.deepEqual(createdAt.types, ['date']);
+    assert.equal(
+      data.fields.some((field) => field.path.startsWith('big_value.')),
+      false,
+    );
   });
 
   // ── v1.3.0 新增工具测试 ──────────────────────────────────

@@ -173,6 +173,7 @@
 | `docs/MARKET-市场分析.md` | 参考 | 竞品方向、企业能力、DuckDB/OAuth 等长期输入 |
 | `docs/SCOUT-001-侦察报告.md` | 历史参考 | 早期侦察结论 |
 | `docs/SCOUT-侦察报告.md` | 参考 | v1.7 前后的质量和市场观察 |
+| `docs/SCOUT-2026-07-15-MCP数据库增量侦察.md` | 当前参考 | 同类数据库 MCP 源码/issue 证据与后续改进候选 |
 | `docs/FEEDBACK-001-反馈分析.md` | 历史参考 | 早期反馈输入 |
 | `docs/FEEDBACK-反馈分析.md` | 参考 | 功能优先级和用户反馈输入 |
 | `docs/WORKFLOW_PLAN.md` | 参考 | 文档生产工作流记录 |

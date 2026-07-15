@@ -29,29 +29,27 @@ describe('MongoDB Integration', () => {
     }
   });
 
-  test('ping succeeds', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  function integrationTest(name, handler) {
+    test(name, async (t) => {
+      if (!isAvailable) {
+        t.skip(SKIP_REASON);
+        return;
+      }
+      await handler();
+    });
+  }
+
+  integrationTest('ping succeeds', async () => {
     const result = await driver.ping();
     assert.equal(result.ok, true);
   });
 
-  test('listCollections returns array', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('listCollections returns array', async () => {
     const collections = await driver.listCollections();
     assert.ok(Array.isArray(collections));
   });
 
-  test('insertOne inserts document', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('insertOne inserts document', async () => {
     const result = await driver.insertOne(testCollection, {
       name: 'test',
       value: 42,
@@ -61,46 +59,30 @@ describe('MongoDB Integration', () => {
     assert.equal(result.insertedCount, 1);
   });
 
-  test('find returns documents', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('find returns documents', async () => {
     const docs = await driver.find(testCollection, { name: 'test' }, { limit: 10 });
     assert.ok(Array.isArray(docs));
     assert.ok(docs.length > 0);
     assert.equal(docs[0].name, 'test');
   });
 
-  test('count returns count', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('count returns count', async () => {
     const count = await driver.count(testCollection, {});
     assert.ok(count > 0);
   });
 
-  test('updateOne updates document', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('updateOne updates document', async () => {
     const result = await driver.updateOne(
       testCollection,
       { name: 'test' },
-      { $set: { value: 100 } }
+      { $set: { value: 100 } },
     );
     assert.equal(result.acknowledged, true);
     assert.equal(result.matchedCount, 1);
     assert.equal(result.modifiedCount, 1);
   });
 
-  test('deleteOne deletes document', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('deleteOne deletes document', async () => {
     // 先插入一个文档
     await driver.insertOne(testCollection, { name: 'to_delete' });
     const result = await driver.deleteOne(testCollection, { name: 'to_delete' });
@@ -108,35 +90,23 @@ describe('MongoDB Integration', () => {
     assert.equal(result.deletedCount, 1);
   });
 
-  test('aggregate returns results', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('aggregate returns results', async () => {
     const results = await driver.aggregate(testCollection, [
       { $group: { _id: null, count: { $sum: 1 } } },
     ]);
     assert.ok(Array.isArray(results));
   });
 
-  test('listIndexes returns indexes', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('listIndexes returns indexes', async () => {
     const indexes = await driver.listIndexes(testCollection);
     assert.ok(Array.isArray(indexes));
   });
 
-  test('createIndex creates index', async () => {
-    if (!isAvailable) {
-      console.log(`SKIP: ${SKIP_REASON}`);
-      return;
-    }
+  integrationTest('createIndex creates index', async () => {
     const indexName = await driver.createIndex(
       testCollection,
       { name: 1 },
-      { name: 'test_name_index' }
+      { name: 'test_name_index' },
     );
     assert.ok(indexName);
   });

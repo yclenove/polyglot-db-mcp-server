@@ -1,6 +1,6 @@
 # polyglot-db-mcp-server API 文档
 
-> 自动生成于 2026-07-15T14:47:27.564Z
+> 自动生成于 2026-07-15T15:48:15.200Z
 
 ## 目录
 
@@ -371,7 +371,7 @@ HTTP 安全默认值：
 
 ### `mongo_find`
 
-在集合上执行 find。filter 为 JSON 对象；limit 默认 50，最大 500。
+在集合上执行 find。filter 支持 JSON/EJSON；limit 默认 50，最大 500。
 
 **参数：**
 
@@ -379,7 +379,7 @@ HTTP 安全默认值：
 |--------|------|------|------|
 | `connection_id` | string | 否 | 连接 id；缺省为默认连接 |
 | `collection` | string | 是 | 集合名称 |
-| `filter_json` | string | 否 | JSON 对象字符串，默认 {} |
+| `filter_json` | string | 否 | JSON/EJSON 对象字符串，默认 {} |
 | `limit` | number | 否 | 最大返回行数，默认 50 |
 | `skip` | number | 否 | 跳过行数 |
 
@@ -387,7 +387,7 @@ HTTP 安全默认值：
 
 ### `mongo_aggregate`
 
-对集合执行聚合管道。pipeline_json 为 JSON 数组字符串。
+执行只读聚合管道。支持 JSON/EJSON，拒绝 $out/$merge；limit 默认 50，最大 500。
 
 **参数：**
 
@@ -395,7 +395,8 @@ HTTP 安全默认值：
 |--------|------|------|------|
 | `connection_id` | string | 否 | 连接 id；缺省为默认连接 |
 | `collection` | string | 是 | 集合名称 |
-| `pipeline_json` | string | 是 | JSON 数组字符串 |
+| `pipeline_json` | string | 是 | JSON/EJSON 数组字符串 |
+| `limit` | number | 否 | 最大返回文档数，默认 50，最大 500 |
 
 ---
 
@@ -415,7 +416,7 @@ HTTP 安全默认值：
 
 ### `mongo_insert_one`
 
-向集合插入单个文档。document_json 为 JSON 对象字符串。
+向集合插入单个文档。document_json 支持 JSON 和 MongoDB Extended JSON。
 
 **参数：**
 
@@ -423,13 +424,13 @@ HTTP 安全默认值：
 |--------|------|------|------|
 | `connection_id` | string | 否 | 连接 id；缺省为默认连接 |
 | `collection` | string | 是 | 集合名称 |
-| `document_json` | string | 是 | JSON 对象字符串 |
+| `document_json` | string | 是 | JSON/EJSON 对象字符串 |
 
 ---
 
 ### `mongo_insert_many`
 
-向集合插入多个文档。documents_json 为 JSON 数组字符串。
+向集合插入多个文档。documents_json 支持 JSON 和 MongoDB Extended JSON。
 
 **参数：**
 
