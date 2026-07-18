@@ -239,8 +239,13 @@ All six SQL drivers cap results while reading from the database or cursor instea
 
 **Redis**
 
-- `redis_get`, `redis_set`, `redis_del`, `redis_scan`, `redis_blocked_commands`
-- `redis_pipeline` — batch a safe Redis command subset while preserving keyPrefix/readonly boundaries
+- `redis_get` — byte-windowed string reads with `total_bytes`, `next_offset_bytes`, and `truncated`; incomplete UTF-8 or binary windows are preserved in `value_base64`
+- `redis_set`, `redis_del`, `redis_scan`, `redis_blocked_commands`
+- `redis_hget`, `redis_hset`, `redis_hgetall`, `redis_hscan`, `redis_hdel`
+- `redis_sscan`, `redis_zscan` — resumable cursor pages for large Set and Sorted Set values
+- `redis_pipeline` — batches the safe subset while rejecting collection-materializing commands
+
+Legacy `HGETALL`, `SMEMBERS`, `LRANGE`, and `ZRANGE` tools reject collections or ranges above `DB_MAX_ROWS` in the driver. Use the matching SCAN tool for large collections. SCAN cursors remain decimal strings so unsigned 64-bit values are never rounded by JavaScript.
 
 ## Environment variables
 
@@ -251,7 +256,7 @@ All six SQL drivers cap results while reading from the database or cursor instea
 | `DB_MCP_TRANSPORT` | `stdio` by default, or `http` |
 | `DB_HTTP_HOST`, `DB_HTTP_PORT`, `DB_HTTP_ENDPOINT` | HTTP bind host, port, and MCP endpoint |
 | `DB_HTTP_API_KEY`, `DB_HTTP_AUTH_DISABLED`, `DB_HTTP_ALLOWED_HOSTS`, `DB_HTTP_ORIGINS` | HTTP API key, explicit auth disable flag, and Host/Origin allowlists |
-| `DB_QUERY_TIMEOUT`, `DB_MAX_ROWS`, `DB_MAX_SQL_LENGTH`, `DB_RETRY_COUNT`, `DB_RETRY_DELAY_MS` | Global SQL limits (see `src/core/config.ts`) |
+| `DB_QUERY_TIMEOUT`, `DB_MAX_ROWS`, `DB_MAX_SQL_LENGTH`, `DB_RETRY_COUNT`, `DB_RETRY_DELAY_MS` | Global execution/result limits; `DB_MAX_ROWS` also bounds Redis collection reads |
 | `DB_MAX_RESPONSE_BYTES` | Hard cap for every serialized MCP tool result; defaults to 1 MiB, valid range 4 KiB..16 MiB |
 | `DB_MONGO_MAX_TIME_MS` | Server-side timeout for MongoDB `find`/`aggregate`/`count`; defaults to `30000`, `0` disables it |
 | `DB_AUDIT_SINK`, `DB_AUDIT_FILE_PATH`, `DB_AUDIT_WEBHOOK_URL` | In-memory, file, or webhook audit sink |

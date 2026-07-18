@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { isUtf8 } from 'node:buffer';
 import { test, describe, beforeEach } from 'node:test';
 
 // Mock McpServer
@@ -20,6 +21,36 @@ class MockRedisDriver {
   async get(key) {
     this.operations.push({ op: 'get', key });
     return this.store.get(key) ?? null;
+  }
+  async getWindow(key, offsetBytes, maxBytes) {
+    this.operations.push({ op: 'getWindow', key, offsetBytes, maxBytes });
+    const stored = this.store.get(key);
+    if (stored === undefined) {
+      return {
+        value: null,
+        valueEncoding: null,
+        totalBytes: 0,
+        offsetBytes: 0,
+        returnedBytes: 0,
+        nextOffsetBytes: null,
+        truncated: false,
+      };
+    }
+    const bytes = Buffer.from(String(stored));
+    const start = Math.min(offsetBytes, bytes.length);
+    const end = Math.min(bytes.length, start + maxBytes);
+    const valueBytes = bytes.subarray(start, end);
+    const utf8 = isUtf8(valueBytes);
+    return {
+      value: utf8 ? valueBytes.toString('utf8') : null,
+      ...(utf8 ? {} : { valueBase64: valueBytes.toString('base64') }),
+      valueEncoding: utf8 ? 'utf8' : 'base64',
+      totalBytes: bytes.length,
+      offsetBytes: start,
+      returnedBytes: end - start,
+      nextOffsetBytes: end < bytes.length ? end : null,
+      truncated: start > 0 || end < bytes.length,
+    };
   }
   async set(key, value, ttlSeconds) {
     this.operations.push({ op: 'set', key, value, ttlSeconds });
@@ -64,6 +95,17 @@ class MockRedisDriver {
       return hash;
     }
     return {};
+  }
+  async hscan(key, cursor, count, match = '*') {
+    this.operations.push({ op: 'hscan', key, cursor, count, match });
+    const hash = this.store.get(key);
+    const entries = typeof hash === 'object' && hash !== null && !Array.isArray(hash)
+      ? Object.entries(hash)
+          .filter(([field]) => match === '*' || field.startsWith(match.replace(/\*$/, '')))
+          .slice(0, count)
+          .map(([field, value]) => ({ field, value: String(value) }))
+      : [];
+    return { cursor: '0', entries };
   }
   async hdel(key, field) {
     this.operations.push({ op: 'hdel', key, field });
@@ -127,6 +169,14 @@ class MockRedisDriver {
     const set = this.store.get(key);
     return set instanceof Set ? [...set] : [];
   }
+  async sscan(key, cursor, count, match = '*') {
+    this.operations.push({ op: 'sscan', key, cursor, count, match });
+    const set = this.store.get(key);
+    const members = set instanceof Set
+      ? [...set].filter(member => match === '*' || member.startsWith(match.replace(/\*$/, ''))).slice(0, count)
+      : [];
+    return { cursor: '0', members };
+  }
   async srem(key, ...members) {
     this.operations.push({ op: 'srem', key, members });
     const set = this.store.get(key);
@@ -163,6 +213,17 @@ class MockRedisDriver {
     const slice = zset.slice(start, stop === -1 ? undefined : stop + 1);
     if (withScores) return slice.flatMap(z => [z.member, String(z.score)]);
     return slice.map(z => z.member);
+  }
+  async zscan(key, cursor, count, match = '*') {
+    this.operations.push({ op: 'zscan', key, cursor, count, match });
+    const zset = this.store.get(key);
+    const entries = Array.isArray(zset)
+      ? zset
+          .filter(({ member }) => match === '*' || member.startsWith(match.replace(/\*$/, '')))
+          .slice(0, count)
+          .map(({ member, score }) => ({ member, score: String(score) }))
+      : [];
+    return { cursor: '0', entries };
   }
   async zrem(key, ...members) {
     this.operations.push({ op: 'zrem', key, members });
@@ -307,6 +368,12 @@ describe('Redis Tools', () => {
     assert.ok(server.tools.has('redis_scan'));
   });
 
+  test('Redis collection scan tools are registered', () => {
+    assert.ok(server.tools.has('redis_hscan'));
+    assert.ok(server.tools.has('redis_sscan'));
+    assert.ok(server.tools.has('redis_zscan'));
+  });
+
   test('redis_blocked_commands tool is registered', () => {
     assert.ok(server.tools.has('redis_blocked_commands'));
   });
@@ -335,6 +402,9 @@ describe('Redis Tools', () => {
     const data = JSON.parse(result.content[0].text);
     assert.equal(data.connection_id, 'rd');
     assert.equal(data.value, 'value1');
+    assert.equal(data.value_encoding, 'utf8');
+    assert.equal(data.total_bytes, 6);
+    assert.equal(data.truncated, false);
   });
 
   test('redis_get returns null for missing key', async () => {
@@ -346,7 +416,7 @@ describe('Redis Tools', () => {
   });
 
   test('redis_get returns REDIS_002 for keyPrefix rejection', async () => {
-    mockDriver.get = async () => {
+    mockDriver.getWindow = async () => {
       throw new Error('Redis key 必须以配置的前缀「app:」开头');
     };
 
@@ -356,6 +426,63 @@ describe('Redis Tools', () => {
     const data = JSON.parse(result.content[0].text);
     assert.equal(data.error_info.code, 'REDIS_002');
     assert.match(data.error_info.hint, /keyPrefix/);
+  });
+
+  test('redis_get returns a resumable byte window', async () => {
+    mockDriver.store.set('app:large', 'abcdefghij');
+    const tool = server.tools.get('redis_get');
+    const result = await tool.handler({ key: 'app:large', offset_bytes: 2, max_bytes: 4 });
+    const data = JSON.parse(result.content[0].text);
+    assert.equal(data.value, 'cdef');
+    assert.equal(data.total_bytes, 10);
+    assert.equal(data.offset_bytes, 2);
+    assert.equal(data.returned_bytes, 4);
+    assert.equal(data.next_offset_bytes, 6);
+    assert.equal(data.truncated, true);
+  });
+
+  test('redis_get preserves split UTF-8 bytes as base64', async () => {
+    mockDriver.store.set('app:utf8', 'é');
+    const tool = server.tools.get('redis_get');
+    const first = JSON.parse(
+      (await tool.handler({ key: 'app:utf8', offset_bytes: 0, max_bytes: 1 })).content[0].text,
+    );
+    const second = JSON.parse(
+      (await tool.handler({ key: 'app:utf8', offset_bytes: 1, max_bytes: 1 })).content[0].text,
+    );
+
+    assert.equal(first.value, null);
+    assert.equal(first.value_encoding, 'base64');
+    assert.equal(second.value_encoding, 'base64');
+    assert.equal(first.next_offset_bytes, 1);
+    assert.equal(second.next_offset_bytes, null);
+    assert.equal(
+      Buffer.concat([
+        Buffer.from(first.value_base64, 'base64'),
+        Buffer.from(second.value_base64, 'base64'),
+      ]).toString('utf8'),
+      'é',
+    );
+  });
+
+  test('redis_get tightens escaped output to the serialized response budget', async () => {
+    const original = process.env.DB_MAX_RESPONSE_BYTES;
+    process.env.DB_MAX_RESPONSE_BYTES = '4096';
+    try {
+      mockDriver.store.set('app:escaped', '\u0000'.repeat(10_000));
+      const tool = server.tools.get('redis_get');
+      const result = await tool.handler({ key: 'app:escaped' });
+      const data = JSON.parse(result.content[0].text);
+
+      assert.ok(Buffer.byteLength(JSON.stringify(result), 'utf8') <= 4096);
+      assert.ok(data.returned_bytes > 0);
+      assert.ok(data.returned_bytes < data.total_bytes);
+      assert.equal(data.next_offset_bytes, data.returned_bytes);
+      assert.equal(data.truncated, true);
+    } finally {
+      if (original === undefined) delete process.env.DB_MAX_RESPONSE_BYTES;
+      else process.env.DB_MAX_RESPONSE_BYTES = original;
+    }
   });
 
   test('redis_set stores value', async () => {
@@ -433,6 +560,7 @@ describe('Redis Tools', () => {
     assert.equal(data.next_cursor, '0');
     assert.ok(Array.isArray(data.keys));
     assert.equal(data.keys.length, 2);
+    assert.equal(data.scan_complete, true);
   });
 
   test('redis_hget returns hash field value', async () => {
@@ -470,6 +598,21 @@ describe('Redis Tools', () => {
     const data = JSON.parse(result.content[0].text);
     assert.equal(data.connection_id, 'rd');
     assert.deepEqual(data.fields, { name: 'John', age: '30' });
+  });
+
+  test('redis_hscan returns structured hash entries', async () => {
+    mockDriver.store.set('app:user:1', { name: 'John', age: '30' });
+    const tool = server.tools.get('redis_hscan');
+    const result = await tool.handler({
+      key: 'app:user:1',
+      cursor: '0',
+      match: 'n*',
+      count: 10,
+    });
+    const data = JSON.parse(result.content[0].text);
+    assert.deepEqual(data.entries, [{ field: 'name', value: 'John' }]);
+    assert.equal(data.next_cursor, '0');
+    assert.equal(data.scan_complete, true);
   });
 
   test('redis_hdel deletes hash field', async () => {
@@ -644,6 +787,20 @@ describe('Redis Tools', () => {
     assert.deepEqual(data.members.sort(), ['js', 'ts']);
   });
 
+  test('redis_sscan returns a resumable member batch', async () => {
+    mockDriver.store.set('app:tags', new Set(['js', 'ts', 'py']));
+    const tool = server.tools.get('redis_sscan');
+    const result = await tool.handler({
+      key: 'app:tags',
+      cursor: '0',
+      match: 't*',
+      count: 10,
+    });
+    const data = JSON.parse(result.content[0].text);
+    assert.deepEqual(data.members, ['ts']);
+    assert.equal(data.scan_complete, true);
+  });
+
   test('redis_zadd adds sorted set member', async () => {
     const tool = server.tools.get('redis_zadd');
     const result = await tool.handler({ key: 'app:scores', score: 100, member: 'alice' });
@@ -668,6 +825,23 @@ describe('Redis Tools', () => {
     assert.ok(result.content[0].text);
     const data = JSON.parse(result.content[0].text);
     assert.deepEqual(data.members, ['alice', '100', 'bob', '200']);
+  });
+
+  test('redis_zscan returns structured member and score entries', async () => {
+    mockDriver.store.set('app:scores', [
+      { member: 'alice', score: 100 },
+      { member: 'bob', score: 50 },
+    ]);
+    const tool = server.tools.get('redis_zscan');
+    const result = await tool.handler({
+      key: 'app:scores',
+      cursor: '0',
+      match: 'a*',
+      count: 10,
+    });
+    const data = JSON.parse(result.content[0].text);
+    assert.deepEqual(data.entries, [{ member: 'alice', score: '100' }]);
+    assert.equal(data.scan_complete, true);
   });
 
   test('redis_expire sets TTL', async () => {
@@ -722,6 +896,26 @@ describe('Redis Tools', () => {
     assert.equal(result.isError, true);
     const data = JSON.parse(result.content[0].text);
     assert.equal(data.error_info.code, 'REDIS_003');
+    assert.equal(mockDriver.operations.length, 0);
+  });
+
+  test('redis_pipeline rejects collection materialization commands', async () => {
+    const tool = server.tools.get('redis_pipeline');
+    const result = await tool.handler({
+      commands_json: JSON.stringify([{ command: 'hgetall', key: 'app:hash' }]),
+    });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /不支持命令 hgetall/);
+    assert.equal(mockDriver.operations.length, 0);
+  });
+
+  test('redis_pipeline rejects oversized keys before driver execution', async () => {
+    const tool = server.tools.get('redis_pipeline');
+    const result = await tool.handler({
+      commands_json: JSON.stringify([{ command: 'get', key: 'x'.repeat(4097) }]),
+    });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /不能超过 4096 字节/);
     assert.equal(mockDriver.operations.length, 0);
   });
 

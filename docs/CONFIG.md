@@ -110,7 +110,7 @@ DB_MCP_DEFAULT_CONNECTION_ID=local
 |----------|--------|------|
 | `DB_QUERY_TIMEOUT` | `30000` | 查询超时，毫秒 |
 | `DB_MONGO_MAX_TIME_MS` | `30000` | MongoDB `find`、`aggregate`、`count` 的服务端 `maxTimeMS`；未设置时回退 `DB_QUERY_TIMEOUT`，`0` 表示关闭 |
-| `DB_MAX_ROWS` | `100` | 单次结果最大行数；有效范围 `1..10000`，无效值回退到 `100` |
+| `DB_MAX_ROWS` | `100` | SQL/Mongo 单次结果行数及 Redis 旧集合/范围读取项数上限；有效范围 `1..10000`，无效值回退到 `100` |
 | `DB_MAX_RESPONSE_BYTES` | `1048576` | 所有 MCP 工具序列化结果硬上限；有效范围 `4096..16777216`，无效值回退到 1 MiB |
 | `DB_MAX_SQL_LENGTH` | `102400` | SQL 最大长度 |
 | `DB_RETRY_COUNT` | `2` | SQL 驱动重试次数 |
@@ -120,7 +120,7 @@ DB_MCP_DEFAULT_CONNECTION_ID=local
 
 自动分页只识别可执行外层 SQL 的 `LIMIT`、`OFFSET`、`FETCH`（SQL Server 还包括 `TOP`），不会被字符串、注释、子查询或窗口函数中的同名关键字误导。SQL Server 自动分页要求外层 `ORDER BY`。设置 `DB_AUTO_PAGINATION=false` 或自行提供外层分页子句时，服务端不会重写 SQL。
 
-`DB_MAX_RESPONSE_BYTES` 是所有内置、授权拒绝和外部插件工具的协议级兜底。`sql_query`、`sql_export_query`、`mongo_find`、`mongo_aggregate` 可用 `response_bytes_limit` 请求更小的本次上限，但不能提高服务端上限。SQL/Mongo 查询会在数据收集阶段提前停止；其他超限工具返回可解析 JSON，并在 `_db_mcp_response` 中标记 `reason=response_byte_limit`、原始字节数和服务端上限。
+`DB_MAX_RESPONSE_BYTES` 是所有内置、授权拒绝和外部插件工具的协议级兜底。`sql_query`、`sql_export_query`、`mongo_find`、`mongo_aggregate` 可用 `response_bytes_limit` 请求更小的本次上限，但不能提高服务端上限。SQL/Mongo 查询会在数据收集阶段提前停止；Redis 字符串通过 `STRLEN`/`GETRANGE` 按字节窗口读取，窗口切开 UTF-8 字符或包含二进制时返回 `value_encoding=base64` 与 `value_base64`，集合旧入口先按 `DB_MAX_ROWS` 检查基数或范围。其余超限工具返回可解析 JSON，并在 `_db_mcp_response` 中标记 `reason=response_byte_limit`、原始字节数和服务端上限。
 
 ### 5.3 缓存、限流、回放和建议
 

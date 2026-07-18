@@ -274,9 +274,13 @@ docker compose up -d
 
 **Redis**
 
-- `redis_get`、`redis_set`、`redis_del`、`redis_scan`、`redis_blocked_commands`
-- `redis_hget`、`redis_hset`、`redis_hgetall`、`redis_hdel`
-- `redis_pipeline` — 批量执行安全命令子集，保留 keyPrefix/readonly 边界
+- `redis_get` — 按字节窗口读取字符串，返回 `total_bytes`、`next_offset_bytes` 和 `truncated`；非完整 UTF-8/二进制窗口通过 `value_base64` 无损返回
+- `redis_set`、`redis_del`、`redis_scan`、`redis_blocked_commands`
+- `redis_hget`、`redis_hset`、`redis_hgetall`、`redis_hscan`、`redis_hdel`
+- `redis_sscan`、`redis_zscan` — 对大型 Set / Sorted Set 执行可续读的游标分页
+- `redis_pipeline` — 批量执行安全命令子集；禁止集合物化命令，保留 keyPrefix/readonly 边界
+
+`HGETALL`、`SMEMBERS`、`LRANGE`、`ZRANGE` 的旧兼容工具会在驱动层按 `DB_MAX_ROWS` 拒绝过大的集合或范围。大型 Hash/Set/Sorted Set 应使用对应 SCAN 工具；SCAN cursor 始终以字符串传递，避免 64 位游标精度损失。
 
 **审计**
 
@@ -322,7 +326,7 @@ docker compose up -d
 | `DB_MCP_TRANSPORT` | `stdio`（默认）或 `http` |
 | `DB_HTTP_HOST`、`DB_HTTP_PORT`、`DB_HTTP_ENDPOINT` | HTTP 监听地址、端口和 MCP endpoint |
 | `DB_HTTP_API_KEY`、`DB_HTTP_AUTH_DISABLED`、`DB_HTTP_ALLOWED_HOSTS`、`DB_HTTP_ORIGINS` | HTTP API key、显式关闭认证、Host 和 Origin allowlist |
-| `DB_QUERY_TIMEOUT`、`DB_MAX_ROWS`、`DB_MAX_SQL_LENGTH`、`DB_RETRY_COUNT`、`DB_RETRY_DELAY_MS` | 全局 SQL 限制（见 `src/core/config.ts`） |
+| `DB_QUERY_TIMEOUT`、`DB_MAX_ROWS`、`DB_MAX_SQL_LENGTH`、`DB_RETRY_COUNT`、`DB_RETRY_DELAY_MS` | 全局执行/结果限制；`DB_MAX_ROWS` 同时约束 SQL 行数和 Redis 集合读取 |
 | `DB_MAX_RESPONSE_BYTES` | 所有 MCP 工具序列化结果硬上限，默认 1 MiB；有效范围 4 KiB..16 MiB |
 | `DB_MONGO_MAX_TIME_MS` | MongoDB `find`/`aggregate`/`count` 服务端超时；默认 `30000`，`0` 表示关闭 |
 | `DB_MASKING_MODE` | 脱敏模式：`off`（默认）、`loose`、`strict`、`strict-v2` |

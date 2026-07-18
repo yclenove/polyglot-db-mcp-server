@@ -1,3 +1,4 @@
+import { isUtf8 } from 'node:buffer';
 import { Redis } from 'ioredis';
 import type { ConnectionSpec } from '../../core/types.js';
 import type {
@@ -8,6 +9,7 @@ import type {
 } from '../../core/types.js';
 import { assertRedisKeyPrefix } from '../../core/redis-guards.js';
 import { auditLog } from '../../core/audit.js';
+import { globalLimits, responseDataByteLimit } from '../../core/config.js';
 
 const REDIS_PIPELINE_WRITE_COMMANDS = new Set<RedisPipelineCommandName>([
   'set',
@@ -24,6 +26,86 @@ const REDIS_PIPELINE_WRITE_COMMANDS = new Set<RedisPipelineCommandName>([
   'zrem',
   'expire',
 ]);
+
+const REDIS_PIPELINE_UNBOUNDED_READ_COMMANDS = new Set<RedisPipelineCommandName>([
+  'hgetall',
+  'lrange',
+  'smembers',
+  'zrange',
+]);
+
+function safeScanCount(count: number): number {
+  if (!Number.isSafeInteger(count) || count < 1) {
+    throw new Error('Redis SCAN count 必须是正整数');
+  }
+  return Math.min(count, globalLimits().maxRows, 500);
+}
+
+function assertScanCursor(cursor: string): void {
+  if (!/^\d+$/.test(cursor)) {
+    throw new Error('Redis SCAN cursor 必须是非负整数字符串');
+  }
+}
+
+function assertCollectionItemLimit(
+  operation: string,
+  itemCount: number,
+  alternative: string,
+): void {
+  const limit = globalLimits().maxRows;
+  if (itemCount > limit) {
+    throw new Error(
+      `${operation} 将返回 ${itemCount} 项，超过 DB_MAX_ROWS=${limit}；请使用 ${alternative} 分页读取`,
+    );
+  }
+}
+
+async function assertLegacyKeyMemoryLimit(
+  redis: Redis,
+  key: string,
+  operation: string,
+  alternative: string,
+): Promise<void> {
+  let raw: unknown;
+  try {
+    raw = await redis.call('MEMORY', 'USAGE', key);
+  } catch {
+    // MEMORY USAGE may be unavailable or denied by ACL; item-count and protocol caps still apply.
+    return;
+  }
+  const memoryBytes = typeof raw === 'number' ? raw : Number(raw);
+  const byteLimit = responseDataByteLimit();
+  if (Number.isFinite(memoryBytes) && memoryBytes > byteLimit) {
+    throw new Error(
+      `${operation} 目标 key 约占 ${memoryBytes} 字节，超过响应数据上限 ${byteLimit} 字节；请使用 ${alternative} 分页读取`,
+    );
+  }
+}
+
+function encodeRedisWindowValue(value: Buffer | null): {
+  value: string | null;
+  valueBase64?: string;
+  valueEncoding: 'utf8' | 'base64' | null;
+} {
+  if (value === null) return { value: null, valueEncoding: null };
+  if (isUtf8(value)) return { value: value.toString('utf8'), valueEncoding: 'utf8' };
+  return {
+    value: null,
+    valueBase64: value.toString('base64'),
+    valueEncoding: 'base64',
+  };
+}
+
+/** Calculate the number of Redis list/zset members selected by an inclusive range. */
+export function redisRangeItemCount(start: number, stop: number, total: number): number {
+  if (total <= 0) return 0;
+  let normalizedStart = start < 0 ? total + start : start;
+  let normalizedStop = stop < 0 ? total + stop : stop;
+  normalizedStart = Math.max(0, normalizedStart);
+  if (normalizedStop < 0 || normalizedStart >= total || normalizedStart > normalizedStop) return 0;
+  normalizedStop = Math.min(total - 1, normalizedStop);
+  return normalizedStop - normalizedStart + 1;
+}
 
 function stringArg(command: RedisPipelineCommand, index: number): string {
   const value = command.args?.[index];
@@ -92,9 +174,73 @@ export async function createRedisDriver(spec: ConnectionSpec): Promise<RedisDriv
     },
     async get(key: string) {
       assertRedisKeyPrefix(key, prefix);
-      const v = await redis.get(key);
+      const byteLimit = responseDataByteLimit();
+      const value = await redis.getrangeBuffer(key, 0, byteLimit);
+      if (value.length > byteLimit) {
+        const byteLength = Math.max(value.length, await redis.strlen(key));
+        throw new Error(
+          `Redis 字符串大小 ${byteLength} 字节，超过响应数据上限 ${byteLimit} 字节；请使用 getWindow 分段读取`,
+        );
+      }
+      const exists = value.length > 0 || (await redis.exists(key)) === 1;
       auditLog({ engine: 'redis', op: 'get', key });
-      return v;
+      return exists ? value.toString('utf8') : null;
+    },
+    async getWindow(key: string, offsetBytes: number, maxBytes: number) {
+      assertRedisKeyPrefix(key, prefix);
+      if (!Number.isSafeInteger(offsetBytes) || offsetBytes < 0) {
+        throw new Error('Redis GET 字节偏移必须是非负整数');
+      }
+      if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
+        throw new Error('Redis GET 字节窗口必须是正整数');
+      }
+
+      const safeMaxBytes = Math.min(maxBytes, responseDataByteLimit());
+      const totalBytes = await redis.strlen(key);
+      if (totalBytes === 0) {
+        const value = (await redis.exists(key)) === 1 ? Buffer.alloc(0) : null;
+        auditLog({ engine: 'redis', op: 'getrange', key, offsetBytes, maxBytes: safeMaxBytes });
+        return {
+          ...encodeRedisWindowValue(value),
+          totalBytes,
+          offsetBytes: 0,
+          returnedBytes: 0,
+          nextOffsetBytes: null,
+          truncated: false,
+        };
+      }
+
+      const start = Math.min(offsetBytes, totalBytes);
+      if (start >= totalBytes) {
+        auditLog({ engine: 'redis', op: 'getrange', key, offsetBytes, maxBytes: safeMaxBytes });
+        return {
+          ...encodeRedisWindowValue(Buffer.alloc(0)),
+          totalBytes,
+          offsetBytes: start,
+          returnedBytes: 0,
+          nextOffsetBytes: null,
+          truncated: start > 0,
+        };
+      }
+
+      const end = Math.min(totalBytes - 1, start + safeMaxBytes - 1);
+      const value = await redis.getrangeBuffer(key, start, end);
+      const nextOffsetBytes = end + 1 < totalBytes ? end + 1 : null;
+      auditLog({
+        engine: 'redis',
+        op: 'getrange',
+        key,
+        offsetBytes: start,
+        maxBytes: safeMaxBytes,
+      });
+      return {
+        ...encodeRedisWindowValue(value),
+        totalBytes,
+        offsetBytes: start,
+        returnedBytes: end - start + 1,
+        nextOffsetBytes,
+        truncated: start > 0 || nextOffsetBytes !== null,
+      };
     },
     async set(key: string, value: string, ttlSeconds?: number) {
       if (spec.readonly) {
@@ -118,13 +264,21 @@ export async function createRedisDriver(spec: ConnectionSpec): Promise<RedisDriv
       return n;
     },
     async scan(match: string, cursor: string, count: number) {
-      const safeCount = Math.min(Math.max(count, 1), 500);
+      assertScanCursor(cursor);
+      const safeCount = safeScanCount(count);
       const [next, keys] = await redis.scan(cursor, 'MATCH', match, 'COUNT', safeCount);
       const filtered = prefix ? keys.filter((k: string) => k.startsWith(prefix)) : keys;
       return { cursor: next, keys: filtered };
     },
     async hget(key: string, field: string) {
       assertRedisKeyPrefix(key, prefix);
+      const byteLength = await redis.hstrlen(key, field);
+      const byteLimit = responseDataByteLimit();
+      if (byteLength > byteLimit) {
+        throw new Error(
+          `Redis Hash 字段大小 ${byteLength} 字节，超过响应数据上限 ${byteLimit} 字节，拒绝完整读取`,
+        );
+      }
       const v = await redis.hget(key, field);
       auditLog({ engine: 'redis', op: 'hget', key, field });
       return v;
@@ -139,9 +293,24 @@ export async function createRedisDriver(spec: ConnectionSpec): Promise<RedisDriv
     },
     async hgetall(key: string) {
       assertRedisKeyPrefix(key, prefix);
+      const itemCount = await redis.hlen(key);
+      assertCollectionItemLimit('HGETALL', itemCount, 'redis_hscan');
+      await assertLegacyKeyMemoryLimit(redis, key, 'HGETALL', 'redis_hscan');
       const v = await redis.hgetall(key);
       auditLog({ engine: 'redis', op: 'hgetall', key });
       return v;
+    },
+    async hscan(key: string, cursor: string, count: number, match = '*') {
+      assertRedisKeyPrefix(key, prefix);
+      assertScanCursor(cursor);
+      const safeCount = safeScanCount(count);
+      const [next, values] = await redis.hscan(key, cursor, 'MATCH', match, 'COUNT', safeCount);
+      const entries: { field: string; value: string }[] = [];
+      for (let index = 0; index + 1 < values.length; index += 2) {
+        entries.push({ field: values[index]!, value: values[index + 1]! });
+      }
+      auditLog({ engine: 'redis', op: 'hscan', key, cursor, count: safeCount, match });
+      return { cursor: next, entries };
     },
     async hdel(key: string, field: string) {
       if (spec.readonly) {
@@ -191,6 +360,11 @@ export async function createRedisDriver(spec: ConnectionSpec): Promise<RedisDriv
     },
     async lrange(key: string, start: number, stop: number) {
       assertRedisKeyPrefix(key, prefix);
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(stop)) {
+        throw new Error('Redis LRANGE start/stop 必须是安全整数');
+      }
+      const total = await redis.llen(key);
+      assertCollectionItemLimit('LRANGE', redisRangeItemCount(start, stop, total), '较小范围');
       const v = await redis.lrange(key, start, stop);
       auditLog({ engine: 'redis', op: 'lrange', key, start, stop });
       return v;
@@ -213,9 +387,20 @@ export async function createRedisDriver(spec: ConnectionSpec): Promise<RedisDriv
     },
     async smembers(key: string) {
       assertRedisKeyPrefix(key, prefix);
+      const itemCount = await redis.scard(key);
+      assertCollectionItemLimit('SMEMBERS', itemCount, 'redis_sscan');
+      await assertLegacyKeyMemoryLimit(redis, key, 'SMEMBERS', 'redis_sscan');
       const v = await redis.smembers(key);
       auditLog({ engine: 'redis', op: 'smembers', key });
       return v;
+    },
+    async sscan(key: string, cursor: string, count: number, match = '*') {
+      assertRedisKeyPrefix(key, prefix);
+      assertScanCursor(cursor);
+      const safeCount = safeScanCount(count);
+      const [next, members] = await redis.sscan(key, cursor, 'MATCH', match, 'COUNT', safeCount);
+      auditLog({ engine: 'redis', op: 'sscan', key, cursor, count: safeCount, match });
+      return { cursor: next, members };
     },
     async srem(key: string, ...members: string[]) {
       if (spec.readonly) {
@@ -250,6 +435,11 @@ export async function createRedisDriver(spec: ConnectionSpec): Promise<RedisDriv
     },
     async zrange(key: string, start: number, stop: number, withScores?: boolean) {
       assertRedisKeyPrefix(key, prefix);
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(stop)) {
+        throw new Error('Redis ZRANGE start/stop 必须是安全整数');
+      }
+      const total = await redis.zcard(key);
+      assertCollectionItemLimit('ZRANGE', redisRangeItemCount(start, stop, total), '较小范围');
       let v: string[];
       if (withScores) {
         v = await redis.zrange(key, start, stop, 'WITHSCORES');
@@ -258,6 +448,18 @@ export async function createRedisDriver(spec: ConnectionSpec): Promise<RedisDriv
       }
       auditLog({ engine: 'redis', op: 'zrange', key, start, stop, withScores });
       return v;
+    },
+    async zscan(key: string, cursor: string, count: number, match = '*') {
+      assertRedisKeyPrefix(key, prefix);
+      assertScanCursor(cursor);
+      const safeCount = safeScanCount(count);
+      const [next, values] = await redis.zscan(key, cursor, 'MATCH', match, 'COUNT', safeCount);
+      const entries: { member: string; score: string }[] = [];
+      for (let index = 0; index + 1 < values.length; index += 2) {
+        entries.push({ member: values[index]!, score: values[index + 1]! });
+      }
+      auditLog({ engine: 'redis', op: 'zscan', key, cursor, count: safeCount, match });
+      return { cursor: next, entries };
     },
     async zrem(key: string, ...members: string[]) {
       if (spec.readonly) {
@@ -310,14 +512,38 @@ export async function createRedisDriver(spec: ConnectionSpec): Promise<RedisDriv
         throw new Error('Redis pipeline 单次最多允许 100 条命令');
       }
 
-      const pipeline = redis.pipeline();
-
       for (const command of commands) {
         assertRedisKeyPrefix(command.key, prefix);
         if (spec.readonly && REDIS_PIPELINE_WRITE_COMMANDS.has(command.command)) {
           throw new Error('该 Redis 连接为只读');
         }
+        if (REDIS_PIPELINE_UNBOUNDED_READ_COMMANDS.has(command.command)) {
+          throw new Error(
+            `Redis pipeline 禁止集合物化命令 ${command.command}；请使用对应的分页工具或单独的受限范围工具`,
+          );
+        }
+      }
 
+      const valueLengths = await Promise.all(
+        commands.flatMap((command) => {
+          if (command.command === 'get') return [redis.strlen(command.key)];
+          if (command.command === 'hget') {
+            return [redis.hstrlen(command.key, stringArg(command, 0))];
+          }
+          return [];
+        }),
+      );
+      const totalValueBytes = valueLengths.reduce((sum, length) => sum + length, 0);
+      const valueByteLimit = responseDataByteLimit();
+      if (totalValueBytes > valueByteLimit) {
+        throw new Error(
+          `Redis pipeline 字符串结果共 ${totalValueBytes} 字节，超过响应数据上限 ${valueByteLimit} 字节`,
+        );
+      }
+
+      const pipeline = redis.pipeline();
+
+      for (const command of commands) {
         switch (command.command) {
           case 'get':
             pipeline.get(command.key);

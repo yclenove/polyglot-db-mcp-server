@@ -88,3 +88,25 @@ v3.0.0 完成 manifest-first 插件化生态 MVP：本地插件 discovery、mani
 - “73/73”表示所有已注册数据库工具均被真实调用，不表示覆盖每个数据库版本、所有参数排列或所有 SQL 方言语句。
 - SQL Server 的安全 `EXPLAIN` 批处理当前明确不支持，测试要求返回稳定错误；其余五个 SQL 引擎验证真实执行计划。
 - 危险 DDL 是产品安全边界，目标是稳定拒绝而不是成功执行；允许的建表、建视图、建索引和过程 DDL 已真实执行。
+
+## 六、2026-07-18 Redis 大 key 增量审计
+
+本轮在 5.x 全功能矩阵基础上补齐 Redis 大字符串与集合的物化边界，并重新执行发布入口验收。
+
+| 项目 | 结果 | 证据 |
+|------|------|------|
+| 构建与静态门禁 | 通过 | `npm run build`、`npm run typecheck`、`npm run lint`、`npm run format:check` |
+| 全量自动化 | 通过 | 678/678，0 fail、0 skip |
+| 覆盖率 | 通过 | statements/lines 73.28%，branches 76.53%，functions 79.92% |
+| Redis 真实集成 | 通过 | 13/13；String/Hash/List/Set/ZSet、SCAN、pipeline、TTL 与大 key 边界 |
+| 容器集成 | 通过 | MySQL、PostgreSQL、MongoDB、Redis，43/43，0 skip |
+| 真实数据库矩阵 | 通过 | 8 engines；76/76 个已注册数据库工具至少在一个适用真实引擎执行 |
+| 生产传输 | 通过 | stdio、Streamable HTTP 均列出 100 tools，并真实执行 Redis 字节续读 |
+| 发布包安装 | 通过 | npm tarball 安装 250 packages；从安装目录启动并完成 MCP SDK 调用 |
+
+Redis 专项边界：
+
+- `redis_get` 使用 `STRLEN`/`GETRANGE`，按原始字节返回 `next_offset_bytes`；窗口切开 UTF-8 字符或包含二进制时使用 `value_encoding=base64` 与 `value_base64`，可逐窗口无损重组。
+- 转义密集值会在工具层继续收紧实际字节窗口；4 KiB 配置下 stdio/HTTP 实际结果均为 4091 bytes，未被协议层替换为通用截断响应。
+- `HGETALL`、`SMEMBERS`、`LRANGE`、`ZRANGE` 受 `DB_MAX_ROWS` 约束；大 Hash/Set/ZSet 使用 `HSCAN`、`SSCAN`、`ZSCAN` 续读；pipeline 禁止集合物化命令。
+- “76/76”仍表示工具级真实执行覆盖，不代表穷举所有 Redis 编码、数据库版本、并发时序和参数排列。

@@ -1,9 +1,35 @@
+import { isUtf8 } from 'node:buffer';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ConnectionRegistry } from '../core/registry.js';
 import { REDIS_BLOCKED_COMMANDS } from '../core/redis-guards.js';
 import { createErrorPayload, type ErrorCode } from '../core/error-codes.js';
-import type { RedisPipelineCommand, RedisPipelineCommandName } from '../core/types.js';
+import type {
+  RedisPipelineCommand,
+  RedisPipelineCommandName,
+  RedisStringWindow,
+} from '../core/types.js';
+import { globalLimits, responseDataByteLimit } from '../core/config.js';
+import { jsonByteLength } from '../core/byte-budget.js';
+
+const redisKeySchema = z
+  .string()
+  .min(1)
+  .refine((value) => Buffer.byteLength(value, 'utf8') <= 4096, {
+    message: 'Redis key 不能超过 4096 字节',
+  });
+const redisCursorSchema = z
+  .string()
+  .regex(/^\d+$/, 'Redis SCAN cursor 必须是非负整数字符串')
+  .default('0');
+const redisMatchSchema = z
+  .string()
+  .min(1)
+  .refine((value) => Buffer.byteLength(value, 'utf8') <= 4096, {
+    message: 'Redis MATCH pattern 不能超过 4096 字节',
+  })
+  .default('*');
+const redisScanCountSchema = z.number().int().min(1).max(500).default(100);
 
 const ALLOWED_REDIS_PIPELINE_COMMANDS = new Set<RedisPipelineCommandName>([
   'get',
@@ -11,21 +37,17 @@ const ALLOWED_REDIS_PIPELINE_COMMANDS = new Set<RedisPipelineCommandName>([
   'del',
   'hget',
   'hset',
-  'hgetall',
   'hdel',
   'lpush',
   'rpush',
   'lpop',
   'rpop',
-  'lrange',
   'llen',
   'sadd',
-  'smembers',
   'srem',
   'scard',
   'sismember',
   'zadd',
-  'zrange',
   'zrem',
   'zcard',
   'zscore',
@@ -92,6 +114,9 @@ function parseRedisPipelineCommands(raw: string): RedisPipelineCommand[] {
     if (typeof key !== 'string' || key.trim() === '') {
       throw new Error(`commands_json[${index}].key 必须是非空字符串`);
     }
+    if (Buffer.byteLength(key, 'utf8') > 4096) {
+      throw new Error(`commands_json[${index}].key 不能超过 4096 字节`);
+    }
     const args = commandItem.args;
     if (args !== undefined && !Array.isArray(args)) {
       throw new Error(`commands_json[${index}].args 必须是数组`);
@@ -104,24 +129,109 @@ function parseRedisPipelineCommands(raw: string): RedisPipelineCommand[] {
   });
 }
 
+function redisWindowBytes(window: RedisStringWindow): Buffer | null {
+  if (window.valueEncoding === null) return null;
+  if (window.valueEncoding === 'utf8' && window.value !== null) {
+    return Buffer.from(window.value, 'utf8');
+  }
+  if (window.valueEncoding === 'base64' && window.valueBase64 !== undefined) {
+    return Buffer.from(window.valueBase64, 'base64');
+  }
+  throw new Error('Redis 字符串窗口编码元数据无效');
+}
+
+function utf8PrefixLength(value: Buffer, maxLength: number): number {
+  let length = Math.min(maxLength, value.length);
+  while (length > 0 && !isUtf8(value.subarray(0, length))) length--;
+  return length;
+}
+
+function buildRedisGetResult(
+  connectionId: string,
+  window: RedisStringWindow,
+  bytes: Buffer | null,
+  encoding: 'utf8' | 'base64' | null,
+) {
+  const returnedBytes = bytes?.length ?? 0;
+  const nextOffsetBytes =
+    bytes !== null && window.offsetBytes + returnedBytes < window.totalBytes
+      ? window.offsetBytes + returnedBytes
+      : null;
+  const payload: Record<string, unknown> = {
+    connection_id: connectionId,
+    value: encoding === 'utf8' && bytes !== null ? bytes.toString('utf8') : null,
+    value_encoding: encoding,
+    total_bytes: window.totalBytes,
+    offset_bytes: window.offsetBytes,
+    returned_bytes: returnedBytes,
+    next_offset_bytes: nextOffsetBytes,
+    truncated: bytes === null ? false : window.offsetBytes > 0 || nextOffsetBytes !== null,
+  };
+  if (encoding === 'base64' && bytes !== null) {
+    payload.value_base64 = bytes.toString('base64');
+  }
+  return { content: [{ type: 'text' as const, text: JSON.stringify(payload) }] };
+}
+
+function fitRedisGetResult(connectionId: string, window: RedisStringWindow) {
+  const source = redisWindowBytes(window);
+  if (source === null) return buildRedisGetResult(connectionId, window, null, null);
+
+  const encoding = window.valueEncoding === 'utf8' ? 'utf8' : 'base64';
+  const buildPrefix = (requestedLength: number) => {
+    const length =
+      encoding === 'utf8'
+        ? utf8PrefixLength(source, requestedLength)
+        : Math.min(requestedLength, source.length);
+    const bytes = source.subarray(0, length);
+    return { length, result: buildRedisGetResult(connectionId, window, bytes, encoding) };
+  };
+
+  const limit = globalLimits().maxResponseBytes;
+  const full = buildPrefix(source.length);
+  if (jsonByteLength(full.result) <= limit) return full.result;
+
+  let low = 0;
+  let high = source.length - 1;
+  let best = buildPrefix(0);
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const candidate = buildPrefix(middle);
+    if (jsonByteLength(candidate.result) <= limit) {
+      if (candidate.length > best.length) best = candidate;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return best.result;
+}
+
 export function registerRedisTools(server: McpServer, registry: ConnectionRegistry): void {
   server.registerTool(
     'redis_get',
     {
-      description: '读取 Redis 字符串键值。遵守连接 keyPrefix。',
+      description:
+        '按字节窗口读取 Redis 字符串键值。默认窗口受 DB_MAX_RESPONSE_BYTES 约束；返回总字节数、下一偏移和截断状态。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
+        offset_bytes: z.number().int().min(0).default(0),
+        max_bytes: z
+          .number()
+          .int()
+          .min(1)
+          .max(16 * 1024 * 1024)
+          .optional(),
       },
     },
-    async ({ connection_id, key }) => {
+    async ({ connection_id, key, offset_bytes, max_bytes }) => {
       try {
         const id = registry.resolveConnectionId(connection_id);
         const r = registry.requireRedis(id);
-        const v = await r.get(key);
-        return {
-          content: [{ type: 'text', text: JSON.stringify({ connection_id: id, value: v }) }],
-        };
+        const byteLimit = Math.min(max_bytes ?? responseDataByteLimit(), responseDataByteLimit());
+        const window = await r.getWindow(key, offset_bytes ?? 0, byteLimit);
+        return fitRedisGetResult(id, window);
       } catch (e) {
         return redisToolError(e);
       }
@@ -134,7 +244,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
       description: '写入 Redis 字符串键。只读连接拒绝。可选 ttl_seconds。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
         value: z.string(),
         ttl_seconds: z.number().int().min(1).max(8640000).optional(),
       },
@@ -159,7 +269,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
       description: '删除 Redis 键。只读连接拒绝。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
       },
     },
     async ({ connection_id, key }) => {
@@ -186,16 +296,16 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
         '使用 SCAN 迭代键（禁止 KEYS）。cursor 首次传 "0"；match 支持 glob；count 最大 500。返回 next_cursor 与 keys。',
       inputSchema: {
         connection_id: z.string().optional(),
-        match: z.string().default('*'),
-        cursor: z.string().default('0'),
-        count: z.number().int().min(1).max(500).optional(),
+        match: redisMatchSchema,
+        cursor: redisCursorSchema,
+        count: redisScanCountSchema,
       },
     },
     async ({ connection_id, match, cursor, count }) => {
       try {
         const id = registry.resolveConnectionId(connection_id);
         const r = registry.requireRedis(id);
-        const res = await r.scan(match, cursor, count ?? 100);
+        const res = await r.scan(match ?? '*', cursor ?? '0', count ?? 100);
         return {
           content: [
             {
@@ -204,6 +314,8 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
                 connection_id: id,
                 next_cursor: res.cursor,
                 keys: res.keys,
+                batch_count: res.keys.length,
+                scan_complete: res.cursor === '0',
               }),
             },
           ],
@@ -239,7 +351,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
     'redis_pipeline',
     {
       description:
-        '批量执行安全 Redis 命令子集。commands_json 为数组，每项包含 command、key、args。遵守 keyPrefix、readonly 和阻断命令规则。',
+        '批量执行安全 Redis 命令子集。禁止 HGETALL/LRANGE/SMEMBERS/ZRANGE 集合物化；请使用分页或单独受限读取工具。',
       inputSchema: {
         connection_id: z.string().optional(),
         commands_json: z
@@ -279,7 +391,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
       description: '获取 Redis Hash 中指定字段的值。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
         field: z.string(),
       },
     },
@@ -306,7 +418,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
       description: '设置 Redis Hash 中指定字段的值。只读连接拒绝。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
         field: z.string(),
         value: z.string(),
       },
@@ -331,10 +443,11 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
   server.registerTool(
     'redis_hgetall',
     {
-      description: '获取 Redis Hash 的所有字段和值。',
+      description:
+        '获取小型 Redis Hash 的所有字段和值。字段数超过 DB_MAX_ROWS 时拒绝，请改用 redis_hscan。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
       },
     },
     async ({ connection_id, key }) => {
@@ -355,12 +468,50 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
   );
 
   server.registerTool(
+    'redis_hscan',
+    {
+      description:
+        '使用 HSCAN 分页读取 Redis Hash。cursor 首次传 "0"；返回结构化 field/value、next_cursor 和完成状态。',
+      inputSchema: {
+        connection_id: z.string().optional(),
+        key: redisKeySchema,
+        cursor: redisCursorSchema,
+        match: redisMatchSchema,
+        count: redisScanCountSchema,
+      },
+    },
+    async ({ connection_id, key, cursor, match, count }) => {
+      try {
+        const id = registry.resolveConnectionId(connection_id);
+        const r = registry.requireRedis(id);
+        const result = await r.hscan(key, cursor ?? '0', count ?? 100, match ?? '*');
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                connection_id: id,
+                next_cursor: result.cursor,
+                entries: result.entries,
+                batch_count: result.entries.length,
+                scan_complete: result.cursor === '0',
+              }),
+            },
+          ],
+        };
+      } catch (e) {
+        return redisToolError(e);
+      }
+    },
+  );
+
+  server.registerTool(
     'redis_hdel',
     {
       description: '删除 Redis Hash 中指定字段。只读连接拒绝。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
         field: z.string(),
       },
     },
@@ -389,7 +540,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
       description: '向 Redis List 头部插入一个或多个元素。只读连接拒绝。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
         values: z.array(z.string()).min(1).describe('要插入的值数组'),
       },
     },
@@ -416,7 +567,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
       description: '向 Redis List 尾部插入一个或多个元素。只读连接拒绝。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
         values: z.array(z.string()).min(1).describe('要插入的值数组'),
       },
     },
@@ -443,7 +594,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
       description: '移除并返回 Redis List 头部元素。只读连接拒绝。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
       },
     },
     async ({ connection_id, key }) => {
@@ -469,7 +620,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
       description: '移除并返回 Redis List 尾部元素。只读连接拒绝。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
       },
     },
     async ({ connection_id, key }) => {
@@ -493,10 +644,10 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
     'redis_lrange',
     {
       description:
-        '返回 Redis List 中指定范围的元素。start 和 stop 为索引（0 开始，-1 表示最后一个）。',
+        '返回 Redis List 中受 DB_MAX_ROWS 限制的索引范围。start 和 stop 为索引（0 开始，-1 表示最后一个）。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
         start: z.number().int().describe('起始索引'),
         stop: z.number().int().describe('结束索引'),
       },
@@ -524,7 +675,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
       description: '返回 Redis List 的长度。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
       },
     },
     async ({ connection_id, key }) => {
@@ -552,7 +703,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
       description: '向 Redis Set 添加一个或多个成员。只读连接拒绝。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
         members: z.array(z.string()).min(1).describe('要添加的成员数组'),
       },
     },
@@ -576,10 +727,11 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
   server.registerTool(
     'redis_smembers',
     {
-      description: '返回 Redis Set 的所有成员。',
+      description:
+        '返回小型 Redis Set 的所有成员。成员数超过 DB_MAX_ROWS 时拒绝，请改用 redis_sscan。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
       },
     },
     async ({ connection_id, key }) => {
@@ -600,12 +752,50 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
   );
 
   server.registerTool(
+    'redis_sscan',
+    {
+      description:
+        '使用 SSCAN 分页读取 Redis Set。cursor 首次传 "0"；返回 members、next_cursor 和完成状态。',
+      inputSchema: {
+        connection_id: z.string().optional(),
+        key: redisKeySchema,
+        cursor: redisCursorSchema,
+        match: redisMatchSchema,
+        count: redisScanCountSchema,
+      },
+    },
+    async ({ connection_id, key, cursor, match, count }) => {
+      try {
+        const id = registry.resolveConnectionId(connection_id);
+        const r = registry.requireRedis(id);
+        const result = await r.sscan(key, cursor ?? '0', count ?? 100, match ?? '*');
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                connection_id: id,
+                next_cursor: result.cursor,
+                members: result.members,
+                batch_count: result.members.length,
+                scan_complete: result.cursor === '0',
+              }),
+            },
+          ],
+        };
+      } catch (e) {
+        return redisToolError(e);
+      }
+    },
+  );
+
+  server.registerTool(
     'redis_srem',
     {
       description: '从 Redis Set 移除一个或多个成员。只读连接拒绝。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
         members: z.array(z.string()).min(1).describe('要移除的成员数组'),
       },
     },
@@ -632,7 +822,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
       description: '返回 Redis Set 的成员数量。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
       },
     },
     async ({ connection_id, key }) => {
@@ -658,7 +848,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
       description: '检查成员是否存在于 Redis Set 中。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
         member: z.string(),
       },
     },
@@ -689,7 +879,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
       description: '向 Redis Sorted Set 添加成员及其分数。只读连接拒绝。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
         score: z.number().describe('分数'),
         member: z.string().describe('成员'),
       },
@@ -715,10 +905,10 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
     'redis_zrange',
     {
       description:
-        '返回 Redis Sorted Set 中指定范围的成员。start 和 stop 为索引。可选 withScores 返回分数。',
+        '返回 Redis Sorted Set 中受 DB_MAX_ROWS 限制的索引范围。可选 withScores 返回分数；大集合遍历请用 redis_zscan。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
         start: z.number().int().describe('起始索引'),
         stop: z.number().int().describe('结束索引'),
         withScores: z.boolean().optional().describe('是否返回分数'),
@@ -742,12 +932,50 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
   );
 
   server.registerTool(
+    'redis_zscan',
+    {
+      description:
+        '使用 ZSCAN 分页读取 Redis Sorted Set。返回结构化 member/score、next_cursor 和完成状态。',
+      inputSchema: {
+        connection_id: z.string().optional(),
+        key: redisKeySchema,
+        cursor: redisCursorSchema,
+        match: redisMatchSchema,
+        count: redisScanCountSchema,
+      },
+    },
+    async ({ connection_id, key, cursor, match, count }) => {
+      try {
+        const id = registry.resolveConnectionId(connection_id);
+        const r = registry.requireRedis(id);
+        const result = await r.zscan(key, cursor ?? '0', count ?? 100, match ?? '*');
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                connection_id: id,
+                next_cursor: result.cursor,
+                entries: result.entries,
+                batch_count: result.entries.length,
+                scan_complete: result.cursor === '0',
+              }),
+            },
+          ],
+        };
+      } catch (e) {
+        return redisToolError(e);
+      }
+    },
+  );
+
+  server.registerTool(
     'redis_zrem',
     {
       description: '从 Redis Sorted Set 移除一个或多个成员。只读连接拒绝。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
         members: z.array(z.string()).min(1).describe('要移除的成员数组'),
       },
     },
@@ -774,7 +1002,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
       description: '返回 Redis Sorted Set 的成员数量。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
       },
     },
     async ({ connection_id, key }) => {
@@ -800,7 +1028,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
       description: '返回 Redis Sorted Set 中指定成员的分数。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
         member: z.string(),
       },
     },
@@ -830,7 +1058,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
         '返回 Redis 键的数据类型（string/hash/list/set/zset/stream/none）。使用原生 TYPE 命令，单次网络往返。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
       },
     },
     async ({ connection_id, key }) => {
@@ -858,7 +1086,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
       description: '设置 Redis 键的过期时间（秒）。只读连接拒绝。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
         seconds: z.number().int().min(1).describe('过期时间（秒）'),
       },
     },
@@ -885,7 +1113,7 @@ export function registerRedisTools(server: McpServer, registry: ConnectionRegist
       description: '返回 Redis 键的剩余过期时间（秒）。-1 表示无过期时间，-2 表示键不存在。',
       inputSchema: {
         connection_id: z.string().optional(),
-        key: z.string(),
+        key: redisKeySchema,
       },
     },
     async ({ connection_id, key }) => {

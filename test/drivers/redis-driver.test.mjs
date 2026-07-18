@@ -9,8 +9,30 @@ describe('Redis Driver Interface', () => {
   });
 
   test('RedisDriver interface has required methods', () => {
-    const requiredMethods = ['ping', 'get', 'set', 'del', 'scan', 'close'];
-    assert.ok(requiredMethods.length > 0);
+    const requiredMethods = [
+      'ping',
+      'get',
+      'getWindow',
+      'set',
+      'del',
+      'scan',
+      'hscan',
+      'sscan',
+      'zscan',
+      'close',
+    ];
+    assert.equal(new Set(requiredMethods).size, requiredMethods.length);
+  });
+
+  test('redisRangeItemCount follows inclusive Redis index semantics', async () => {
+    const { redisRangeItemCount } = await import('../../dist/drivers/redis/redis-driver.js');
+    assert.equal(redisRangeItemCount(0, -1, 10), 10);
+    assert.equal(redisRangeItemCount(2, 4, 10), 3);
+    assert.equal(redisRangeItemCount(-3, -1, 10), 3);
+    assert.equal(redisRangeItemCount(-100, 2, 10), 3);
+    assert.equal(redisRangeItemCount(20, 30, 10), 0);
+    assert.equal(redisRangeItemCount(5, 2, 10), 0);
+    assert.equal(redisRangeItemCount(0, -100, 10), 0);
   });
 });
 

@@ -176,12 +176,14 @@ export interface MongoTransaction {
 export interface RedisDriver {
   ping(): Promise<{ ok: boolean; error?: string }>;
   get(key: string): Promise<string | null>;
+  getWindow(key: string, offsetBytes: number, maxBytes: number): Promise<RedisStringWindow>;
   set(key: string, value: string, ttlSeconds?: number): Promise<void>;
   del(key: string): Promise<number>;
   scan(match: string, cursor: string, count: number): Promise<{ cursor: string; keys: string[] }>;
   hget(key: string, field: string): Promise<string | null>;
   hset(key: string, field: string, value: string): Promise<void>;
   hgetall(key: string): Promise<Record<string, string>>;
+  hscan(key: string, cursor: string, count: number, match?: string): Promise<RedisHashScanResult>;
   hdel(key: string, field: string): Promise<number>;
   // List 操作
   lpush(key: string, ...values: string[]): Promise<number>;
@@ -193,12 +195,19 @@ export interface RedisDriver {
   // Set 操作
   sadd(key: string, ...members: string[]): Promise<number>;
   smembers(key: string): Promise<string[]>;
+  sscan(key: string, cursor: string, count: number, match?: string): Promise<RedisSetScanResult>;
   srem(key: string, ...members: string[]): Promise<number>;
   scard(key: string): Promise<number>;
   sismember(key: string, member: string): Promise<number>;
   // Sorted Set 操作
   zadd(key: string, score: number, member: string): Promise<number>;
   zrange(key: string, start: number, stop: number, withScores?: boolean): Promise<string[]>;
+  zscan(
+    key: string,
+    cursor: string,
+    count: number,
+    match?: string,
+  ): Promise<RedisSortedSetScanResult>;
   zrem(key: string, ...members: string[]): Promise<number>;
   zcard(key: string): Promise<number>;
   zscore(key: string, member: string): Promise<string | null>;
@@ -208,6 +217,32 @@ export interface RedisDriver {
   ttl(key: string): Promise<number>;
   pipeline(commands: RedisPipelineCommand[]): Promise<RedisPipelineResult[]>;
   close(): Promise<void>;
+}
+
+export interface RedisStringWindow {
+  value: string | null;
+  valueBase64?: string;
+  valueEncoding: 'utf8' | 'base64' | null;
+  totalBytes: number;
+  offsetBytes: number;
+  returnedBytes: number;
+  nextOffsetBytes: number | null;
+  truncated: boolean;
+}
+
+export interface RedisHashScanResult {
+  cursor: string;
+  entries: { field: string; value: string }[];
+}
+
+export interface RedisSetScanResult {
+  cursor: string;
+  members: string[];
+}
+
+export interface RedisSortedSetScanResult {
+  cursor: string;
+  entries: { member: string; score: string }[];
 }
 
 export type RedisPipelineCommandName =

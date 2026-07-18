@@ -901,8 +901,16 @@ async function verifyRedis(server, id, suffix) {
     connection_id: id,
     key: key('large-string'),
   });
-  assert.equal(boundedString.value._db_mcp_response?.truncated, true);
-  assert.equal(boundedString.value._db_mcp_response?.reason, 'response_byte_limit');
+  assert.equal(boundedString.value.truncated, true);
+  assert.equal(boundedString.value.total_bytes, 2 * 1024 * 1024);
+  assert.ok(boundedString.value.next_offset_bytes > 0);
+  const stringTail = await callTool(server, 'redis_get', {
+    connection_id: id,
+    key: key('large-string'),
+    offset_bytes: boundedString.value.next_offset_bytes,
+    max_bytes: 1024,
+  });
+  assert.equal(stringTail.value.value, 'x'.repeat(1024));
   await callTool(server, 'redis_del', { connection_id: id, key: key('large-string') });
   await callTool(server, 'redis_scan', {
     connection_id: id,
@@ -919,6 +927,13 @@ async function verifyRedis(server, id, suffix) {
   });
   await callTool(server, 'redis_hget', { connection_id: id, key: key('hash'), field: 'field' });
   await callTool(server, 'redis_hgetall', { connection_id: id, key: key('hash') });
+  await callTool(server, 'redis_hscan', {
+    connection_id: id,
+    key: key('hash'),
+    cursor: '0',
+    match: '*',
+    count: 100,
+  });
   await callTool(server, 'redis_hdel', { connection_id: id, key: key('hash'), field: 'field' });
 
   await callTool(server, 'redis_lpush', {
@@ -947,6 +962,13 @@ async function verifyRedis(server, id, suffix) {
     members: ['a', 'b'],
   });
   await callTool(server, 'redis_smembers', { connection_id: id, key: key('set') });
+  await callTool(server, 'redis_sscan', {
+    connection_id: id,
+    key: key('set'),
+    cursor: '0',
+    match: '*',
+    count: 100,
+  });
   await callTool(server, 'redis_scard', { connection_id: id, key: key('set') });
   await callTool(server, 'redis_sismember', {
     connection_id: id,
@@ -972,6 +994,13 @@ async function verifyRedis(server, id, suffix) {
     stop: -1,
     withScores: true,
   });
+  await callTool(server, 'redis_zscan', {
+    connection_id: id,
+    key: key('zset'),
+    cursor: '0',
+    match: '*',
+    count: 100,
+  });
   await callTool(server, 'redis_zscore', {
     connection_id: id,
     key: key('zset'),
@@ -994,21 +1023,17 @@ async function verifyRedis(server, id, suffix) {
       { command: 'ttl', key: key('pipeline:string') },
       { command: 'hset', key: key('pipeline:hash'), args: ['f', 'v'] },
       { command: 'hget', key: key('pipeline:hash'), args: ['f'] },
-      { command: 'hgetall', key: key('pipeline:hash') },
       { command: 'hdel', key: key('pipeline:hash'), args: ['f'] },
       { command: 'lpush', key: key('pipeline:list'), args: ['b', 'a'] },
       { command: 'rpush', key: key('pipeline:list'), args: ['c', 'd'] },
-      { command: 'lrange', key: key('pipeline:list'), args: [0, -1] },
       { command: 'llen', key: key('pipeline:list') },
       { command: 'lpop', key: key('pipeline:list') },
       { command: 'rpop', key: key('pipeline:list') },
       { command: 'sadd', key: key('pipeline:set'), args: ['a', 'b'] },
-      { command: 'smembers', key: key('pipeline:set') },
       { command: 'scard', key: key('pipeline:set') },
       { command: 'sismember', key: key('pipeline:set'), args: ['a'] },
       { command: 'srem', key: key('pipeline:set'), args: ['b'] },
       { command: 'zadd', key: key('pipeline:zset'), args: [1, 'a'] },
-      { command: 'zrange', key: key('pipeline:zset'), args: [0, -1, true] },
       { command: 'zscore', key: key('pipeline:zset'), args: ['a'] },
       { command: 'zcard', key: key('pipeline:zset') },
       { command: 'zrem', key: key('pipeline:zset'), args: ['a'] },

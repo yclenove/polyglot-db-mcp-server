@@ -374,10 +374,12 @@ const tools = [
   {
     name: 'redis_get',
     category: 'Redis',
-    description: '读取 Redis 字符串键值。遵守连接 keyPrefix。',
+    description: '按字节窗口读取 Redis 字符串键值；非完整 UTF-8 或二进制窗口使用 Base64，返回总长度、下一偏移和截断状态。',
     params: [
       { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
       { name: 'key', type: 'string', required: true, description: '键名' },
+      { name: 'offset_bytes', type: 'number', required: false, description: '起始字节偏移，默认 0' },
+      { name: 'max_bytes', type: 'number', required: false, description: '本次最大原始字节数，不能超过服务端响应数据预算' },
     ],
   },
   {
@@ -420,7 +422,7 @@ const tools = [
   {
     name: 'redis_pipeline',
     category: 'Redis',
-    description: '批量执行安全 Redis 命令子集。遵守 keyPrefix、readonly 和阻断命令规则。',
+    description: '批量执行安全 Redis 命令子集；集合物化命令须改用分页或单独受限读取工具。',
     params: [
       { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
       { name: 'commands_json', type: 'string', required: true, description: '命令 JSON 数组，每项包含 command、key、args' },
@@ -459,7 +461,7 @@ const tools = [
   {
     name: 'redis_hgetall',
     category: 'Redis',
-    description: '获取 Redis Hash 的所有字段和值。',
+    description: '获取小型 Redis Hash 的全部字段；超过 DB_MAX_ROWS 时拒绝。',
     params: [
       { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
       { name: 'key', type: 'string', required: true, description: '键名' },
@@ -580,7 +582,7 @@ const tools = [
   {
     name: 'redis_lrange',
     category: 'Redis List',
-    description: '返回 Redis List 中指定范围的元素。',
+    description: '返回 Redis List 中受 DB_MAX_ROWS 限制的索引范围。',
     params: [
       { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
       { name: 'key', type: 'string', required: true, description: '键名' },
@@ -612,10 +614,22 @@ const tools = [
   {
     name: 'redis_smembers',
     category: 'Redis Set',
-    description: '返回 Redis Set 的所有成员。',
+    description: '返回小型 Redis Set 的全部成员；超过 DB_MAX_ROWS 时拒绝。',
     params: [
       { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
       { name: 'key', type: 'string', required: true, description: '键名' },
+    ],
+  },
+  {
+    name: 'redis_sscan',
+    category: 'Redis Set',
+    description: '使用 SSCAN 分页读取 Set，返回成员、下一游标和完成状态。',
+    params: [
+      { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
+      { name: 'key', type: 'string', required: true, description: 'Set 键名' },
+      { name: 'cursor', type: 'string', required: false, description: '游标，默认 0' },
+      { name: 'match', type: 'string', required: false, description: '成员匹配模式，默认 *' },
+      { name: 'count', type: 'number', required: false, description: 'COUNT hint，默认 100，最大 500' },
     ],
   },
   {
@@ -663,13 +677,25 @@ const tools = [
   {
     name: 'redis_zrange',
     category: 'Redis Sorted Set',
-    description: '返回 Redis Sorted Set 中指定范围的成员。',
+    description: '返回 Redis Sorted Set 中受 DB_MAX_ROWS 限制的索引范围。',
     params: [
       { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
       { name: 'key', type: 'string', required: true, description: '键名' },
       { name: 'start', type: 'number', required: true, description: '起始索引' },
       { name: 'stop', type: 'number', required: true, description: '结束索引' },
       { name: 'withScores', type: 'boolean', required: false, description: '是否返回分数' },
+    ],
+  },
+  {
+    name: 'redis_zscan',
+    category: 'Redis Sorted Set',
+    description: '使用 ZSCAN 分页读取 Sorted Set，返回结构化成员/分数、下一游标和完成状态。',
+    params: [
+      { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
+      { name: 'key', type: 'string', required: true, description: 'Sorted Set 键名' },
+      { name: 'cursor', type: 'string', required: false, description: '游标，默认 0' },
+      { name: 'match', type: 'string', required: false, description: '成员匹配模式，默认 *' },
+      { name: 'count', type: 'number', required: false, description: 'COUNT hint，默认 100，最大 500' },
     ],
   },
   {
@@ -932,6 +958,18 @@ const tools = [
     params: [
       { name: 'sql', type: 'string', required: true, description: '要分析的 SQL 查询' },
       { name: 'connectionId', type: 'string', required: false, description: '连接 ID，用于执行 EXPLAIN' },
+    ],
+  },
+  {
+    name: 'redis_hscan',
+    category: 'Redis',
+    description: '使用 HSCAN 分页读取 Hash，返回结构化字段、下一游标和完成状态。',
+    params: [
+      { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
+      { name: 'key', type: 'string', required: true, description: 'Hash 键名' },
+      { name: 'cursor', type: 'string', required: false, description: '游标，默认 0' },
+      { name: 'match', type: 'string', required: false, description: '字段匹配模式，默认 *' },
+      { name: 'count', type: 'number', required: false, description: 'COUNT hint，默认 100，最大 500' },
     ],
   },
 

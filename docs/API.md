@@ -1,6 +1,6 @@
 # polyglot-db-mcp-server API 文档
 
-> 自动生成于 2026-07-15T19:42:18.709Z
+> 自动生成于 2026-07-18T14:52:35.763Z
 
 ## 目录
 
@@ -581,7 +581,7 @@ HTTP 安全默认值：
 
 ### `redis_get`
 
-读取 Redis 字符串键值。遵守连接 keyPrefix。
+按字节窗口读取 Redis 字符串键值；非完整 UTF-8 或二进制窗口使用 Base64，返回总长度、下一偏移和截断状态。
 
 **参数：**
 
@@ -589,6 +589,8 @@ HTTP 安全默认值：
 |--------|------|------|------|
 | `connection_id` | string | 否 | 连接 id；缺省为默认连接 |
 | `key` | string | 是 | 键名 |
+| `offset_bytes` | number | 否 | 起始字节偏移，默认 0 |
+| `max_bytes` | number | 否 | 本次最大原始字节数，不能超过服务端响应数据预算 |
 
 ---
 
@@ -643,7 +645,7 @@ HTTP 安全默认值：
 
 ### `redis_pipeline`
 
-批量执行安全 Redis 命令子集。遵守 keyPrefix、readonly 和阻断命令规则。
+批量执行安全 Redis 命令子集；集合物化命令须改用分页或单独受限读取工具。
 
 **参数：**
 
@@ -698,7 +700,7 @@ HTTP 安全默认值：
 
 ### `redis_hgetall`
 
-获取 Redis Hash 的所有字段和值。
+获取小型 Redis Hash 的全部字段；超过 DB_MAX_ROWS 时拒绝。
 
 **参数：**
 
@@ -720,6 +722,22 @@ HTTP 安全默认值：
 | `connection_id` | string | 否 | 连接 id；缺省为默认连接 |
 | `key` | string | 是 | 键名 |
 | `field` | string | 是 | 字段名 |
+
+---
+
+### `redis_hscan`
+
+使用 HSCAN 分页读取 Hash，返回结构化字段、下一游标和完成状态。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `connection_id` | string | 否 | 连接 id；缺省为默认连接 |
+| `key` | string | 是 | Hash 键名 |
+| `cursor` | string | 否 | 游标，默认 0 |
+| `match` | string | 否 | 字段匹配模式，默认 * |
+| `count` | number | 否 | COUNT hint，默认 100，最大 500 |
 
 ---
 
@@ -863,7 +881,7 @@ HTTP 安全默认值：
 
 ### `redis_lrange`
 
-返回 Redis List 中指定范围的元素。
+返回 Redis List 中受 DB_MAX_ROWS 限制的索引范围。
 
 **参数：**
 
@@ -907,7 +925,7 @@ HTTP 安全默认值：
 
 ### `redis_smembers`
 
-返回 Redis Set 的所有成员。
+返回小型 Redis Set 的全部成员；超过 DB_MAX_ROWS 时拒绝。
 
 **参数：**
 
@@ -915,6 +933,22 @@ HTTP 安全默认值：
 |--------|------|------|------|
 | `connection_id` | string | 否 | 连接 id；缺省为默认连接 |
 | `key` | string | 是 | 键名 |
+
+---
+
+### `redis_sscan`
+
+使用 SSCAN 分页读取 Set，返回成员、下一游标和完成状态。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `connection_id` | string | 否 | 连接 id；缺省为默认连接 |
+| `key` | string | 是 | Set 键名 |
+| `cursor` | string | 否 | 游标，默认 0 |
+| `match` | string | 否 | 成员匹配模式，默认 * |
+| `count` | number | 否 | COUNT hint，默认 100，最大 500 |
 
 ---
 
@@ -978,7 +1012,7 @@ HTTP 安全默认值：
 
 ### `redis_zrange`
 
-返回 Redis Sorted Set 中指定范围的成员。
+返回 Redis Sorted Set 中受 DB_MAX_ROWS 限制的索引范围。
 
 **参数：**
 
@@ -989,6 +1023,22 @@ HTTP 安全默认值：
 | `start` | number | 是 | 起始索引 |
 | `stop` | number | 是 | 结束索引 |
 | `withScores` | boolean | 否 | 是否返回分数 |
+
+---
+
+### `redis_zscan`
+
+使用 ZSCAN 分页读取 Sorted Set，返回结构化成员/分数、下一游标和完成状态。
+
+**参数：**
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| `connection_id` | string | 否 | 连接 id；缺省为默认连接 |
+| `key` | string | 是 | Sorted Set 键名 |
+| `cursor` | string | 否 | 游标，默认 0 |
+| `match` | string | 否 | 成员匹配模式，默认 * |
+| `count` | number | 否 | COUNT hint，默认 100，最大 500 |
 
 ---
 

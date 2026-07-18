@@ -7,6 +7,8 @@
 ## [Unreleased]
 
 ### 修复
+- 新增 `redis_hscan`、`redis_sscan`、`redis_zscan` 游标工具；Redis cursor 保持十进制字符串，结果返回续读游标和完成状态。
+- `redis_get` 改为 `STRLEN` + `GETRANGE` 字节窗口，返回总字节数、下一偏移和截断标记；UTF-8 边界被切开或二进制值时改用 Base64，避免解码损坏和先完整拉取大字符串。
 - 所有 MCP 工具新增 `DB_MAX_RESPONSE_BYTES` 序列化硬上限；超限结果保持合法 JSON，并通过 `_db_mcp_response` 返回截断原因、原始字节数和上限。
 - MongoDB `find`/`aggregate` 改为游标逐文档收集，不再使用 `toArray()`；按 BSON/EJSON 较大值执行字节预算并在所有路径关闭游标。
 - 六个 SQL 驱动新增逐行字节预算，`sql_query`、`sql_export_query`、`mongo_find`、`mongo_aggregate` 支持只能收紧的 `response_bytes_limit`。
@@ -28,11 +30,13 @@
 - 全局 SQL 数值限制执行严格整数校验；`DB_MAX_ROWS` 固定在 `1..10000`，避免无效或负配置绕过结果上限。
 
 ### 性能
+- Redis `HGETALL`、`SMEMBERS`、`LRANGE`、`ZRANGE` 在驱动层按 `DB_MAX_ROWS` 预检基数或范围；pipeline 禁止集合物化命令并预检聚合字符串字节量。
 - MySQL/SQL Server/SQLite 在流式或迭代读取时遇到字节上限立即停止收集；PostgreSQL/Oracle/DuckDB 对有界读取批次执行二次字节裁剪。
 - MySQL、PostgreSQL、SQL Server、Oracle、SQLite 和 DuckDB 查询改为数据库原生限制、游标或流式/chunk 读取，不再先完整物化大结果后执行 `slice(maxRows)`。
 - PostgreSQL 游标和 SQL Server/MySQL 流式截断在普通连接及事务内均执行资源清理，截断后连接可继续复用。
 
 ### 安全
+- Redis key/MATCH pattern 限制为 4096 UTF-8 字节，SCAN cursor 只接受非负十进制字符串；旧全量集合入口和 pipeline 不能绕过驱动级结果边界。
 - 加固 `sql_query` 只读扫描，拒绝堆叠语句、可写 CTE、MySQL 可执行注释、SQL Server 动态执行、反斜杠引号差异及锁定/`SELECT INTO` 查询。
 - 拒绝伪装成只读查询的服务器文件、外部连接、会话阻塞和状态修改函数；扫描覆盖模式限定名、引号标识符及函数名后的注释，并同时应用于 MCP 只读层与驱动写入层。
 - `connection_diagnose` 新增 PostgreSQL 当前角色安全评估，报告超级用户及 `pg_read_server_files`、`pg_write_server_files`、`pg_execute_server_program` 继承风险并给出最小权限建议。
