@@ -306,6 +306,12 @@ DB_MCP_DEFAULT_CONNECTION_ID=duck
 | `DB_HTTP_AUTH_DISABLED` | `false` | 旧别名；建议改用 `DB_AUTH_DISABLED` |
 | `DB_HTTP_BODY_LIMIT_BYTES` | `1048576` | POST `/mcp` JSON body 大小限制 |
 | `DB_HTTP_REQUEST_TIMEOUT_MS` | `30000` | HTTP 请求体读取超时 |
+| `DB_HTTP_MAX_SESSIONS` | `1000` | 同时保留的 stateful MCP HTTP session 上限；有效范围 `1..100000` |
+| `DB_HTTP_SESSION_IDLE_TIMEOUT_MS` | `1800000` | 无活动请求 session 的空闲回收时间；最大 `2147483647` ms |
+| `DB_HTTP_EVENT_STORE_MAX_EVENTS` | `1000` | 每个 session 保留的 SSE 恢复事件数；有效范围 `1..100000` |
+| `DB_HTTP_EVENT_STORE_MAX_BYTES` | `8388608` | 每个 session 的 SSE 恢复事件总字节上限；最大 64 MiB |
+
+`GET /mcp` 和 `DELETE /mcp` 必须携带初始化返回的 `Mcp-Session-Id`。Session 与认证主体绑定；并发重复 JSON-RPC request id 会被拒绝。达到 session 上限时返回可重试的 `HTTP_007`/503，空闲 session 会自动关闭并清空事件缓存。
 
 示例：
 
@@ -402,10 +408,11 @@ HTTP endpoint：
 | Method | Path | 说明 |
 |--------|------|------|
 | `POST` | `/mcp` | Streamable HTTP MCP endpoint |
+| `GET` | `/mcp` | Session SSE stream 与 `Last-Event-ID` 恢复 |
+| `DELETE` | `/mcp` | 终止 session 并释放事件缓存与 transport |
 | `GET` | `/healthz` | 进程健康 |
 | `GET` | `/readyz` | registry 和启动 ping readiness |
 | `GET` | `/metrics` | Prometheus text exposition；除显式关闭认证外需要 HTTP 认证 |
-| `GET/DELETE` | `/mcp` | v1.8.0 返回 405 |
 
 ## 插件发现
 

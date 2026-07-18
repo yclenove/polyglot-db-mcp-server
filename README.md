@@ -74,10 +74,11 @@ node dist/index.js --transport http --host 127.0.0.1 --port 3000
 HTTP 模式提供：
 
 - `POST /mcp`：Streamable HTTP MCP endpoint，支持 initialize、tools/list、tools/call。
+- `GET /mcp`：session 内 SSE stream；支持 `Last-Event-ID` 断线恢复。
+- `DELETE /mcp`：终止当前 session 并释放 server、transport 与事件缓存。
 - `GET /healthz`：进程健康，不 ping 数据库。
 - `GET /readyz`：registry 和启动 ping 状态。
 - `GET /metrics`：Prometheus text exposition，包含连接、审计和工具调用指标；除显式关闭认证外需要 HTTP 认证。
-- `GET/DELETE /mcp`：v1.8.0 返回 405，SSE/resumability 后续迭代。
 
 安全默认值：
 
@@ -87,6 +88,8 @@ HTTP 模式提供：
 - 显式 `DB_AUTH_DISABLED=true` 可关闭 HTTP 认证，仅限本地开发。
 - `DB_HTTP_ALLOWED_HOSTS` 是 Host allowlist；默认仅允许 `localhost`、`127.0.0.1` 和 `::1`，远程部署必须显式加入服务域名或 IP。
 - `DB_HTTP_ORIGINS` 非空时作为 Origin allowlist；带 Origin 且不匹配会被拒绝。
+- HTTP session 绑定认证模式、tenant、subject 和 client id，其他身份复用同一 session id 时返回 404。
+- `DB_HTTP_MAX_SESSIONS`、`DB_HTTP_SESSION_IDLE_TIMEOUT_MS` 和事件缓存条数/字节上限共同约束 session 内存。
 - 可用 `DB_RBAC_POLICY_TEMPLATE=readonly-http` 快速启用内置只读模板；生产建议复制模板后改为 `DB_RBAC_POLICY_FILE`。
 - 自定义 RBAC policy 可通过 `conditions.approvalRequired=true` 要求 bearer claims 中存在审批声明，适合保护写入和管理动作。
 
@@ -297,7 +300,7 @@ docker compose up -d
 
 **Schema**
 
-- `schema_export` — 导出数据库 Schema 为 JSON 或 SQL DDL 格式
+- `schema_export` — 导出 base table 的列、默认值、可空和主键为 JSON 或可执行 SQL DDL；不包含外键、触发器或独立索引
 - `schema_diff` — 比较两个 SQL 连接或 schema 的表结构差异
 
 **数据脱敏**
@@ -326,6 +329,8 @@ docker compose up -d
 | `DB_MCP_TRANSPORT` | `stdio`（默认）或 `http` |
 | `DB_HTTP_HOST`、`DB_HTTP_PORT`、`DB_HTTP_ENDPOINT` | HTTP 监听地址、端口和 MCP endpoint |
 | `DB_HTTP_API_KEY`、`DB_HTTP_AUTH_DISABLED`、`DB_HTTP_ALLOWED_HOSTS`、`DB_HTTP_ORIGINS` | HTTP API key、显式关闭认证、Host 和 Origin allowlist |
+| `DB_HTTP_MAX_SESSIONS`、`DB_HTTP_SESSION_IDLE_TIMEOUT_MS` | HTTP session 总数上限（默认 1000）和空闲回收时间（默认 30 分钟） |
+| `DB_HTTP_EVENT_STORE_MAX_EVENTS`、`DB_HTTP_EVENT_STORE_MAX_BYTES` | 每个 session 的 SSE 恢复事件条数（默认 1000）和字节上限（默认 8 MiB） |
 | `DB_QUERY_TIMEOUT`、`DB_MAX_ROWS`、`DB_MAX_SQL_LENGTH`、`DB_RETRY_COUNT`、`DB_RETRY_DELAY_MS` | 全局执行/结果限制；`DB_MAX_ROWS` 同时约束 SQL 行数和 Redis 集合读取 |
 | `DB_MAX_RESPONSE_BYTES` | 所有 MCP 工具序列化结果硬上限，默认 1 MiB；有效范围 4 KiB..16 MiB |
 | `DB_MONGO_MAX_TIME_MS` | MongoDB `find`/`aggregate`/`count` 服务端超时；默认 `30000`，`0` 表示关闭 |

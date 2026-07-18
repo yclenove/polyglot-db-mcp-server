@@ -269,7 +269,7 @@ export const ErrorDefinitions = {
   },
   HTTP_003: {
     message: 'HTTP method 不支持',
-    hint: '使用 POST /mcp；GET/SSE 取决于实现版本',
+    hint: 'MCP endpoint 支持 POST、GET/SSE 和 DELETE；检查请求 method',
     severity: 'error',
     retryable: false,
     applies_to: ['HTTP'],
@@ -286,6 +286,20 @@ export const ErrorDefinitions = {
     hint: '设置 DB_MCP_TRANSPORT=http 后再访问 HTTP 端点',
     severity: 'error',
     retryable: false,
+    applies_to: ['HTTP'],
+  },
+  HTTP_006: {
+    message: 'HTTP MCP 请求无效或冲突',
+    hint: '先 initialize 获取 session，并确保同一 session 内 request id 不重复并发使用',
+    severity: 'error',
+    retryable: false,
+    applies_to: ['HTTP'],
+  },
+  HTTP_007: {
+    message: 'HTTP MCP session 已达容量上限',
+    hint: '稍后重试，或调整 DB_HTTP_MAX_SESSIONS 与 session 空闲超时',
+    severity: 'error',
+    retryable: true,
     applies_to: ['HTTP'],
   },
 
@@ -360,6 +374,8 @@ export const ErrorCodes: { readonly [K in ErrorCode]: (typeof ErrorDefinitions)[
   HTTP_003: ErrorDefinitions.HTTP_003.message,
   HTTP_004: ErrorDefinitions.HTTP_004.message,
   HTTP_005: ErrorDefinitions.HTTP_005.message,
+  HTTP_006: ErrorDefinitions.HTTP_006.message,
+  HTTP_007: ErrorDefinitions.HTTP_007.message,
   CLI_001: ErrorDefinitions.CLI_001.message,
   CLI_002: ErrorDefinitions.CLI_002.message,
   CLI_003: ErrorDefinitions.CLI_003.message,

@@ -46,6 +46,24 @@ function containsIdentifier(value, expected) {
   return typeof value === 'string' && value.toLowerCase() === needle;
 }
 
+function indexMetadataContainsColumn(indexes, expected) {
+  if (containsIdentifier(indexes, expected)) return true;
+  const token = new RegExp(`(?:^|[^A-Za-z0-9_])${expected}(?:$|[^A-Za-z0-9_])`, 'i');
+  return indexes.some((row) => {
+    if (!row || typeof row !== 'object') return false;
+    return ['column_name', 'expressions', 'definition', 'indexdef', 'sql'].some((field) => {
+      const value = row[field] ?? row[field.toUpperCase()];
+      return typeof value === 'string' && token.test(value);
+    });
+  });
+}
+
+function quoteSqlIdentifier(engine, identifier) {
+  if (engine === 'mysql') return `\`${identifier.replaceAll('`', '``')}\``;
+  if (engine === 'mssql') return `[${identifier.replaceAll(']', ']]')}]`;
+  return `"${identifier.replaceAll('"', '""')}"`;
+}
+
 async function callTool(server, name, args = {}, options = {}) {
   const tool = server.tools.get(name);
   assert.ok(tool, `tool not registered: ${name}`);
@@ -466,11 +484,20 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
     sql: sql.update,
     params: [11, 1],
   });
+  const updated = await executeOk(driver, sql.selectById, [1], RO);
+  assert.equal(updated.data?.length, 1, `${engine} update removed the target row`);
+  assert.equal(
+    Number(updated.data?.[0]?.score ?? updated.data?.[0]?.SCORE),
+    11,
+    `${engine} standalone update did not persist`,
+  );
   await callTool(server, 'sql_execute', {
     connection_id: id,
     sql: sql.insert,
     params: [4, 'delete', 40],
   });
+  const inserted = await executeOk(driver, sql.selectById, [4], RO);
+  assert.equal(inserted.data?.length, 1, `${engine} standalone insert did not persist`);
   await callTool(server, 'sql_execute', {
     connection_id: id,
     sql: sql.deleteById,
@@ -499,6 +526,17 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
   const committed = await executeOk(driver, sql.selectById, [3], RO);
   assert.equal(committed.data?.length, 1, `${engine} commit did not persist data`);
 
+  const missingIndexSuggestion = await callTool(server, 'query_suggest', {
+    connectionId: id,
+    sql: `SELECT id FROM ${table} WHERE score = 11`,
+  });
+  assert.ok(
+    missingIndexSuggestion.value.suggestions.some(
+      (item) => item.type === 'index' && String(item.message).includes('score'),
+    ),
+    `${engine} query_suggest did not identify the missing score index`,
+  );
+
   await callTool(server, 'sql_create_index', {
     connection_id: id,
     table,
@@ -511,6 +549,32 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
   assert.ok(
     containsIdentifier(indexes.value.indexes, index),
     `${engine} index listing did not contain created index ${index}`,
+  );
+  assert.ok(
+    indexMetadataContainsColumn(indexes.value.indexes, 'score') &&
+      indexMetadataContainsColumn(indexes.value.indexes, 'name'),
+    `${engine} index listing did not expose both indexed columns`,
+  );
+  const duplicateIndexEntry = await callTool(
+    server,
+    'sql_execute',
+    {
+      connection_id: id,
+      sql: sql.insert,
+      params: [6, 'alpha', 11],
+    },
+    { allowError: true },
+  );
+  assert.equal(
+    duplicateIndexEntry.result.isError,
+    true,
+    `${engine} unique composite index accepted a duplicate key`,
+  );
+  const rejectedDuplicate = await executeOk(driver, sql.selectById, [6], RO);
+  assert.equal(
+    rejectedDuplicate.data?.length ?? 0,
+    0,
+    `${engine} duplicate key failure still persisted a row`,
   );
 
   await callTool(server, 'sql_execute', { connection_id: id, sql: sql.createView });
@@ -637,16 +701,57 @@ async function verifySqlEngine(server, registry, id, engine, suffix) {
     connection_id: id,
     format: 'sql',
   });
+  const exportedDdl = String(schemaSql.value);
   assert.match(
-    String(schemaSql.value),
+    exportedDdl,
     /CREATE TABLE/i,
     `${engine} DDL export returned no CREATE TABLE`,
   );
-  assert.match(
-    String(schemaSql.value),
-    new RegExp(`CREATE TABLE\\s+${table}`, 'i'),
+  const catalogTable = engine === 'oracle' ? table.toUpperCase() : table;
+  const catalogView = engine === 'oracle' ? view.toUpperCase() : view;
+  const exportedTablePrefix = `CREATE TABLE ${quoteSqlIdentifier(engine, catalogTable)} (`;
+  assert.ok(
+    exportedDdl.includes(exportedTablePrefix),
     `${engine} DDL export did not contain created table ${table}`,
   );
+  assert.equal(
+    exportedDdl.includes(`CREATE TABLE ${quoteSqlIdentifier(engine, catalogView)} (`),
+    false,
+    `${engine} DDL export treated view ${view} as a base table`,
+  );
+
+  const exportedTableDdl = exportedDdl
+    .split('\n\n')
+    .find((statement) => statement.startsWith(exportedTablePrefix));
+  assert.ok(exportedTableDdl, `${engine} could not isolate exported DDL for ${table}`);
+  const restoredTable =
+    engine === 'oracle'
+      ? `RD_ORACLE_${suffix.toUpperCase()}`
+      : `rd_${engine}_${suffix}`;
+  const restoredTableDdl = exportedTableDdl.replace(
+    exportedTablePrefix,
+    `CREATE TABLE ${quoteSqlIdentifier(engine, restoredTable)} (`,
+  );
+  await callTool(server, 'sql_execute', {
+    connection_id: id,
+    sql: restoredTableDdl,
+  });
+  const restoredDescription = await callTool(server, 'sql_describe_table', {
+    connection_id: id,
+    table: restoredTable,
+  });
+  assert.equal(
+    restoredDescription.value.columns?.length,
+    3,
+    `${engine} restored DDL did not recreate all columns`,
+  );
+  const restoredProbe = await executeOk(
+    driver,
+    `SELECT * FROM ${quoteSqlIdentifier(engine, restoredTable)} WHERE 1 = 0`,
+    [],
+    RO,
+  );
+  assert.equal(restoredProbe.data?.length, 0, `${engine} restored table was not queryable`);
 
   if (sql.procedureDdl) {
     await callTool(server, 'sql_execute', { connection_id: id, sql: sql.procedureDdl });
@@ -809,6 +914,31 @@ async function verifyMongo(server, id, suffix) {
   assert.ok(
     containsIdentifier(mongoIndexes.value.indexes, mongoIndex),
     `MongoDB index listing did not contain created index ${mongoIndex}`,
+  );
+  const duplicateIndexDocument = await callTool(
+    server,
+    'mongo_insert_one',
+    {
+      connection_id: id,
+      collection,
+      document_json: JSON.stringify({ id: 99, name: 'alpha', score: 11 }),
+    },
+    { allowError: true },
+  );
+  assert.equal(
+    duplicateIndexDocument.result.isError,
+    true,
+    'MongoDB unique composite index accepted a duplicate key',
+  );
+  const rejectedMongoDuplicate = await callTool(server, 'mongo_find', {
+    connection_id: id,
+    collection,
+    filter_json: JSON.stringify({ id: 99 }),
+  });
+  assert.equal(
+    rejectedMongoDuplicate.value.documents?.length ?? 0,
+    0,
+    'MongoDB duplicate key failure still persisted a document',
   );
   await callTool(server, 'mongo_schema_analysis', {
     connection_id: id,

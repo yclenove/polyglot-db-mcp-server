@@ -140,7 +140,12 @@ const tools = [
     description: '列出当前连接下的表名（按引擎使用系统目录）。可选 schema（主要给 PostgreSQL）。',
     params: [
       { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
-      { name: 'schema', type: 'string', required: false, description: 'Schema 名称（PostgreSQL）' },
+      {
+        name: 'schema',
+        type: 'string',
+        required: false,
+        description: 'Schema 名称（PostgreSQL 默认 public、SQL Server 默认 dbo、DuckDB 默认 main）',
+      },
     ],
   },
   {
@@ -521,7 +526,8 @@ const tools = [
   {
     name: 'schema_export',
     category: 'Schema',
-    description: '导出数据库 Schema 为 JSON 或 SQL DDL 格式。',
+    description:
+      '导出 base table Schema 为 JSON 或当前引擎可执行的 SQL DDL；包含列、默认值、可空和主键，不包含外键、触发器或独立索引。',
     params: [
       { name: 'connection_id', type: 'string', required: false, description: '连接 id；缺省为默认连接' },
       { name: 'format', type: 'string', required: false, description: '输出格式：json 或 sql，默认 json' },
@@ -535,8 +541,18 @@ const tools = [
     params: [
       { name: 'source_connection_id', type: 'string', required: true, description: '源连接 id' },
       { name: 'target_connection_id', type: 'string', required: true, description: '目标连接 id' },
-      { name: 'source_schema', type: 'string', required: false, description: '源 schema（PostgreSQL）' },
-      { name: 'target_schema', type: 'string', required: false, description: '目标 schema（PostgreSQL）' },
+      {
+        name: 'source_schema',
+        type: 'string',
+        required: false,
+        description: '源 schema（PostgreSQL/SQL Server/DuckDB）',
+      },
+      {
+        name: 'target_schema',
+        type: 'string',
+        required: false,
+        description: '目标 schema（PostgreSQL/SQL Server/DuckDB）',
+      },
     ],
   },
 
@@ -1034,7 +1050,8 @@ function generateMarkdown(tools) {
 | Endpoint | Method | 说明 |
 |----------|--------|------|
 | \`/mcp\` | POST | MCP Streamable HTTP JSON-RPC endpoint |
-| \`/mcp\` | GET/DELETE | v1.8.0 返回 405，SSE/resumability 后续实现 |
+| \`/mcp\` | GET | Session SSE stream；支持 Last-Event-ID resumability |
+| \`/mcp\` | DELETE | 终止 session 并释放 transport、server 和事件缓存 |
 | \`/healthz\` | GET | 进程健康检查 |
 | \`/readyz\` | GET | registry 和启动 ping readiness |
 | \`/metrics\` | GET | Prometheus text exposition；除显式关闭认证外需要 HTTP 认证 |
@@ -1042,10 +1059,11 @@ function generateMarkdown(tools) {
 HTTP 安全默认值：
 
 - 默认监听 \`127.0.0.1\`。
-- 监听非本地地址时必须设置 \`DB_HTTP_API_KEY\`，除非显式 \`DB_HTTP_AUTH_DISABLED=true\`。
-- API key 支持 \`Authorization: Bearer <key>\` 和 \`x-api-key\`。
+- HTTP 默认使用 bearer JWT + RBAC；API key 仅作为开发/迁移 fallback。
+- 只有显式 \`DB_AUTH_DISABLED=true\` 才关闭 HTTP 认证。
 - \`DB_HTTP_ALLOWED_HOSTS\` 是 Host allowlist；默认仅允许 \`localhost\`、\`127.0.0.1\` 和 \`::1\`，不匹配时返回 \`HTTP_001\`。
 - \`DB_HTTP_ORIGINS\` 是 Origin allowlist；请求带 Origin 且不匹配时返回 \`HTTP_001\`。
+- Session 绑定认证主体，并受总数、空闲超时和 per-session 事件条数/字节上限约束。
 
 ---
 

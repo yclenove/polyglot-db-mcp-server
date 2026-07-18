@@ -25,12 +25,20 @@ export interface HttpTransportConfig {
   rbacDefaultEffect: RbacDefaultEffect;
   bodyLimitBytes: number;
   requestTimeoutMs: number;
+  maxSessions: number;
+  sessionIdleTimeoutMs: number;
+  eventStoreMaxEvents: number;
+  eventStoreMaxBytes: number;
 }
 
 type EnvLike = Record<string, string | undefined>;
 
 const DEFAULT_BODY_LIMIT_BYTES = 1024 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_MAX_SESSIONS = 1000;
+const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 30 * 60_000;
+const DEFAULT_EVENT_STORE_MAX_EVENTS = 1000;
+const DEFAULT_EVENT_STORE_MAX_BYTES = 8 * 1024 * 1024;
 export const DEFAULT_HTTP_ALLOWED_HOSTS = ['localhost', '127.0.0.1', '::1'];
 
 function parseBoolean(value: string | undefined, defaultValue = false): boolean {
@@ -53,8 +61,21 @@ function parseIntRange(name: string, value: string | undefined, defaultValue: nu
 function parsePositiveInt(name: string, value: string | undefined, defaultValue: number): number {
   if (value === undefined || value.trim() === '') return defaultValue;
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 1) {
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
     throw new Error(withErrorCode('CFG_005', `${name} 必须是正整数`));
+  }
+  return parsed;
+}
+
+function parseBoundedPositiveInt(
+  name: string,
+  value: string | undefined,
+  defaultValue: number,
+  maxValue: number,
+): number {
+  const parsed = parsePositiveInt(name, value, defaultValue);
+  if (parsed > maxValue) {
+    throw new Error(withErrorCode('CFG_005', `${name} 不能超过 ${maxValue}`));
   }
   return parsed;
 }
@@ -253,6 +274,30 @@ export function parseHttpTransportConfig(
       merged.DB_HTTP_REQUEST_TIMEOUT_MS,
       DEFAULT_REQUEST_TIMEOUT_MS,
     ),
+    maxSessions: parseBoundedPositiveInt(
+      'DB_HTTP_MAX_SESSIONS',
+      merged.DB_HTTP_MAX_SESSIONS,
+      DEFAULT_MAX_SESSIONS,
+      100_000,
+    ),
+    sessionIdleTimeoutMs: parseBoundedPositiveInt(
+      'DB_HTTP_SESSION_IDLE_TIMEOUT_MS',
+      merged.DB_HTTP_SESSION_IDLE_TIMEOUT_MS,
+      DEFAULT_SESSION_IDLE_TIMEOUT_MS,
+      2_147_483_647,
+    ),
+    eventStoreMaxEvents: parseBoundedPositiveInt(
+      'DB_HTTP_EVENT_STORE_MAX_EVENTS',
+      merged.DB_HTTP_EVENT_STORE_MAX_EVENTS,
+      DEFAULT_EVENT_STORE_MAX_EVENTS,
+      100_000,
+    ),
+    eventStoreMaxBytes: parseBoundedPositiveInt(
+      'DB_HTTP_EVENT_STORE_MAX_BYTES',
+      merged.DB_HTTP_EVENT_STORE_MAX_BYTES,
+      DEFAULT_EVENT_STORE_MAX_BYTES,
+      64 * 1024 * 1024,
+    ),
   };
 
   if (config.transport === 'http' && config.authMode === 'none' && !config.authDisabled) {
@@ -300,6 +345,10 @@ export function safeHttpConfig(config: HttpTransportConfig): Record<string, unkn
     rbac_default_effect: config.rbacDefaultEffect,
     body_limit_bytes: config.bodyLimitBytes,
     request_timeout_ms: config.requestTimeoutMs,
+    max_sessions: config.maxSessions,
+    session_idle_timeout_ms: config.sessionIdleTimeoutMs,
+    event_store_max_events: config.eventStoreMaxEvents,
+    event_store_max_bytes: config.eventStoreMaxBytes,
   };
 }
 

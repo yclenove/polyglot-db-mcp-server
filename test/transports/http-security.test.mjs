@@ -34,6 +34,10 @@ const baseConfig = {
   authDisabled: true,
   bodyLimitBytes: 1024,
   requestTimeoutMs: 5000,
+  maxSessions: 1000,
+  sessionIdleTimeoutMs: 30 * 60_000,
+  eventStoreMaxEvents: 1000,
+  eventStoreMaxBytes: 8 * 1024 * 1024,
 };
 
 const fetchBlockedPorts = new Set([
@@ -152,18 +156,25 @@ describe('HTTP transport security', () => {
     assert.equal(res.headers.get('allow'), 'GET');
   });
 
-  test('rejects missing API key on MCP endpoint', async () => {
+  test('rejects missing API key on every MCP method', async () => {
     const server = await start({ apiKey: 'secret', authDisabled: false });
 
-    const res = await fetch(server.url, {
+    const post = await fetch(server.url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
     });
+    const get = await fetch(server.url, {
+      method: 'GET',
+      headers: { accept: 'text/event-stream' },
+    });
+    const del = await fetch(server.url, { method: 'DELETE' });
 
-    assert.equal(res.status, 401);
-    const body = await res.json();
-    assert.equal(body.error.data.error_info.code, 'AUTH_003');
+    for (const response of [post, get, del]) {
+      assert.equal(response.status, 401);
+      const body = await response.json();
+      assert.equal(body.error.data.error_info.code, 'AUTH_003');
+    }
   });
 
   test('rejects origin not in allowlist', async () => {
@@ -202,15 +213,22 @@ describe('HTTP transport security', () => {
     assert.equal(body.error.data.error_info.code, 'HTTP_002');
   });
 
-  test('GET and DELETE /mcp return documented 405', async () => {
+  test('GET and DELETE require a session while unsupported methods return 405', async () => {
     const server = await start({});
 
-    const get = await fetch(server.url, { method: 'GET' });
-    assert.equal(get.status, 405);
-    assert.equal(get.headers.get('allow'), 'POST');
+    const get = await fetch(server.url, {
+      method: 'GET',
+      headers: { accept: 'text/event-stream' },
+    });
+    assert.equal(get.status, 400);
+    assert.equal((await get.json()).error.data.error_info.code, 'HTTP_006');
 
     const del = await fetch(server.url, { method: 'DELETE' });
-    assert.equal(del.status, 405);
-    assert.equal(del.headers.get('allow'), 'POST');
+    assert.equal(del.status, 400);
+    assert.equal((await del.json()).error.data.error_info.code, 'HTTP_006');
+
+    const put = await fetch(server.url, { method: 'PUT' });
+    assert.equal(put.status, 405);
+    assert.equal(put.headers.get('allow'), 'POST, GET, DELETE');
   });
 });

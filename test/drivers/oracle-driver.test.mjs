@@ -51,6 +51,27 @@ describe('Oracle number fetching', () => {
   });
 });
 
+describe('Oracle SQL normalization', () => {
+  test('removes script terminators from ordinary SQL without touching literals', async () => {
+    const { normalizeOracleSql } = await import('../../dist/drivers/sql/oracle-driver.js');
+
+    assert.equal(normalizeOracleSql('CREATE TABLE t (id NUMBER);'), 'CREATE TABLE t (id NUMBER)');
+    assert.equal(
+      normalizeOracleSql("SELECT ';' AS value FROM dual; -- trailing"),
+      "SELECT ';' AS value FROM dual  -- trailing",
+    );
+  });
+
+  test('preserves anonymous and stored PL/SQL block terminators', async () => {
+    const { normalizeOracleSql } = await import('../../dist/drivers/sql/oracle-driver.js');
+    const anonymous = '/* audit */\nBEGIN\n  NULL;\nEND;';
+    const procedure = 'CREATE OR REPLACE PROCEDURE p AS BEGIN NULL; END;';
+
+    assert.equal(normalizeOracleSql(anonymous), anonymous);
+    assert.equal(normalizeOracleSql(procedure), procedure);
+  });
+});
+
 describe('Oracle Driver Interface', () => {
   test('SqlDriver interface shape', () => {
     // Verify the expected interface shape

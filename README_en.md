@@ -69,10 +69,11 @@ node dist/index.js --transport http --host 127.0.0.1 --port 3000
 HTTP mode provides:
 
 - `POST /mcp`: Streamable HTTP MCP endpoint for initialize, tools/list, and tools/call.
+- `GET /mcp`: session SSE stream with `Last-Event-ID` resumption.
+- `DELETE /mcp`: terminates the session and releases its server, transport, and event store.
 - `GET /healthz`: process health without pinging databases.
 - `GET /readyz`: registry and startup ping readiness.
 - `GET /metrics`: Prometheus text exposition for connection, audit, and tool-call metrics; it requires HTTP auth unless auth is explicitly disabled.
-- `GET/DELETE /mcp`: returns 405 in v1.8.0; SSE/resumability are planned later.
 
 Security defaults:
 
@@ -82,6 +83,8 @@ Security defaults:
 - `DB_AUTH_DISABLED=true` disables HTTP auth explicitly for local development.
 - `DB_HTTP_ALLOWED_HOSTS` is the Host allowlist. Only `localhost`, `127.0.0.1`, and `::1` are allowed by default; remote deployments must add their hostname or IP explicitly.
 - `DB_HTTP_ORIGINS` is the Origin allowlist; unmatched Origin headers are rejected.
+- HTTP sessions are bound to the auth mode, tenant, subject, and client id; another principal receives 404 for the same session id.
+- Session count, idle lifetime, and per-session resumability storage all have configurable hard limits.
 - Use `DB_RBAC_POLICY_TEMPLATE=readonly-http` for a built-in readonly starter policy; production deployments should copy and tighten it as `DB_RBAC_POLICY_FILE`.
 - Custom RBAC policies can set `conditions.approvalRequired=true` to require an approval claim in verified bearer claims for write or admin actions.
 
@@ -226,7 +229,7 @@ When you **explicitly** pass `connection_id` on any tool, it must match a config
 - `sql_execute` — write-capable SQL (blocked when connection is `readonly`)
 - `sql_list_tables` — list tables (optional `schema` for PostgreSQL)
 - `sql_describe_table` — column metadata for a table
-- `schema_export`, `schema_diff` — export or compare SQL schemas
+- `schema_export`, `schema_diff` — export base-table columns/defaults/nullability/primary keys as JSON or executable DDL, or compare SQL schemas; export does not include foreign keys, triggers, or standalone indexes
 
 All six SQL drivers cap results while reading from the database or cursor instead of materializing the full result first. Pagination probes one extra row for `has_next`; when `totalRowsExact` is `false`, `totalRows` is only an observed lower bound and `total_pages` is omitted.
 
@@ -256,6 +259,8 @@ Legacy `HGETALL`, `SMEMBERS`, `LRANGE`, and `ZRANGE` tools reject collections or
 | `DB_MCP_TRANSPORT` | `stdio` by default, or `http` |
 | `DB_HTTP_HOST`, `DB_HTTP_PORT`, `DB_HTTP_ENDPOINT` | HTTP bind host, port, and MCP endpoint |
 | `DB_HTTP_API_KEY`, `DB_HTTP_AUTH_DISABLED`, `DB_HTTP_ALLOWED_HOSTS`, `DB_HTTP_ORIGINS` | HTTP API key, explicit auth disable flag, and Host/Origin allowlists |
+| `DB_HTTP_MAX_SESSIONS`, `DB_HTTP_SESSION_IDLE_TIMEOUT_MS` | Maximum HTTP sessions (1000 by default) and idle expiry (30 minutes by default) |
+| `DB_HTTP_EVENT_STORE_MAX_EVENTS`, `DB_HTTP_EVENT_STORE_MAX_BYTES` | Per-session resumable SSE event count (1000) and byte cap (8 MiB) |
 | `DB_QUERY_TIMEOUT`, `DB_MAX_ROWS`, `DB_MAX_SQL_LENGTH`, `DB_RETRY_COUNT`, `DB_RETRY_DELAY_MS` | Global execution/result limits; `DB_MAX_ROWS` also bounds Redis collection reads |
 | `DB_MAX_RESPONSE_BYTES` | Hard cap for every serialized MCP tool result; defaults to 1 MiB, valid range 4 KiB..16 MiB |
 | `DB_MONGO_MAX_TIME_MS` | Server-side timeout for MongoDB `find`/`aggregate`/`count`; defaults to `30000`, `0` disables it |

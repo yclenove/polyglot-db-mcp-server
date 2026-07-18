@@ -17,6 +17,10 @@ describe('HTTP transport config', () => {
     assert.equal(config.authDisabled, false);
     assert.equal(config.authMode, 'none');
     assert.equal(config.bodyLimitBytes, 1024 * 1024);
+    assert.equal(config.maxSessions, 1000);
+    assert.equal(config.sessionIdleTimeoutMs, 30 * 60_000);
+    assert.equal(config.eventStoreMaxEvents, 1000);
+    assert.equal(config.eventStoreMaxBytes, 8 * 1024 * 1024);
     assert.equal(config.rbacPolicyTemplate, undefined);
 
     const safe = safeHttpConfig({
@@ -28,6 +32,9 @@ describe('HTTP transport config', () => {
     assert.equal(safe.auth, 'api_key');
     assert.equal(safe.rbac_policy_template, 'readonly-http');
     assert.deepEqual(safe.allowed_hosts, ['localhost', '127.0.0.1', '::1']);
+    assert.equal(safe.max_sessions, 1000);
+    assert.equal(safe.session_idle_timeout_ms, 30 * 60_000);
+    assert.equal(safe.event_store_max_events, 1000);
     assert.equal(Object.values(safe).includes('secret-key'), false);
   });
 
@@ -137,5 +144,37 @@ describe('HTTP transport config', () => {
     });
 
     assert.equal(config.rbacPolicyTemplate, 'readonly-http');
+  });
+
+  test('parses bounded HTTP session and event store limits', async () => {
+    const { parseHttpTransportConfig } = await import('../../dist/core/http-config.js');
+
+    const config = parseHttpTransportConfig({
+      DB_HTTP_SESSION_IDLE_TIMEOUT_MS: '60000',
+      DB_HTTP_MAX_SESSIONS: '50',
+      DB_HTTP_EVENT_STORE_MAX_EVENTS: '250',
+      DB_HTTP_EVENT_STORE_MAX_BYTES: '1048576',
+    });
+    assert.equal(config.maxSessions, 50);
+    assert.equal(config.sessionIdleTimeoutMs, 60_000);
+    assert.equal(config.eventStoreMaxEvents, 250);
+    assert.equal(config.eventStoreMaxBytes, 1024 * 1024);
+
+    assert.throws(
+      () => parseHttpTransportConfig({ DB_HTTP_MAX_SESSIONS: '100001' }),
+      /CFG_005/,
+    );
+    assert.throws(
+      () => parseHttpTransportConfig({ DB_HTTP_SESSION_IDLE_TIMEOUT_MS: '0' }),
+      /CFG_005/,
+    );
+    assert.throws(
+      () => parseHttpTransportConfig({ DB_HTTP_EVENT_STORE_MAX_EVENTS: '100001' }),
+      /CFG_005/,
+    );
+    assert.throws(
+      () => parseHttpTransportConfig({ DB_HTTP_EVENT_STORE_MAX_BYTES: '67108865' }),
+      /CFG_005/,
+    );
   });
 });

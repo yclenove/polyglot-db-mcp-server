@@ -110,3 +110,36 @@ Redis 专项边界：
 - 转义密集值会在工具层继续收紧实际字节窗口；4 KiB 配置下 stdio/HTTP 实际结果均为 4091 bytes，未被协议层替换为通用截断响应。
 - `HGETALL`、`SMEMBERS`、`LRANGE`、`ZRANGE` 受 `DB_MAX_ROWS` 约束；大 Hash/Set/ZSet 使用 `HSCAN`、`SSCAN`、`ZSCAN` 续读；pipeline 禁止集合物化命令。
 - “76/76”仍表示工具级真实执行覆盖，不代表穷举所有 Redis 编码、数据库版本、并发时序和参数排列。
+
+## 七、2026-07-19 HTTP session、DDL 与索引增量审计
+
+本轮把“工具被调用”进一步收紧为协议生命周期和数据库行为证据，并修复测试过程中暴露的实际缺陷。
+
+| 项目 | 结果 | 证据 |
+|------|------|------|
+| 全量自动化 | 通过 | 686/686，0 fail、0 skip |
+| 覆盖率 | 通过 | statements/lines 74.29%，branches 77.21%，functions 80.82% |
+| 原生容器集成 | 通过 | MySQL、PostgreSQL、MongoDB、Redis，43/43，0 skip |
+| 真实数据库矩阵 | 通过 | 8 engines；76/76 个数据库工具；SQL 六引擎逐个执行 DDL 回放、索引与分析 |
+| HTTP 增量 | 通过 | GET SSE、stream 冲突/取消、DELETE、idle expiry、session 容量、跨主体隔离、重复 request id |
+| 静态门禁 | 通过 | build、typecheck、ESLint、Prettier、`git diff --check` |
+| 依赖与打包 | 通过 | npm audit 0 vulnerabilities；dry-run 254449 bytes、254 entries |
+| 安装包 stdio | 通过 | 全新目录安装后列出 100 tools，执行建表、唯一索引、反查、advisor 和 DDL 导出 |
+| 安装包 HTTP | 通过 | 列出 100 tools；GET SSE 返回活动流冲突；DELETE 后旧 session 返回 404 |
+
+### 7.1 本轮发现并修复
+
+1. `schema_export` 原测试只匹配 `CREATE TABLE` 文本，MySQL/Oracle 长度丢失仍会误判通过。现保留完整类型、过滤 view、按方言引用标识符，并将每个引擎导出的目标表 DDL 改名后真实创建和查询。
+2. Oracle 普通 SQL 的脚本分号不能直接交给 `node-oracledb.execute()`；现仅规范化普通 SQL，匿名/存储 PL/SQL block 保持终止符。
+3. Oracle 独立 `sql_execute` 未启用 `autoCommit`，DML 会在连接关闭时回滚。现非事务 readwrite 自动提交，事务路径仍由显式 commit/rollback 控制；矩阵逐步验证 UPDATE 值、INSERT 存在和 DELETE 消失。
+4. DuckDB schema 元数据 join 后未限定 `table_name`，触发 binder ambiguity；现限定 `c.*`。
+5. Stateful HTTP 原先维护 session map 却拒绝 GET/DELETE，且缺少总容量和恢复事件内存上限。现使用 SDK 原生生命周期、有界 EventStore、主体绑定、idle sweep 与并发初始化预留。
+
+### 7.2 索引与 SQL 分析证据
+
+- 六个 SQL 引擎在建索引前均产生缺失 `score` 索引建议，创建 `(score, name)` 唯一复合索引后不再误报。
+- 系统目录反查索引名称及两列；随后插入重复复合键必须失败，并确认失败行未落库。
+- MongoDB 同样创建唯一稀疏复合索引、目录反查并验证重复文档被拒绝且无残留。
+- `query_optimize` 在五个支持引擎返回真实执行计划；SQL Server 保持文档化的安全不支持结果，不伪造 SHOWPLAN 成功。
+
+边界仍需如实说明：当前 DDL 导出覆盖列、默认值、空值和主键，不宣称已完整恢复外键、check constraint、trigger 或所有独立索引；这些对象超出当前 `schema_export` 契约，后续应按对象类型显式扩展，而不是靠字符串猜测。

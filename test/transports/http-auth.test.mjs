@@ -9,6 +9,17 @@ import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 
 const issuer = 'https://idp.example.com/';
 const audience = 'polyglot-db-mcp-server';
+const protocolVersion = '2025-11-25';
+
+function mcpHeaders(token, sessionId) {
+  return {
+    accept: 'application/json, text/event-stream',
+    'content-type': 'application/json',
+    authorization: `Bearer ${token}`,
+    ...(sessionId ? { 'mcp-session-id': sessionId } : {}),
+    ...(sessionId ? { 'mcp-protocol-version': protocolVersion } : {}),
+  };
+}
 
 async function createSqliteRegistry() {
   const { ConnectionRegistry } = await import('../../dist/core/registry.js');
@@ -117,6 +128,10 @@ describe('HTTP bearer auth and RBAC', () => {
       rbacDefaultEffect: 'deny',
       bodyLimitBytes: 1024 * 1024,
       requestTimeoutMs: 5000,
+      maxSessions: 1000,
+      sessionIdleTimeoutMs: 30 * 60_000,
+      eventStoreMaxEvents: 1000,
+      eventStoreMaxBytes: 8 * 1024 * 1024,
     };
     const authorization = createAuthorizationRuntime(sqlite.registry, {
       mode: config.authMode,
@@ -186,5 +201,66 @@ describe('HTTP bearer auth and RBAC', () => {
     const payload = JSON.parse(result.content[0].text);
     assert.equal(payload.error_info.code, 'AUTH_005');
     assert.match(payload.error_info.details.reason, /no rule matched/);
+  });
+
+  test('an HTTP session cannot be reused by another authenticated principal', async () => {
+    const server = await start();
+    const readerToken = await fixture.token('agent:reader');
+    const otherToken = await fixture.token('agent:no-role-match');
+    const initialized = await fetch(server.url, {
+      method: 'POST',
+      headers: mcpHeaders(readerToken),
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion,
+          capabilities: {},
+          clientInfo: { name: 'principal-binding-test', version: '1.0.0' },
+        },
+      }),
+    });
+    assert.equal(initialized.status, 200);
+    const sessionId = initialized.headers.get('mcp-session-id');
+    assert.ok(sessionId);
+    await initialized.json();
+
+    const notification = await fetch(server.url, {
+      method: 'POST',
+      headers: mcpHeaders(readerToken, sessionId),
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+    });
+    assert.equal(notification.status, 202);
+    await notification.body?.cancel();
+
+    const post = await fetch(server.url, {
+      method: 'POST',
+      headers: mcpHeaders(otherToken, sessionId),
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }),
+    });
+    const get = await fetch(server.url, {
+      method: 'GET',
+      headers: {
+        ...mcpHeaders(otherToken, sessionId),
+        accept: 'text/event-stream',
+      },
+    });
+    const del = await fetch(server.url, {
+      method: 'DELETE',
+      headers: mcpHeaders(otherToken, sessionId),
+    });
+
+    for (const response of [post, get, del]) {
+      assert.equal(response.status, 404);
+      assert.equal((await response.json()).error.data.error_info.code, 'HTTP_004');
+    }
+
+    const cleanup = await fetch(server.url, {
+      method: 'DELETE',
+      headers: mcpHeaders(readerToken, sessionId),
+    });
+    assert.equal(cleanup.status, 200);
+    await cleanup.body?.cancel();
   });
 });

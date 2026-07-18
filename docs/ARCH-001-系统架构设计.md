@@ -244,6 +244,10 @@ services:
 | `DB_QUERY_TIMEOUT` | 否 | 30000 | 查询超时(ms) |
 | `DB_MAX_ROWS` | 否 | 100 | 单次查询最大返回行数 |
 | `DB_MAX_RESPONSE_BYTES` | 否 | 1048576 | 所有 MCP 工具序列化结果硬上限（4 KiB..16 MiB） |
+| `DB_HTTP_MAX_SESSIONS` | 否 | 1000 | stateful HTTP session 总数上限 |
+| `DB_HTTP_SESSION_IDLE_TIMEOUT_MS` | 否 | 1800000 | 无活动请求 session 的空闲回收时间 |
+| `DB_HTTP_EVENT_STORE_MAX_EVENTS` | 否 | 1000 | 每 session 可恢复 SSE 事件数 |
+| `DB_HTTP_EVENT_STORE_MAX_BYTES` | 否 | 8388608 | 每 session 可恢复 SSE 事件字节上限 |
 | `DB_MAX_SQL_LENGTH` | 否 | 102400 | SQL 最大长度(bytes) |
 | `DB_RETRY_COUNT` | 否 | 2 | 只读查询重试次数 |
 | `DB_RETRY_DELAY_MS` | 否 | 200 | 重试基础延迟(ms) |

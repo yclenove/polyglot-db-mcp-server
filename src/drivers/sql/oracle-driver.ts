@@ -1,6 +1,10 @@
 import type { ConnectionSpec } from '../../core/types.js';
 import type { SqlDriver, SqlExecuteResult, SqlExecutionMode } from '../../core/types.js';
-import { checkDangerousOperation, isReadOnlyQuery } from '../../core/sql-guards.js';
+import {
+  checkDangerousOperation,
+  isReadOnlyQuery,
+  stripSqlStatementTerminators,
+} from '../../core/sql-guards.js';
 import { auditLog } from '../../core/audit.js';
 import { withTimeout } from './timeout.js';
 import { boundSqlRows } from './row-budget.js';
@@ -29,6 +33,21 @@ export function configureOracleNumberFetching(config: {
   if (!config.fetchAsString.includes(config.NUMBER)) {
     config.fetchAsString = [...config.fetchAsString, config.NUMBER];
   }
+}
+
+export function normalizeOracleSql(sql: string): string {
+  const trimmed = sql.trim();
+  const withoutLeadingComments = trimmed.replace(
+    /^(?:(?:\s+)|(?:--[^\r\n]*(?:\r?\n|$))|(?:\/\*[\s\S]*?\*\/))*/,
+    '',
+  );
+  const isPlSql =
+    /^(?:begin|declare)\b/i.test(withoutLeadingComments) ||
+    /^create\s+(?:or\s+replace\s+)?(?:(?:non)?editionable\s+)?(?:procedure|function|package(?:\s+body)?|trigger|type(?:\s+body)?|java\s+source)\b/i.test(
+      withoutLeadingComments,
+    );
+  if (isPlSql) return trimmed;
+  return stripSqlStatementTerminators(trimmed, 'oracle').trim();
 }
 
 /** 动态加载 optionalDependency `oracledb` */
@@ -106,7 +125,7 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
         const d = checkDangerousOperation(sqlText, 'oracle');
         if (d) return { success: false, error: d };
       }
-      const { text, binds } = bindQuestionMarks(sqlText, params);
+      const { text, binds } = bindQuestionMarks(normalizeOracleSql(sqlText), params);
       const execOpts: Record<string, unknown> = {
         outFormat: oracledb.OUT_FORMAT_OBJECT,
       };
@@ -220,10 +239,11 @@ export async function createOracleDriver(spec: ConnectionSpec): Promise<SqlDrive
       }
       let conn: OraConnection | undefined;
       try {
-        const { text, binds } = bindQuestionMarks(sqlText, params);
+        const { text, binds } = bindQuestionMarks(normalizeOracleSql(sqlText), params);
         conn = await pool.getConnection();
         const execOpts: Record<string, unknown> = {
           outFormat: oracledb.OUT_FORMAT_OBJECT,
+          autoCommit: options.mode === 'readwrite',
         };
         const hardLimited = isReadOnlyQuery(sqlText, 'oracle');
         if (hardLimited) {

@@ -3,7 +3,7 @@
 **文档编号**: ADR-001
 **版本**: 1.0
 **日期**: 2026-07-09
-**状态**: Accepted
+**状态**: Accepted（v1.8 基线；当前行为由第十四节增量决策覆盖）
 **目标版本**: v1.8.0
 **关联文档**: `docs/ROADMAP.md`, `docs/ITER-v1.7.2-迭代计划.md`, `docs/ITER-v1.7.3-迭代计划.md`
 **参考来源**: [MCP Transports specification](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports), [MCP TypeScript SDK docs](https://ts.sdk.modelcontextprotocol.io/)
@@ -262,3 +262,25 @@ npm pack --dry-run
 | API key header | 同时支持 `Authorization: Bearer <key>` 和 `x-api-key` |
 | `/readyz` | 使用启动时 ping 结果，默认连接失败时进程仍按既有模型退出 |
 | Docker | 本轮提供 Dockerfile 和 Compose HTTP 示例，不发布镜像 |
+
+---
+
+## 十四、2026-07-19 增量决策：stateful session 与 resumability
+
+原 ADR 中“GET 返回 405、无长期 session store”是 v1.8.0 首版范围，现由以下决策取代：
+
+1. `POST /mcp` 初始化后保留独立 `McpServer`、SDK transport 和有界 EventStore。
+2. `GET /mcp` 转发到该 session 的 SDK transport，提供 SSE；`Last-Event-ID` 由 EventStore 做同 stream 重放。
+3. `DELETE /mcp` 终止 session，清空 EventStore，并关闭 transport 与 server。
+4. Session 绑定 auth mode、tenant、subject 和 client id；其他主体持有同一 session id 时按不存在返回 404。
+5. 同 session 的 JSON-RPC request id 不能批内重复或并发复用；请求完成后允许顺序复用，字符串与数字 id 不合并。
+6. 初始化使用并发容量预留，避免 `sessions.size` 检查竞态；活动请求不会被 idle sweep 中途关闭。
+
+| 配置 | 默认值 | 上限/语义 |
+|------|--------|-----------|
+| `DB_HTTP_MAX_SESSIONS` | `1000` | `1..100000`；达到上限返回 `HTTP_007`/503 与 `Retry-After` |
+| `DB_HTTP_SESSION_IDLE_TIMEOUT_MS` | `1800000` | 无活动请求时回收；最大 `2147483647` ms |
+| `DB_HTTP_EVENT_STORE_MAX_EVENTS` | `1000` | 每 session 最旧事件按插入顺序淘汰 |
+| `DB_HTTP_EVENT_STORE_MAX_BYTES` | `8388608` | 每 session JSON event 总字节上限；最大 64 MiB |
+
+当前 EventStore 只在单进程内存中保留。多实例部署若需要跨节点恢复，必须在负载均衡层保持 session affinity，或后续引入外部 session/EventStore；本轮不把单进程保证夸大为分布式保证。

@@ -1,228 +1,143 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-// Schema module doesn't export buildSchemaFromRows / getSchemaSql directly,
-// but we can test the SQL generation patterns and integration behavior.
-// We test via the compiled module's internal logic by importing the tool registration
-// and verifying the SQL queries produced for each engine.
+async function invokeSchemaExport(engine, rows, args = {}) {
+  const driver = {
+    engine,
+    queries: [],
+    async execute(sql, params, options) {
+      this.queries.push({ sql, params, options });
+      return { success: true, data: rows };
+    },
+  };
+  const server = {
+    tools: new Map(),
+    registerTool(name, schema, handler) {
+      this.tools.set(name, { schema, handler });
+    },
+  };
+  const registry = {
+    resolveConnectionId() {
+      return 'source';
+    },
+    requireSql() {
+      return driver;
+    },
+  };
+  const { registerSchemaTools } = await import('../dist/tools/schema.js');
+  registerSchemaTools(server, registry);
+  const result = await server.tools.get('schema_export').handler({
+    connection_id: 'source',
+    ...args,
+  });
+  return { driver, result };
+}
 
 describe('Schema SQL generation', () => {
-  // Since getSchemaSql is not exported, we test the expected SQL patterns
-  // by verifying the tool behavior against mock drivers.
-
-  test('MySQL schema SQL references information_schema', () => {
-    // The MySQL schema SQL should query information_schema.columns
-    const expectedPattern = /information_schema\.columns/i;
-    // We can verify by checking the source code pattern is correct
-    // by testing the output structure matches expected format
-    assert.ok(expectedPattern.test('information_schema.columns'));
+  test('MySQL uses full column types and excludes views', async () => {
+    const { driver } = await invokeSchemaExport('mysql', []);
+    assert.match(driver.queries[0].sql, /c\.COLUMN_TYPE as data_type/);
+    assert.match(driver.queries[0].sql, /t\.TABLE_TYPE = 'BASE TABLE'/);
   });
 
-  test('PostgreSQL schema SQL references information_schema with schema param', () => {
-    const expectedPattern = /information_schema\.columns/i;
-    assert.ok(expectedPattern.test('information_schema.columns'));
+  test('PostgreSQL preserves modifiers and scopes primary keys to the schema', async () => {
+    const { driver } = await invokeSchemaExport('postgres', [], { schema: 'analytics' });
+    assert.match(driver.queries[0].sql, /pg_catalog\.format_type/);
+    assert.match(driver.queries[0].sql, /tc\.constraint_schema = ku\.constraint_schema/);
+    assert.match(driver.queries[0].sql, /t\.table_type = 'BASE TABLE'/);
+    assert.deepEqual(driver.queries[0].params, ['analytics']);
   });
 
-  test('MSSQL schema SQL references INFORMATION_SCHEMA.COLUMNS', () => {
-    const expectedPattern = /INFORMATION_SCHEMA\.COLUMNS/i;
-    assert.ok(expectedPattern.test('INFORMATION_SCHEMA.COLUMNS'));
+  test('MSSQL reconstructs length, precision, and temporal modifiers', async () => {
+    const { driver } = await invokeSchemaExport('mssql', []);
+    assert.match(driver.queries[0].sql, /CHARACTER_MAXIMUM_LENGTH/);
+    assert.match(driver.queries[0].sql, /NUMERIC_PRECISION/);
+    assert.match(driver.queries[0].sql, /DATETIME_PRECISION/);
+    assert.match(driver.queries[0].sql, /t\.TABLE_TYPE = 'BASE TABLE'/);
+    assert.deepEqual(driver.queries[0].params, ['dbo']);
   });
 
-  test('Oracle schema SQL references user_tab_columns', () => {
-    const expectedPattern = /user_tab_columns/i;
-    assert.ok(expectedPattern.test('user_tab_columns'));
-  });
-});
-
-describe('Schema data transformation logic', () => {
-  // Test the buildSchemaFromRows logic by simulating its behavior
-
-  test('groups columns by table_name', () => {
-    const rows = [
-      { table_name: 'users', column_name: 'id', data_type: 'int', is_nullable: 'NO', column_key: 'PRI' },
-      { table_name: 'users', column_name: 'name', data_type: 'varchar', is_nullable: 'YES', column_key: '' },
-      { table_name: 'orders', column_name: 'id', data_type: 'int', is_nullable: 'NO', column_key: 'PRI' },
-    ];
-
-    // Simulate buildSchemaFromRows
-    const tables = new Map();
-    for (const row of rows) {
-      let table = tables.get(row.table_name);
-      if (!table) {
-        table = { name: row.table_name, columns: [] };
-        tables.set(row.table_name, table);
-      }
-      table.columns.push({
-        name: row.column_name,
-        type: row.data_type,
-        nullable: row.is_nullable === 'YES',
-        primaryKey: row.column_key === 'PRI' || row.column_key === 'YES',
-      });
-    }
-
-    const schema = Array.from(tables.values());
-    assert.equal(schema.length, 2);
-    assert.equal(schema[0].name, 'users');
-    assert.equal(schema[0].columns.length, 2);
-    assert.equal(schema[1].name, 'orders');
-    assert.equal(schema[1].columns.length, 1);
+  test('Oracle reconstructs character and numeric modifiers and excludes views', async () => {
+    const { driver } = await invokeSchemaExport('oracle', []);
+    assert.match(driver.queries[0].sql, /c\.char_length/);
+    assert.match(driver.queries[0].sql, /c\.data_precision/);
+    assert.match(driver.queries[0].sql, /JOIN user_tables/);
   });
 
-  test('correctly identifies primary keys', () => {
-    const rows = [
-      { table_name: 't', column_name: 'id', data_type: 'int', is_nullable: 'NO', column_key: 'PRI' },
-      { table_name: 't', column_name: 'name', data_type: 'varchar', is_nullable: 'YES', column_key: '' },
-    ];
+  test('DuckDB scopes metadata to main or the requested schema', async () => {
+    const defaultSchema = await invokeSchemaExport('duckdb', []);
+    const customSchema = await invokeSchemaExport('duckdb', [], { schema: 'analytics' });
 
-    const tables = new Map();
-    for (const row of rows) {
-      let table = tables.get(row.table_name);
-      if (!table) {
-        table = { name: row.table_name, columns: [] };
-        tables.set(row.table_name, table);
-      }
-      table.columns.push({
-        name: row.column_name,
-        type: row.data_type,
-        nullable: row.is_nullable === 'YES',
-        primaryKey: row.column_key === 'PRI' || row.column_key === 'YES',
-      });
-    }
-
-    const schema = Array.from(tables.values());
-    assert.equal(schema[0].columns[0].primaryKey, true);
-    assert.equal(schema[0].columns[1].primaryKey, false);
-  });
-
-  test('correctly identifies nullable columns', () => {
-    const rows = [
-      { table_name: 't', column_name: 'id', data_type: 'int', is_nullable: 'NO', column_key: 'PRI' },
-      { table_name: 't', column_name: 'email', data_type: 'varchar', is_nullable: 'YES', column_key: '' },
-    ];
-
-    const tables = new Map();
-    for (const row of rows) {
-      let table = tables.get(row.table_name);
-      if (!table) {
-        table = { name: row.table_name, columns: [] };
-        tables.set(row.table_name, table);
-      }
-      table.columns.push({
-        name: row.column_name,
-        type: row.data_type,
-        nullable: row.is_nullable === 'YES',
-        primaryKey: row.column_key === 'PRI' || row.column_key === 'YES',
-      });
-    }
-
-    const schema = Array.from(tables.values());
-    assert.equal(schema[0].columns[0].nullable, false);
-    assert.equal(schema[0].columns[1].nullable, true);
-  });
-
-  test('handles empty rows', () => {
-    const rows = [];
-    const tables = new Map();
-    for (const row of rows) {
-      let table = tables.get(row.table_name);
-      if (!table) {
-        table = { name: row.table_name, columns: [] };
-        tables.set(row.table_name, table);
-      }
-      table.columns.push(row);
-    }
-    const schema = Array.from(tables.values());
-    assert.equal(schema.length, 0);
-  });
-
-  test('preserves column order', () => {
-    const rows = [
-      { table_name: 't', column_name: 'z_col', data_type: 'int', is_nullable: 'NO', column_key: '' },
-      { table_name: 't', column_name: 'a_col', data_type: 'int', is_nullable: 'NO', column_key: '' },
-      { table_name: 't', column_name: 'm_col', data_type: 'int', is_nullable: 'NO', column_key: '' },
-    ];
-
-    const tables = new Map();
-    for (const row of rows) {
-      let table = tables.get(row.table_name);
-      if (!table) {
-        table = { name: row.table_name, columns: [] };
-        tables.set(row.table_name, table);
-      }
-      table.columns.push({ name: row.column_name });
-    }
-
-    const schema = Array.from(tables.values());
-    assert.deepEqual(
-      schema[0].columns.map((c) => c.name),
-      ['z_col', 'a_col', 'm_col']
-    );
+    assert.match(defaultSchema.driver.queries[0].sql, /c\.table_schema = \?/);
+    assert.deepEqual(defaultSchema.driver.queries[0].params, ['main']);
+    assert.deepEqual(customSchema.driver.queries[0].params, ['analytics']);
   });
 });
 
 describe('DDL generation', () => {
-  test('generates valid CREATE TABLE syntax', () => {
-    const table = {
-      name: 'users',
-      columns: [
-        { name: 'id', type: 'int', nullable: false, primaryKey: true },
-        { name: 'name', type: 'varchar(255)', nullable: true, primaryKey: false },
+  test('MySQL DDL preserves full types, defaults, extras, and quoted identifiers', async () => {
+    const { result } = await invokeSchemaExport(
+      'mysql',
+      [
+        {
+          table_name: 'order',
+          column_name: 'id',
+          data_type: 'int unsigned',
+          is_nullable: 'NO',
+          column_key: 'PRI',
+          extra: 'auto_increment',
+        },
+        {
+          table_name: 'order',
+          column_name: 'select',
+          data_type: 'varchar(80)',
+          is_nullable: 'NO',
+          column_key: '',
+          column_default: "'guest'",
+        },
       ],
-    };
-
-    const cols = table.columns
-      .map((col) => {
-        let def = `  ${col.name} ${col.type}`;
-        if (!col.nullable) def += ' NOT NULL';
-        return def;
-      })
-      .join(',\n');
-    const pk = table.columns.filter((c) => c.primaryKey);
-    const pkClause = pk.length > 0 ? `,\n  PRIMARY KEY (${pk.map((c) => c.name).join(', ')})` : '';
-    const ddl = `CREATE TABLE ${table.name} (\n${cols}${pkClause}\n);`;
-
-    assert.ok(ddl.includes('CREATE TABLE users'));
-    assert.ok(ddl.includes('id int NOT NULL'));
-    assert.ok(ddl.includes('name varchar(255)'));
-    assert.ok(ddl.includes('PRIMARY KEY (id)'));
-    assert.ok(ddl.includes('NOT NULL'));
+      { format: 'sql' },
+    );
+    const ddl = result.content[0].text;
+    assert.match(ddl, /CREATE TABLE `order`/);
+    assert.match(ddl, /`id` int unsigned NOT NULL AUTO_INCREMENT/);
+    assert.match(ddl, /`select` varchar\(80\) DEFAULT 'guest' NOT NULL/);
+    assert.match(ddl, /PRIMARY KEY \(`id`\)/);
   });
 
-  test('handles table with no primary key', () => {
-    const table = {
-      name: 'logs',
-      columns: [{ name: 'message', type: 'text', nullable: true, primaryKey: false }],
-    };
-
-    const cols = table.columns
-      .map((col) => {
-        let def = `  ${col.name} ${col.type}`;
-        if (!col.nullable) def += ' NOT NULL';
-        return def;
-      })
-      .join(',\n');
-    const pk = table.columns.filter((c) => c.primaryKey);
-    const pkClause = pk.length > 0 ? `,\n  PRIMARY KEY (${pk.map((c) => c.name).join(', ')})` : '';
-    const ddl = `CREATE TABLE ${table.name} (\n${cols}${pkClause}\n);`;
-
-    assert.ok(ddl.includes('CREATE TABLE logs'));
-    assert.ok(!ddl.includes('PRIMARY KEY'));
-  });
-
-  test('handles composite primary key', () => {
-    const table = {
-      name: 'user_roles',
-      columns: [
-        { name: 'user_id', type: 'int', nullable: false, primaryKey: true },
-        { name: 'role_id', type: 'int', nullable: false, primaryKey: true },
+  test('Oracle DDL preserves type modifiers and quotes composite keys', async () => {
+    const { result } = await invokeSchemaExport(
+      'oracle',
+      [
+        {
+          TABLE_NAME: 'USER_ROLE',
+          COLUMN_NAME: 'USER_ID',
+          DATA_TYPE: 'NUMBER(19,0)',
+          IS_NULLABLE: 'N',
+          COLUMN_KEY: 'YES',
+        },
+        {
+          TABLE_NAME: 'USER_ROLE',
+          COLUMN_NAME: 'ROLE_ID',
+          DATA_TYPE: 'NUMBER(19,0)',
+          IS_NULLABLE: 'N',
+          COLUMN_KEY: 'YES',
+        },
+        {
+          TABLE_NAME: 'USER_ROLE',
+          COLUMN_NAME: 'LABEL',
+          DATA_TYPE: 'VARCHAR2(80 CHAR)',
+          IS_NULLABLE: 'Y',
+          COLUMN_KEY: 'NO',
+          COLUMN_DEFAULT: "'member'",
+        },
       ],
-    };
-
-    const pk = table.columns.filter((c) => c.primaryKey);
-    assert.equal(pk.length, 2);
-    const pkClause = `PRIMARY KEY (${pk.map((c) => c.name).join(', ')})`;
-    assert.ok(pkClause.includes('user_id'));
-    assert.ok(pkClause.includes('role_id'));
+      { format: 'sql' },
+    );
+    const ddl = result.content[0].text;
+    assert.match(ddl, /CREATE TABLE "USER_ROLE"/);
+    assert.match(ddl, /"LABEL" VARCHAR2\(80 CHAR\) DEFAULT 'member'/);
+    assert.match(ddl, /PRIMARY KEY \("USER_ID", "ROLE_ID"\)/);
   });
 });
 
@@ -313,7 +228,7 @@ describe('Schema tools integration', () => {
       {
         TABLE_NAME: 'USERS',
         COLUMN_NAME: 'NAME',
-        DATA_TYPE: 'VARCHAR2',
+        DATA_TYPE: 'VARCHAR2(80 CHAR)',
         IS_NULLABLE: 'Y',
         COLUMN_KEY: 'NO',
         COLUMN_DEFAULT: "'anonymous'",
@@ -340,8 +255,9 @@ describe('Schema tools integration', () => {
       connection_id: 'source',
       format: 'sql',
     });
-    assert.match(ddlResult.content[0].text, /CREATE TABLE USERS/);
-    assert.match(ddlResult.content[0].text, /PRIMARY KEY \(ID\)/);
+    assert.match(ddlResult.content[0].text, /CREATE TABLE "USERS"/);
+    assert.match(ddlResult.content[0].text, /"NAME" VARCHAR2\(80 CHAR\) DEFAULT 'anonymous'/);
+    assert.match(ddlResult.content[0].text, /PRIMARY KEY \("ID"\)/);
   });
 
   test('schema_diff reports table and column differences', async () => {

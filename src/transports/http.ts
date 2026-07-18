@@ -5,6 +5,7 @@ import { URL } from 'node:url';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { ConnectionRegistry } from '../core/registry.js';
 import {
   DEFAULT_HTTP_ALLOWED_HOSTS,
@@ -18,12 +19,20 @@ import { createServerWithPlugins as createMcpServer } from '../server.js';
 import { healthPayload, readinessPayload, type PingSummary } from './health.js';
 import { createJwtVerifier, type JwtVerifier } from '../auth/token-verifier.js';
 import type { AuthorizationRuntime } from '../auth/authorization.js';
+import { authContextFromInfo } from '../auth/auth-context.js';
+import { BoundedHttpEventStore } from './http-event-store.js';
 
 interface SessionEntry {
+  id: string;
   server: McpServer;
   transport: StreamableHTTPServerTransport;
+  eventStore: BoundedHttpEventStore;
+  principal: string;
   createdAt: number;
   lastSeenAt: number;
+  activeRequests: number;
+  inFlightRequestIds: Set<string>;
+  closing?: Promise<void>;
 }
 
 export interface StartedHttpTransport {
@@ -289,7 +298,45 @@ async function readJsonBody(
 }
 
 async function closeSession(session: SessionEntry): Promise<void> {
-  await Promise.allSettled([session.transport.close(), session.server.close()]);
+  if (!session.closing) {
+    session.closing = (async () => {
+      session.eventStore.clear();
+      await Promise.allSettled([session.transport.close(), session.server.close()]);
+    })();
+  }
+  await session.closing;
+}
+
+function sessionPrincipal(authInfo: AuthInfo): string {
+  const context = authContextFromInfo(authInfo);
+  return JSON.stringify([
+    context.authMode,
+    context.tenant ?? '',
+    context.subject,
+    authInfo.clientId,
+  ]);
+}
+
+function requestIdKey(id: string | number): string {
+  return `${typeof id}:${String(id)}`;
+}
+
+function requestIds(body: unknown): { keys: string[]; duplicate?: string | number } {
+  const messages = Array.isArray(body) ? body : [body];
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  for (const message of messages) {
+    if (!message || typeof message !== 'object' || Array.isArray(message)) continue;
+    const record = message as Record<string, unknown>;
+    if (typeof record.method !== 'string') continue;
+    const id = record.id;
+    if (typeof id !== 'string' && typeof id !== 'number') continue;
+    const key = requestIdKey(id);
+    if (seen.has(key)) return { keys: [], duplicate: id };
+    seen.add(key);
+    keys.push(key);
+  }
+  return { keys };
 }
 
 export async function startHttpTransport(options: {
@@ -302,6 +349,50 @@ export async function startHttpTransport(options: {
   const { registry, config, startupPings, authorization, startedAt = new Date() } = options;
   const sessions = new Map<string, SessionEntry>();
   const jwtVerifier = createVerifier(config);
+  const maxSessions = config.maxSessions ?? 1000;
+  const sessionIdleTimeoutMs = config.sessionIdleTimeoutMs ?? 30 * 60_000;
+  const eventStoreMaxEvents = config.eventStoreMaxEvents ?? 1000;
+  const eventStoreMaxBytes = config.eventStoreMaxBytes ?? 8 * 1024 * 1024;
+  let pendingSessionInitializations = 0;
+
+  const handleSessionRequest = async (
+    session: SessionEntry,
+    req: IncomingMessage,
+    res: ServerResponse,
+    body?: unknown,
+  ): Promise<void> => {
+    session.activeRequests++;
+    session.lastSeenAt = Date.now();
+    try {
+      await session.transport.handleRequest(req, res, body);
+    } catch (error) {
+      if (req.method === 'GET' && (req.destroyed || res.destroyed)) return;
+      throw error;
+    } finally {
+      session.activeRequests = Math.max(0, session.activeRequests - 1);
+      session.lastSeenAt = Date.now();
+    }
+  };
+
+  const resolveOwnedSession = async (
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<SessionEntry | undefined> => {
+    assertOriginAllowed(req, config);
+    const authInfo = await authenticateHttpRequest(req, config, jwtVerifier);
+    (req as IncomingMessage & { auth?: AuthInfo }).auth = authInfo;
+    const sessionId = getHeader(req, 'mcp-session-id');
+    if (!sessionId) {
+      sendMcpError(res, 400, 'HTTP_006', 'Mcp-Session-Id header is required');
+      return undefined;
+    }
+    const session = sessions.get(sessionId);
+    if (!session || session.principal !== sessionPrincipal(authInfo)) {
+      sendMcpError(res, 404, 'HTTP_004', 'MCP session not found');
+      return undefined;
+    }
+    return session;
+  };
 
   const handleMcpPost = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     assertOriginAllowed(req, config);
@@ -312,46 +403,136 @@ export async function startHttpTransport(options: {
 
     if (sessionId) {
       const session = sessions.get(sessionId);
-      if (!session) {
+      if (!session || session.principal !== sessionPrincipal(authInfo)) {
         sendMcpError(res, 404, 'HTTP_004', 'MCP session not found');
         return;
       }
-      session.lastSeenAt = Date.now();
-      await session.transport.handleRequest(req, res, body);
+      const ids = requestIds(body);
+      if (ids.duplicate !== undefined) {
+        sendMcpError(res, 400, 'HTTP_006', 'Duplicate JSON-RPC request ID in batch');
+        return;
+      }
+      if (ids.keys.some((key) => session.inFlightRequestIds.has(key))) {
+        sendMcpError(res, 400, 'HTTP_006', 'JSON-RPC request ID is already in flight');
+        return;
+      }
+      for (const key of ids.keys) session.inFlightRequestIds.add(key);
+      try {
+        await handleSessionRequest(session, req, res, body);
+      } finally {
+        for (const key of ids.keys) session.inFlightRequestIds.delete(key);
+      }
       return;
     }
 
-    const mcpServer = await createMcpServer(registry, { authorization });
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
-      enableJsonResponse: true,
-      onsessioninitialized: (newSessionId) => {
-        sessions.set(newSessionId, {
-          server: mcpServer,
-          transport,
-          createdAt: Date.now(),
-          lastSeenAt: Date.now(),
-        });
-      },
-      onsessionclosed: (closedSessionId) => {
-        sessions.delete(closedSessionId);
-      },
-    });
+    if (!isInitializeRequest(body)) {
+      sendMcpError(res, 400, 'HTTP_006', 'New MCP sessions must start with initialize');
+      return;
+    }
 
-    await mcpServer.connect(transport);
+    if (sessions.size + pendingSessionInitializations >= maxSessions) {
+      sendMcpError(res, 503, 'HTTP_007', undefined, { 'retry-after': '1' });
+      return;
+    }
+
+    pendingSessionInitializations++;
+    let reservationHeld = true;
+    const releaseReservation = (): void => {
+      if (!reservationHeld) return;
+      reservationHeld = false;
+      pendingSessionInitializations--;
+    };
+    let provisionalSession: SessionEntry | undefined;
     try {
-      await transport.handleRequest(req, res, body);
+      const mcpServer = await createMcpServer(registry, { authorization });
+      const eventStore = new BoundedHttpEventStore(eventStoreMaxEvents, eventStoreMaxBytes);
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        enableJsonResponse: true,
+        eventStore,
+        onsessioninitialized: (newSessionId) => {
+          const now = Date.now();
+          session.id = newSessionId;
+          session.createdAt = now;
+          session.lastSeenAt = now;
+          sessions.set(newSessionId, session);
+          releaseReservation();
+        },
+        onsessionclosed: (closedSessionId) => {
+          const closed = sessions.get(closedSessionId);
+          sessions.delete(closedSessionId);
+          closed?.eventStore.clear();
+        },
+      });
+      const session: SessionEntry = {
+        id: '',
+        server: mcpServer,
+        transport,
+        eventStore,
+        principal: sessionPrincipal(authInfo),
+        createdAt: Date.now(),
+        lastSeenAt: Date.now(),
+        activeRequests: 1,
+        inFlightRequestIds: new Set(),
+      };
+      provisionalSession = session;
+
+      await mcpServer.connect(transport);
+      try {
+        await transport.handleRequest(req, res, body);
+      } finally {
+        session.activeRequests = 0;
+        session.lastSeenAt = Date.now();
+      }
     } finally {
-      if (!transport.sessionId && !res.destroyed) {
-        await closeSession({
-          server: mcpServer,
-          transport,
-          createdAt: Date.now(),
-          lastSeenAt: Date.now(),
-        });
+      releaseReservation();
+      if (provisionalSession && !provisionalSession.transport.sessionId) {
+        await closeSession(provisionalSession);
       }
     }
   };
+
+  const handleMcpSessionMethod = async (
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<void> => {
+    const session = await resolveOwnedSession(req, res);
+    if (!session) return;
+    await handleSessionRequest(session, req, res);
+    if (req.method === 'DELETE' && !sessions.has(session.id)) {
+      await closeSession(session);
+    }
+  };
+
+  let sweepRunning = false;
+  const sweepIdleSessions = async (): Promise<void> => {
+    if (sweepRunning) return;
+    sweepRunning = true;
+    try {
+      const now = Date.now();
+      for (const [sessionId, session] of sessions) {
+        if (session.activeRequests === 0 && now - session.lastSeenAt >= sessionIdleTimeoutMs) {
+          sessions.delete(sessionId);
+          await closeSession(session);
+          logger.info('expired idle MCP HTTP session', {
+            age_ms: now - session.createdAt,
+            idle_ms: now - session.lastSeenAt,
+          });
+        }
+      }
+    } finally {
+      sweepRunning = false;
+    }
+  };
+  const sweepIntervalMs = Math.max(25, Math.min(60_000, Math.floor(sessionIdleTimeoutMs / 2)));
+  const sessionSweepTimer = setInterval(() => {
+    void sweepIdleSessions().catch((error) => {
+      logger.warn('HTTP session sweep failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }, sweepIntervalMs);
+  sessionSweepTimer.unref();
 
   const nodeServer = http.createServer((req, res) => {
     void (async () => {
@@ -397,13 +578,13 @@ export async function startHttpTransport(options: {
       }
 
       if (req.method === 'GET' || req.method === 'DELETE') {
-        assertOriginAllowed(req, config);
-        await authenticateHttpRequest(req, config, jwtVerifier);
-        sendMcpError(res, 405, 'HTTP_003', 'Method not allowed', { allow: 'POST' });
+        await handleMcpSessionMethod(req, res);
         return;
       }
 
-      sendMcpError(res, 405, 'HTTP_003', 'Method not allowed', { allow: 'POST' });
+      sendMcpError(res, 405, 'HTTP_003', 'Method not allowed', {
+        allow: 'POST, GET, DELETE',
+      });
     })().catch((error) => {
       const message = maskErrorCredentials(error instanceof Error ? error.message : String(error));
       logger.error('http request failed', { error: message });
@@ -422,10 +603,12 @@ export async function startHttpTransport(options: {
     server: nodeServer,
     url,
     close: async () => {
-      for (const session of sessions.values()) {
+      clearInterval(sessionSweepTimer);
+      const activeSessions = [...sessions.values()];
+      sessions.clear();
+      for (const session of activeSessions) {
         await closeSession(session);
       }
-      sessions.clear();
       await closeListener(nodeServer);
     },
   };
