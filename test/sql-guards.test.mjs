@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
   isReadOnlyQuery,
+  detectDangerousSqlCapability,
   detectInjectionPatterns,
   checkDangerousOperation,
   analyzeSqlPagination,
@@ -157,6 +158,69 @@ describe('isReadOnlyQuery', () => {
       false,
     );
     assert.equal(isReadOnlyQuery('SELECT 1 # 2', 'postgres'), true);
+  });
+
+  test('rejects PostgreSQL server-file and side-effect functions', () => {
+    assert.equal(isReadOnlyQuery("SELECT pg_read_file('/etc/passwd')", 'postgres'), false);
+    assert.equal(
+      isReadOnlyQuery("SELECT * FROM pg_catalog.pg_read_binary_file('/tmp/data')", 'postgres'),
+      false,
+    );
+    assert.equal(isReadOnlyQuery("SELECT nextval('orders_id_seq')", 'postgres'), false);
+    assert.equal(isReadOnlyQuery('SELECT pg_sleep_for(interval \'1 second\')', 'postgres'), false);
+  });
+
+  test('rejects quoted, qualified, and comment-obfuscated dangerous calls', () => {
+    assert.equal(
+      isReadOnlyQuery(
+        'SELECT "pg_catalog" . "pg_read_file" /* gap */ (\'/etc/passwd\')',
+        'postgres',
+      ),
+      false,
+    );
+    assert.equal(
+      isReadOnlyQuery("SELECT `LOAD_FILE`/**/('/etc/passwd')", 'mysql'),
+      false,
+    );
+    assert.equal(
+      isReadOnlyQuery("SELECT [sys].[fn_get_audit_file]('audit.sqlaudit', DEFAULT, DEFAULT)", 'mssql'),
+      false,
+    );
+  });
+
+  test('rejects dangerous capabilities from other SQL engines', () => {
+    assert.equal(isReadOnlyQuery("SELECT LOAD_FILE('/etc/passwd')", 'mysql'), false);
+    assert.equal(isReadOnlyQuery("SELECT OPENROWSET(BULK 'secret.txt', SINGLE_CLOB)", 'mssql'), false);
+    assert.equal(isReadOnlyQuery("SELECT UTL_HTTP.REQUEST('https://example.test') FROM dual", 'oracle'), false);
+    assert.equal(isReadOnlyQuery("SELECT readfile('/etc/passwd')", 'sqlite'), false);
+  });
+
+  test('does not confuse literals, comments, columns, or similar function names with calls', () => {
+    assert.equal(isReadOnlyQuery("SELECT 'pg_read_file(\'/etc/passwd\')'", 'postgres'), true);
+    assert.equal(isReadOnlyQuery('SELECT $$pg_read_file(\'/etc/passwd\')$$', 'postgres'), true);
+    assert.equal(isReadOnlyQuery("SELECT 1 /* pg_read_file('/etc/passwd') */", 'postgres'), true);
+    assert.equal(isReadOnlyQuery('SELECT "pg_read_file" FROM audit_log', 'postgres'), true);
+    assert.equal(isReadOnlyQuery('SELECT pg_read_file FROM audit_log', 'postgres'), true);
+    assert.equal(isReadOnlyQuery("SELECT safe_pg_read_file('/tmp/value')", 'postgres'), true);
+    assert.equal(isReadOnlyQuery("SELECT pg_read_file_backup('/tmp/value')", 'postgres'), true);
+  });
+});
+
+describe('detectDangerousSqlCapability', () => {
+  test('returns a stable capability reason for blocked calls', () => {
+    assert.match(
+      detectDangerousSqlCapability("SELECT pg_catalog.pg_read_file('/etc/passwd')", 'postgres') ?? '',
+      /pg_read_file.*服务器文件/,
+    );
+    assert.match(
+      detectDangerousSqlCapability("SELECT GET_LOCK('job', 10)", 'mysql') ?? '',
+      /get_lock.*命名锁/,
+    );
+  });
+
+  test('returns null when a dangerous name is not invoked', () => {
+    assert.equal(detectDangerousSqlCapability('SELECT "pg_read_file" FROM t', 'postgres'), null);
+    assert.equal(detectDangerousSqlCapability("SELECT 'load_file(1)'", 'mysql'), null);
   });
 });
 
@@ -349,6 +413,17 @@ describe('checkDangerousOperation', () => {
 
   test('allows SELECT', () => {
     assert.equal(checkDangerousOperation('SELECT * FROM users'), null);
+  });
+
+  test('blocks dangerous SELECT capabilities on readwrite execution paths', () => {
+    assert.match(
+      checkDangerousOperation("SELECT pg_read_file('/etc/passwd')", 'postgres') ?? '',
+      /pg_read_file.*服务器文件/,
+    );
+    assert.match(
+      checkDangerousOperation("SELECT LOAD_FILE('/etc/passwd')", 'mysql') ?? '',
+      /load_file.*服务器文件/,
+    );
   });
 
   test('detects injection in dangerous check', () => {

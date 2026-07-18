@@ -6,28 +6,42 @@ interface SqlScanResult {
   cleaned: string;
   statements: string[];
   terminatorIndexes: number[];
+  tokens: SqlToken[];
   executableComment: boolean;
   unterminated: boolean;
+}
+
+interface SqlToken {
+  kind: 'identifier' | 'literal' | 'symbol';
+  value: string;
 }
 
 function scanSql(sql: string, engine: SqlEngine | 'generic' = 'generic'): SqlScanResult {
   let cleaned = '';
   const terminatorIndexes: number[] = [];
+  const tokens: SqlToken[] = [];
   let executableComment = false;
   let unterminated = false;
 
-  const skipQuoted = (start: number, quote: string, doubledQuote: string): number => {
+  const readQuoted = (
+    start: number,
+    quote: string,
+    doubledQuote: string,
+  ): { end: number; value: string } => {
     let i = start + 1;
+    let value = '';
     while (i < sql.length) {
       if (sql.startsWith(doubledQuote, i)) {
+        value += quote;
         i += doubledQuote.length;
         continue;
       }
-      if (sql[i] === quote) return i + 1;
+      if (sql[i] === quote) return { end: i + 1, value };
+      value += sql[i];
       i++;
     }
     unterminated = true;
-    return sql.length;
+    return { end: sql.length, value };
   };
 
   for (let i = 0; i < sql.length; ) {
@@ -87,29 +101,31 @@ function scanSql(sql: string, engine: SqlEngine | 'generic' = 'generic'): SqlSca
     const char = sql[i]!;
     if (char === ';') terminatorIndexes.push(i);
     if (char === "'") {
+      const quoted = readQuoted(i, "'", "''");
       cleaned += "''";
-      i = skipQuoted(i, "'", "''");
+      tokens.push({ kind: 'literal', value: '' });
+      i = quoted.end;
       continue;
     }
     if (char === '"') {
+      const quoted = readQuoted(i, '"', '""');
       cleaned += '""';
-      i = skipQuoted(i, '"', '""');
+      tokens.push({ kind: 'identifier', value: quoted.value.toLowerCase() });
+      i = quoted.end;
       continue;
     }
     if (char === '`') {
+      const quoted = readQuoted(i, '`', '``');
       cleaned += '``';
-      i = skipQuoted(i, '`', '``');
+      tokens.push({ kind: 'identifier', value: quoted.value.toLowerCase() });
+      i = quoted.end;
       continue;
     }
     if (char === '[') {
-      const end = sql.indexOf(']', i + 1);
+      const quoted = readQuoted(i, ']', ']]');
       cleaned += '[]';
-      if (end === -1) {
-        unterminated = true;
-        i = sql.length;
-      } else {
-        i = end + 1;
-      }
+      tokens.push({ kind: 'identifier', value: quoted.value.toLowerCase() });
+      i = quoted.end;
       continue;
     }
     if (engine === 'postgres' && char === '$') {
@@ -118,6 +134,7 @@ function scanSql(sql: string, engine: SqlEngine | 'generic' = 'generic'): SqlSca
         const delimiter = match[0];
         const end = sql.indexOf(delimiter, i + delimiter.length);
         cleaned += "''";
+        tokens.push({ kind: 'literal', value: '' });
         if (end === -1) {
           unterminated = true;
           i = sql.length;
@@ -128,7 +145,18 @@ function scanSql(sql: string, engine: SqlEngine | 'generic' = 'generic'): SqlSca
       }
     }
 
+    if (/[a-z_]/i.test(char)) {
+      let end = i + 1;
+      while (end < sql.length && /[a-z0-9_$]/i.test(sql[end]!)) end++;
+      const identifier = sql.slice(i, end).toLowerCase();
+      cleaned += identifier;
+      tokens.push({ kind: 'identifier', value: identifier });
+      i = end;
+      continue;
+    }
+
     cleaned += char.toLowerCase();
+    if (!/\s/.test(char)) tokens.push({ kind: 'symbol', value: char });
     i++;
   }
 
@@ -136,7 +164,7 @@ function scanSql(sql: string, engine: SqlEngine | 'generic' = 'generic'): SqlSca
     .split(';')
     .map((statement) => statement.trim())
     .filter(Boolean);
-  return { cleaned, statements, terminatorIndexes, executableComment, unterminated };
+  return { cleaned, statements, terminatorIndexes, tokens, executableComment, unterminated };
 }
 
 function stripQuotedContentAndComments(sql: string, engine?: SqlEngine): string {
@@ -173,9 +201,155 @@ function topLevelKeywords(scan: SqlScanResult): string[] {
   return keywords;
 }
 
+const DANGEROUS_SQL_CAPABILITIES: Record<SqlEngine, Readonly<Record<string, string>>> = {
+  postgres: {
+    pg_read_file: '可读取数据库服务器文件',
+    pg_read_binary_file: '可读取数据库服务器文件',
+    pg_stat_file: '可探测数据库服务器文件',
+    pg_ls_dir: '可枚举数据库服务器目录',
+    pg_ls_logdir: '可枚举数据库服务器日志目录',
+    pg_ls_waldir: '可枚举数据库服务器 WAL 目录',
+    pg_ls_archive_statusdir: '可枚举数据库服务器归档目录',
+    pg_ls_tmpdir: '可枚举数据库服务器临时目录',
+    pg_ls_logicalsnapdir: '可枚举数据库服务器逻辑快照目录',
+    pg_ls_logicalmapdir: '可枚举数据库服务器逻辑映射目录',
+    pg_ls_replslotdir: '可枚举数据库服务器复制槽目录',
+    pg_file_write: '可写入数据库服务器文件',
+    pg_write_file: '可写入数据库服务器文件',
+    pg_file_rename: '可重命名数据库服务器文件',
+    pg_file_unlink: '可删除数据库服务器文件',
+    pg_file_sync: '可操作数据库服务器文件',
+    lo_import: '可从数据库服务器文件导入大对象',
+    lo_export: '可向数据库服务器文件导出大对象',
+    nextval: '会修改数据库序列状态',
+    setval: '会修改数据库序列状态',
+    set_config: '会修改数据库会话配置',
+    pg_notify: '会向数据库会话发送通知',
+    pg_sleep: '可阻塞数据库会话',
+    pg_sleep_for: '可阻塞数据库会话',
+    pg_sleep_until: '可阻塞数据库会话',
+    pg_cancel_backend: '可中断其他数据库会话',
+    pg_terminate_backend: '可终止其他数据库会话',
+    pg_reload_conf: '可重载数据库服务器配置',
+    pg_advisory_lock: '会占用数据库咨询锁',
+    pg_advisory_lock_shared: '会占用数据库咨询锁',
+    pg_try_advisory_lock: '会占用数据库咨询锁',
+    pg_try_advisory_lock_shared: '会占用数据库咨询锁',
+    pg_advisory_xact_lock: '会占用数据库咨询锁',
+    pg_advisory_xact_lock_shared: '会占用数据库咨询锁',
+    pg_try_advisory_xact_lock: '会占用数据库咨询锁',
+    pg_try_advisory_xact_lock_shared: '会占用数据库咨询锁',
+    pg_advisory_unlock: '会修改数据库咨询锁状态',
+    pg_advisory_unlock_shared: '会修改数据库咨询锁状态',
+    pg_advisory_unlock_all: '会修改数据库咨询锁状态',
+    dblink: '可访问外部 PostgreSQL 连接',
+    dblink_exec: '可在外部 PostgreSQL 连接执行 SQL',
+    dblink_connect: '可建立外部 PostgreSQL 连接',
+    dblink_connect_u: '可用明文凭据建立外部 PostgreSQL 连接',
+  },
+  mysql: {
+    load_file: '可读取数据库服务器文件',
+    sleep: '可阻塞数据库会话',
+    benchmark: '可长时间占用数据库 CPU',
+    get_lock: '会占用数据库命名锁',
+    release_lock: '会修改数据库命名锁状态',
+    release_all_locks: '会修改数据库命名锁状态',
+    master_pos_wait: '可阻塞数据库会话等待复制进度',
+    source_pos_wait: '可阻塞数据库会话等待复制进度',
+    wait_for_executed_gtid_set: '可阻塞数据库会话等待复制进度',
+    sys_exec: '可执行数据库服务器系统命令',
+    sys_eval: '可执行数据库服务器系统命令',
+  },
+  mssql: {
+    openrowset: '可读取数据库服务器文件或访问外部数据源',
+    openquery: '可访问链接服务器',
+    opendatasource: '可访问临时外部数据源',
+    fn_get_audit_file: '可读取数据库服务器审计文件',
+    fn_xe_file_target_read_file: '可读取数据库服务器扩展事件文件',
+    fn_trace_gettable: '可读取数据库服务器跟踪文件',
+    dm_os_file_exists: '可探测数据库服务器文件',
+  },
+  oracle: {
+    'utl_file.fopen': '可访问数据库服务器文件',
+    'utl_file.fopen_nchar': '可访问数据库服务器文件',
+    'utl_file.fremove': '可删除数据库服务器文件',
+    'utl_file.frename': '可重命名数据库服务器文件',
+    'utl_file.fcopy': '可复制数据库服务器文件',
+    'utl_http.request': '可访问外部网络',
+    'utl_http.request_pieces': '可访问外部网络',
+    'utl_http.begin_request': '可访问外部网络',
+    'utl_tcp.open_connection': '可建立外部网络连接',
+    'utl_inaddr.get_host_address': '可执行外部 DNS 查询',
+    'utl_inaddr.get_host_name': '可执行外部 DNS 查询',
+    'dbms_ldap.init': '可建立外部 LDAP 连接',
+    'dbms_lock.sleep': '可阻塞数据库会话',
+    'dbms_pipe.receive_message': '可阻塞数据库会话',
+  },
+  sqlite: {
+    load_extension: '可加载数据库进程本地扩展',
+    readfile: '可读取数据库服务器文件',
+    writefile: '可写入数据库服务器文件',
+  },
+  duckdb: {},
+};
+
+function sqlFunctionCandidates(scan: SqlScanResult): string[][] {
+  const calls: string[][] = [];
+  for (let i = 1; i < scan.tokens.length; i++) {
+    const token = scan.tokens[i]!;
+    const previous = scan.tokens[i - 1]!;
+    if (token.kind !== 'symbol' || token.value !== '(' || previous.kind !== 'identifier') {
+      continue;
+    }
+
+    const parts = [previous.value];
+    let cursor = i - 2;
+    while (
+      parts.length < 2 &&
+      cursor >= 1 &&
+      scan.tokens[cursor]!.kind === 'symbol' &&
+      scan.tokens[cursor]!.value === '.' &&
+      scan.tokens[cursor - 1]!.kind === 'identifier'
+    ) {
+      parts.unshift(scan.tokens[cursor - 1]!.value);
+      cursor -= 2;
+    }
+    const qualifiedName = parts.join('.');
+    calls.push(
+      qualifiedName === previous.value ? [previous.value] : [qualifiedName, previous.value],
+    );
+  }
+  return calls;
+}
+
+function dangerousSqlCapabilityFromScan(scan: SqlScanResult, engine?: SqlEngine): string | null {
+  const engines: readonly SqlEngine[] = engine
+    ? [engine]
+    : ['postgres', 'mysql', 'mssql', 'oracle', 'sqlite', 'duckdb'];
+
+  for (const candidates of sqlFunctionCandidates(scan)) {
+    for (const candidateEngine of engines) {
+      const rules = DANGEROUS_SQL_CAPABILITIES[candidateEngine];
+      for (const candidate of candidates) {
+        const description = rules[candidate];
+        if (description) {
+          return `危险 SQL 能力：${candidate} ${description}，拒绝执行`;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** Detect function-shaped SQL that can escape a read-only data boundary. */
+export function detectDangerousSqlCapability(sql: string, engine?: SqlEngine): string | null {
+  return dangerousSqlCapabilityFromScan(scanSql(sql, engine), engine);
+}
+
 export function isReadOnlyQuery(sql: string, engine?: SqlEngine): boolean {
   const scan = scanSql(sql, engine);
   if (scan.executableComment || scan.unterminated || scan.statements.length !== 1) return false;
+  if (dangerousSqlCapabilityFromScan(scan, engine)) return false;
 
   const statement = scan.statements[0]!;
   const firstKeyword = /^([a-z]+)/.exec(statement)?.[1];
@@ -299,6 +473,11 @@ export function checkDangerousOperation(sql: string, engine?: SqlEngine): string
   const hasWhere = /\bwhere\b/.test(normalized);
   if (isDeleteOrUpdate && !hasWhere) {
     return '危险操作：DELETE 或 UPDATE 语句缺少 WHERE 子句，拒绝执行';
+  }
+
+  const dangerousCapability = detectDangerousSqlCapability(sql, engine);
+  if (dangerousCapability) {
+    return dangerousCapability;
   }
 
   // 检测注入模式

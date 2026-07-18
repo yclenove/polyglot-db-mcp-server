@@ -36,6 +36,36 @@ const VERSION_QUERIES: Record<SqlEngine, string> = {
   duckdb: 'SELECT version() AS version',
 };
 
+const POSTGRES_ROLE_QUERY = `
+SELECT
+  current_user::text AS current_user,
+  COALESCE(
+    (SELECT candidate_role.rolsuper FROM pg_catalog.pg_roles AS candidate_role
+      WHERE candidate_role.rolname = current_user),
+    false
+  ) AS is_superuser,
+  EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles AS candidate_role
+    WHERE candidate_role.rolname = 'pg_read_server_files'
+      AND pg_catalog.pg_has_role(current_user, candidate_role.rolname, 'MEMBER')
+  ) AS member_pg_read_server_files,
+  EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles AS candidate_role
+    WHERE candidate_role.rolname = 'pg_write_server_files'
+      AND pg_catalog.pg_has_role(current_user, candidate_role.rolname, 'MEMBER')
+  ) AS member_pg_write_server_files,
+  EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles AS candidate_role
+    WHERE candidate_role.rolname = 'pg_execute_server_program'
+      AND pg_catalog.pg_has_role(current_user, candidate_role.rolname, 'MEMBER')
+  ) AS member_pg_execute_server_program`;
+
+const POSTGRES_SERVER_FILE_ROLES = [
+  ['member_pg_read_server_files', 'pg_read_server_files'],
+  ['member_pg_write_server_files', 'pg_write_server_files'],
+  ['member_pg_execute_server_program', 'pg_execute_server_program'],
+] as const;
+
 /** 根据引擎获取服务器版本 */
 async function getServerVersion(handle: RuntimeHandle): Promise<string | null> {
   if (handle.kind === 'sql') {
@@ -64,6 +94,76 @@ async function getServerVersion(handle: RuntimeHandle): Promise<string | null> {
     return null;
   }
   return null;
+}
+
+interface PostgresRoleAssessment {
+  status: 'checked' | 'unavailable';
+  current_user: string | null;
+  is_superuser: boolean | null;
+  server_file_roles: string[];
+  server_file_access_risk: 'high' | 'low' | 'unknown';
+}
+
+function databaseBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value;
+  if (value === 1 || value === '1') return true;
+  if (value === 0 || value === '0') return false;
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 't' || normalized === 'true' || normalized === 'yes') return true;
+  if (normalized === 'f' || normalized === 'false' || normalized === 'no') return false;
+  return null;
+}
+
+function unavailablePostgresRoleAssessment(): PostgresRoleAssessment {
+  return {
+    status: 'unavailable',
+    current_user: null,
+    is_superuser: null,
+    server_file_roles: [],
+    server_file_access_risk: 'unknown',
+  };
+}
+
+async function getPostgresRoleAssessment(handle: RuntimeHandle): Promise<PostgresRoleAssessment> {
+  if (handle.kind !== 'sql') return unavailablePostgresRoleAssessment();
+
+  try {
+    const result = await handle.driver.execute(POSTGRES_ROLE_QUERY, undefined, {
+      mode: 'readonly',
+      maxRows: 1,
+      queryTimeoutMs: 5000,
+      maxSqlLength: 2000,
+    });
+    const row = result.success
+      ? (result.data?.[0] as Record<string, unknown> | undefined)
+      : undefined;
+    if (!row) return unavailablePostgresRoleAssessment();
+
+    const currentUser =
+      typeof row.current_user === 'string' && row.current_user.trim() !== ''
+        ? row.current_user
+        : null;
+    const isSuperuser = databaseBoolean(row.is_superuser);
+    const memberships = POSTGRES_SERVER_FILE_ROLES.map(([column, role]) => ({
+      role,
+      member: databaseBoolean(row[column]),
+    }));
+    if (!currentUser || isSuperuser === null || memberships.some(({ member }) => member === null)) {
+      return unavailablePostgresRoleAssessment();
+    }
+
+    const serverFileRoles = memberships.filter(({ member }) => member).map(({ role }) => role);
+    return {
+      status: 'checked',
+      current_user: currentUser,
+      is_superuser: isSuperuser,
+      server_file_roles: serverFileRoles,
+      server_file_access_risk: isSuperuser || serverFileRoles.length > 0 ? 'high' : 'low',
+    };
+  } catch {
+    return unavailablePostgresRoleAssessment();
+  }
 }
 
 function localSqlPathHint(spec: ConnectionSpec): string | null {
@@ -200,6 +300,9 @@ interface ConnectionDiagnoseResult {
   readonly: boolean;
   error?: string;
   error_info?: ErrorPayload;
+  security?: {
+    postgres_role: PostgresRoleAssessment;
+  };
   suggestions: string[];
 }
 
@@ -238,6 +341,25 @@ async function diagnoseConnection(
       // 获取版本失败不影响诊断结果
     }
 
+    let security: ConnectionDiagnoseResult['security'];
+    if (spec.engine === 'postgres') {
+      const postgresRole = await getPostgresRoleAssessment(handle);
+      security = { postgres_role: postgresRole };
+      if (postgresRole.server_file_access_risk === 'high') {
+        const grants = [
+          ...(postgresRole.is_superuser ? ['SUPERUSER'] : []),
+          ...postgresRole.server_file_roles,
+        ];
+        suggestions.push(
+          `PostgreSQL 当前角色「${postgresRole.current_user ?? '(未知)'}」具备高风险权限 ${grants.join(', ')}；请为 MCP 使用无超级用户、无服务器文件角色的最小权限账号`,
+        );
+      } else if (postgresRole.status === 'unavailable') {
+        suggestions.push(
+          '无法确认 PostgreSQL 当前角色的服务器文件权限；请人工检查 SUPERUSER、pg_read_server_files、pg_write_server_files 和 pg_execute_server_program',
+        );
+      }
+    }
+
     return {
       id: spec.id,
       connection_id: spec.id,
@@ -246,7 +368,8 @@ async function diagnoseConnection(
       latency_ms: latency,
       server_version: serverVersion,
       readonly: spec.readonly === true,
-      suggestions,
+      ...(security ? { security } : {}),
+      suggestions: [...new Set(suggestions)],
     };
   } catch (e) {
     const error = maskErrorCredentials(e instanceof Error ? e.message : String(e));

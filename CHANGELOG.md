@@ -34,6 +34,8 @@
 
 ### 安全
 - 加固 `sql_query` 只读扫描，拒绝堆叠语句、可写 CTE、MySQL 可执行注释、SQL Server 动态执行、反斜杠引号差异及锁定/`SELECT INTO` 查询。
+- 拒绝伪装成只读查询的服务器文件、外部连接、会话阻塞和状态修改函数；扫描覆盖模式限定名、引号标识符及函数名后的注释，并同时应用于 MCP 只读层与驱动写入层。
+- `connection_diagnose` 新增 PostgreSQL 当前角色安全评估，报告超级用户及 `pg_read_server_files`、`pg_write_server_files`、`pg_execute_server_program` 继承风险并给出最小权限建议。
 - 加固 MongoDB 查询 guard：递归扫描数组中的危险 operator，拒绝伪造 `_bsontype` 跳过扫描和聚合 `$out`/`$merge` 写入阶段，并阻止 `$lookup`、`$graphLookup`、`$unionWith` 绕过集合 allowlist。
 - 新增 `DB_HTTP_ALLOWED_HOSTS` 并在所有 HTTP 路由前校验 Host，降低 DNS rebinding 和 Host 欺骗风险。
 

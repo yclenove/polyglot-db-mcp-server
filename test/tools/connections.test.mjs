@@ -425,6 +425,86 @@ describe('Connection Tools', () => {
     assert.equal(data.connections[0].server_version, 'PostgreSQL 15.3 on x86_64');
   });
 
+  test('connection_diagnose reports PostgreSQL server-file role risk', async () => {
+    const calls = [];
+    registry.handles.set('pg', {
+      id: 'pg',
+      spec: { id: 'pg', engine: 'postgres', readonly: true, database: 'testdb', host: 'localhost' },
+      kind: 'sql',
+      driver: {
+        engine: 'postgres',
+        ping: async () => ({ ok: true }),
+        execute: async (sql, _params, options) => {
+          calls.push({ sql, options });
+          if (sql.includes('rolsuper')) {
+            return {
+              success: true,
+              data: [{
+                current_user: 'mcp_reader',
+                is_superuser: 'f',
+                member_pg_read_server_files: 't',
+                member_pg_write_server_files: false,
+                member_pg_execute_server_program: 0,
+              }],
+            };
+          }
+          return { success: true, data: [{ version: 'PostgreSQL 16.3' }] };
+        },
+      },
+    });
+
+    const tool = server.tools.get('connection_diagnose');
+    const result = await tool.handler({ connection_id: 'pg' });
+    const data = JSON.parse(result.content[0].text);
+    const diagnosed = data.connections[0];
+
+    assert.equal(diagnosed.security.postgres_role.status, 'checked');
+    assert.equal(diagnosed.security.postgres_role.current_user, 'mcp_reader');
+    assert.equal(diagnosed.security.postgres_role.is_superuser, false);
+    assert.deepEqual(diagnosed.security.postgres_role.server_file_roles, ['pg_read_server_files']);
+    assert.equal(diagnosed.security.postgres_role.server_file_access_risk, 'high');
+    assert.ok(diagnosed.suggestions.some((suggestion) => suggestion.includes('最小权限账号')));
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].options.mode, 'readonly');
+  });
+
+  test('connection_diagnose marks a least-privilege PostgreSQL role as low risk', async () => {
+    registry.handles.set('pg', {
+      id: 'pg',
+      spec: { id: 'pg', engine: 'postgres', readonly: true, database: 'testdb', host: 'localhost' },
+      kind: 'sql',
+      driver: {
+        engine: 'postgres',
+        ping: async () => ({ ok: true }),
+        execute: async (sql) => sql.includes('rolsuper')
+          ? {
+              success: true,
+              data: [{
+                current_user: 'mcp_reader',
+                is_superuser: false,
+                member_pg_read_server_files: false,
+                member_pg_write_server_files: false,
+                member_pg_execute_server_program: false,
+              }],
+            }
+          : { success: true, data: [{ version: 'PostgreSQL 16.3' }] },
+      },
+    });
+
+    const tool = server.tools.get('connection_diagnose');
+    const result = await tool.handler({ connection_id: 'pg' });
+    const data = JSON.parse(result.content[0].text);
+    const diagnosed = data.connections[0];
+
+    assert.equal(diagnosed.security.postgres_role.status, 'checked');
+    assert.equal(diagnosed.security.postgres_role.server_file_access_risk, 'low');
+    assert.deepEqual(diagnosed.security.postgres_role.server_file_roles, []);
+    assert.equal(
+      diagnosed.suggestions.some((suggestion) => suggestion.includes('高风险权限')),
+      false,
+    );
+  });
+
   test('connection_diagnose includes suggestions for misconfigured connections', async () => {
     registry.handles.set('pg', {
       id: 'pg',

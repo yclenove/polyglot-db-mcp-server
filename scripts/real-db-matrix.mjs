@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import { createRegistryFromEnv, closeAll, pingAll } from '../dist/bootstrap.js';
 import { registerAdvisorTools } from '../dist/tools/advisor.js';
+import { registerConnectionTools } from '../dist/tools/connections.js';
 import { registerMongoTools } from '../dist/tools/mongo.js';
 import { registerRedisTools } from '../dist/tools/redis.js';
 import { registerSchemaTools } from '../dist/tools/schema.js';
@@ -65,6 +66,22 @@ function connectionIdsByEngine(registry) {
     assert.ok(ids.has(engine), `DB_MCP_CONNECTIONS missing required engine: ${engine}`);
   }
   return ids;
+}
+
+async function verifyPostgresRoleDiagnostics(registry, connectionId) {
+  const server = new ToolCollector();
+  installResponseBudget(server);
+  registerConnectionTools(server, registry);
+
+  const diagnosed = await callTool(server, 'connection_diagnose', {
+    connection_id: connectionId,
+  });
+  const role = diagnosed.value.connections?.[0]?.security?.postgres_role;
+  assert.equal(role?.status, 'checked', 'PostgreSQL role security diagnostics were unavailable');
+  assert.ok(role.current_user, 'PostgreSQL role diagnostics returned no current_user');
+  assert.equal(typeof role.is_superuser, 'boolean');
+  assert.ok(Array.isArray(role.server_file_roles));
+  assert.match(role.server_file_access_risk, /^(?:high|low)$/);
 }
 
 function sqlDialect(engine, table, view, procedure) {
@@ -257,6 +274,16 @@ async function verifyReadonlyBypasses(server, driver, id, engine, table) {
       name: 'backslash quote escape mismatch',
       sql: `SELECT '\\'; DELETE FROM ${table} WHERE id = 1; --'`,
     });
+    attacks.push(
+      {
+        name: 'server file read function',
+        sql: "SELECT pg_read_file('/etc/passwd')",
+      },
+      {
+        name: 'quoted server file function in FROM',
+        sql: "SELECT * FROM \"pg_catalog\".\"pg_read_binary_file\"/**/('/etc/passwd')",
+      },
+    );
   }
   if (engine === 'mysql') {
     attacks.push({
@@ -275,6 +302,14 @@ async function verifyReadonlyBypasses(server, driver, id, engine, table) {
       {
         name: 'nested comment confusion',
         sql: `SELECT 1 /* outer /* nested */; DELETE FROM ${table} WHERE id = 1; */`,
+      },
+      {
+        name: 'server file read function',
+        sql: "SELECT LOAD_FILE('/etc/passwd')",
+      },
+      {
+        name: 'quoted server file read function',
+        sql: "SELECT `LOAD_FILE`/**/('/etc/passwd')",
       },
     );
   }
@@ -302,6 +337,25 @@ async function verifyReadonlyBypasses(server, driver, id, engine, table) {
 
   const survivor = await executeOk(driver, `SELECT id FROM ${table} WHERE id = 1`, [], RO);
   assert.equal(survivor.data?.length, 1, `${engine} readonly bypass changed protected data`);
+
+  const readwriteCapabilitySql = {
+    postgres: "SELECT pg_catalog.pg_read_file('/etc/passwd')",
+    mysql: "SELECT LOAD_FILE('/etc/passwd')",
+  }[engine];
+  if (readwriteCapabilitySql) {
+    const blocked = await callTool(
+      server,
+      'sql_execute',
+      { connection_id: id, sql: readwriteCapabilitySql },
+      { allowError: true },
+    );
+    assert.equal(
+      blocked.result.isError,
+      true,
+      `${engine} dangerous capability reached the readwrite database path`,
+    );
+    assert.match(resultText(blocked.result), /危险 SQL 能力/);
+  }
 
   if (engine === 'mysql') {
     await callTool(server, 'sql_query', {
@@ -993,6 +1047,7 @@ async function main() {
     for (const ping of pings) {
       assert.equal(ping.ok, true, `${ping.id} ping failed: ${ping.error ?? ''}`);
     }
+    await verifyPostgresRoleDiagnostics(registry, ids.get('postgres'));
 
     const server = new ToolCollector();
     installResponseBudget(server);
